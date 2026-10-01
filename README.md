@@ -50,7 +50,20 @@ Example:
 python start.py ingest --download_easa --limit 10
 ```
 
-### 2. FastAPI Server
+### 2. Search & Retrieval CLI Tools
+
+You can test searches directly from the command line:
+
+```bash
+# 1. Semantic Vector Search (FAISS)
+python ingestion/retrieval/search_chunks.py "pilot duty limitations" -k 5
+
+# 2. SQLite FTS5 Keyword & Acronym Search (BM25 + Porter Stemming)
+python ingestion/retrieval/keyword_search.py "ATSEP" --top_k 5
+python ingestion/retrieval/keyword_search.py "pilot rest" --top_k 3 --no_llm
+```
+
+### 3. FastAPI Server
 
 To run the API server:
 
@@ -58,12 +71,17 @@ To run the API server:
 python start.py api
 ```
 
-This starts a uvicorn server on `http://0.0.0.0:8000` with hot-reload enabled.
+This starts a uvicorn server on `http://0.0.0.0:8000` with hot-reload enabled. Interactive API documentation is available at `http://localhost:8000/docs`.
 
 **Available Endpoints:**
-- `GET /search`: Search the document chunks.
-- `GET /search/docs`: Search and retrieve the full markdown representation of the documents.
-- `POST /llm/ask`: Ask a question. It automatically retrieves relevant contexts from the index and queries the local LLM.
+
+#### `SEARCH` Operations
+- `GET /search`: Search document chunks using semantic dense vectors (FAISS).
+- `GET /search/keyword`: High-speed keyword & acronym search powered by SQLite FTS5 (BM25) with Porter stemming. Ideal for short queries, acronyms (`ATSEP`, `AMC-20`, `FTL`), and clause codes (`CAT.OP.MPA`). Includes `use_llm` flag (default: `true`) to toggle local LLM query expansion.
+- `GET /search/docs`: Search and retrieve the full markdown representation of the matching documents.
+
+#### `LLM` Operations
+- `POST /llm/ask`: Ask a regulatory question. It automatically retrieves relevant document contexts from the index and queries the local LLM.
 - `POST /llm/extract`: Extract structured information from text adhering to a provided JSON schema.
 
 ## Project Structure
@@ -71,7 +89,11 @@ This starts a uvicorn server on `http://0.0.0.0:8000` with hot-reload enabled.
 ```
 .
 ├── api/             # FastAPI backend source code
+├── frontend/        # React + Vite web user interface
 ├── ingestion/       # Ingestion pipeline scripts, parsers, chunkers, and embedding generation
 ├── start.py         # Root command line tool for running the API and Ingestion
+├── api_schema.json  # Exported OpenAPI 3.1 schema
+├── api_description.md # API server description and workflows
 └── README.md        # This file
 ```
+

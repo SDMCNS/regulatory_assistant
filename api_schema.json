@@ -1,0 +1,590 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Regulation Assistant API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/search": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Search",
+        "operationId": "api_search_search_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The text to search for",
+              "title": "Query"
+            },
+            "description": "The text to search for"
+          },
+          {
+            "name": "top_k",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Number of results to return",
+              "default": 5,
+              "title": "Top K"
+            },
+            "description": "Number of results to return"
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by 'all', 'eu', or 'easa'",
+              "default": "all",
+              "title": "Origin"
+            },
+            "description": "Filter by 'all', 'eu', or 'easa'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SearchResponse"
+                  },
+                  "title": "Response Api Search Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search/docs": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Search Docs",
+        "operationId": "api_search_docs_search_docs_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The text to search for",
+              "title": "Query"
+            },
+            "description": "The text to search for"
+          },
+          {
+            "name": "top_k",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Number of results to return",
+              "default": 5,
+              "title": "Top K"
+            },
+            "description": "Number of results to return"
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by 'all', 'eu', or 'easa'",
+              "default": "all",
+              "title": "Origin"
+            },
+            "description": "Filter by 'all', 'eu', or 'easa'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SearchDocResponse"
+                  },
+                  "title": "Response Api Search Docs Search Docs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search/keyword": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Search Keyword",
+        "description": "Perform high-speed keyword search using SQLite FTS5 with BM25 ranking and Porter stemming.\nIdeal for short queries, acronyms (e.g. ATSEP, AMC-20), and specific regulatory terms.\nOptionally uses local LLM to expand queries with synonyms and domain terms.",
+        "operationId": "api_search_keyword_search_keyword_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Keywords, acronyms, or search terms to match",
+              "title": "Query"
+            },
+            "description": "Keywords, acronyms, or search terms to match"
+          },
+          {
+            "name": "top_k",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Number of results to return",
+              "default": 5,
+              "title": "Top K"
+            },
+            "description": "Number of results to return"
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by 'all', 'eu', or 'easa'",
+              "default": "all",
+              "title": "Origin"
+            },
+            "description": "Filter by 'all', 'eu', or 'easa'"
+          },
+          {
+            "name": "use_llm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Enable LLM keyword expansion (synonyms, acronyms)",
+              "default": true,
+              "title": "Use Llm"
+            },
+            "description": "Enable LLM keyword expansion (synonyms, acronyms)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KeywordSearchResponse"
+                  },
+                  "title": "Response Api Search Keyword Search Keyword Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/llm/ask": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Api Llm Ask",
+        "operationId": "api_llm_ask_llm_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMAskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/llm/extract": {
+      "post": {
+        "tags": [
+          "LLM"
+        ],
+        "summary": "Api Llm Extract",
+        "operationId": "api_llm_extract_llm_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LLMExtractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KeywordSearchResponse": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Path"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "expanded_terms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expanded Terms",
+            "description": "Keywords and acronyms suggested by the LLM for query expansion, if enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "score",
+          "source",
+          "document_id",
+          "path",
+          "text",
+          "metadata"
+        ],
+        "title": "KeywordSearchResponse"
+      },
+      "LLMAskRequest": {
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "chunk_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunk Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "title": "LLMAskRequest"
+      },
+      "LLMExtractRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Json Schema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "json_schema"
+        ],
+        "title": "LLMExtractRequest"
+      },
+      "SearchDocResponse": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Path"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "markdown_doc": {
+            "type": "string",
+            "title": "Markdown Doc"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "score",
+          "source",
+          "document_id",
+          "path",
+          "text",
+          "metadata",
+          "markdown_doc"
+        ],
+        "title": "SearchDocResponse"
+      },
+      "SearchResponse": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "path": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Path"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "score",
+          "source",
+          "document_id",
+          "path",
+          "text",
+          "metadata"
+        ],
+        "title": "SearchResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "SEARCH",
+      "description": "Regulatory search operations (semantic vector search and SQLite FTS5 BM25 keyword search)."
+    },
+    {
+      "name": "LLM",
+      "description": "Local LLM operations (contextual regulatory Q&A and structured schema extraction)."
+    }
+  ]
+}

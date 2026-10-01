@@ -13,6 +13,9 @@ def main():
     # Ingest command
     ingest_parser = subparsers.add_parser("ingest", help="Run the data ingestion pipeline")
 
+    # Frontend command
+    frontend_parser = subparsers.add_parser("frontend", help="Start the frontend NPM application")
+
     # Pass remaining arguments to the sub-scripts
     args, unknown = parser.parse_known_args()
 
@@ -46,6 +49,13 @@ def main():
         print("Starting Ingestion Pipeline...")
         cmd = [sys.executable, "-m", "ingestion.run_all"] + unknown
         subprocess.run(cmd, check=True)
+    elif args.command == "frontend":
+        print("Starting Frontend Application...")
+        frontend_dir = project_root / "frontend"
+        if not frontend_dir.exists():
+            print(f"Error: Frontend directory not found at {frontend_dir}", file=sys.stderr)
+            sys.exit(1)
+        subprocess.run("npm run dev", cwd=frontend_dir, shell=True, check=True)
     else:
         parser.print_help()
 

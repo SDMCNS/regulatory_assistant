@@ -1,15 +1,25 @@
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from fastapi import FastAPI, HTTPException, Body, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import requests
 import sqlite3
 import json
 from typing import List, Dict, Any, Optional
+import time
 
 # Import ingestion logic
 from ingestion.retrieval.search_chunks import search_api
+from ingestion.retrieval.keyword_search import search_keywords
 from ingestion.parsers.json_to_doc import render_document, find_json_file
 from ingestion.core.config import settings
-import time
 
 def log_debug_info(event: str, data: Any):
     log_file = settings.LOGS_DIR / "llm_debug.log"
@@ -24,7 +34,29 @@ def log_debug_info(event: str, data: Any):
     except Exception as e:
         print(f"Failed to write to debug log: {e}")
 
-app = FastAPI(title="Regulation Assistant API", version="1.0.0")
+tags_metadata = [
+    {
+        "name": "SEARCH",
+        "description": "Regulatory search operations (semantic vector search and SQLite FTS5 BM25 keyword search)."
+    },
+    {
+        "name": "LLM",
+        "description": "Local LLM operations (contextual regulatory Q&A and structured schema extraction)."
+    },
+]
+
+app = FastAPI(
+    title="Regulation Assistant API",
+    version="1.0.0",
+    openapi_tags=tags_metadata
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class SearchResponse(BaseModel):
     chunk_id: str
@@ -37,6 +69,12 @@ class SearchResponse(BaseModel):
 
 class SearchDocResponse(SearchResponse):
     markdown_doc: str
+
+class KeywordSearchResponse(SearchResponse):
+    expanded_terms: Optional[List[str]] = Field(
+        default=None,
+        description="Keywords and acronyms suggested by the LLM for query expansion, if enabled"
+    )
 
 class LLMAskRequest(BaseModel):
     prompt: str
@@ -92,7 +130,7 @@ def call_lm_studio_chat(messages: List[dict], schema: Optional[dict] = None) -> 
         log_debug_info("LLM EXCEPTION", str(e))
         raise HTTPException(status_code=500, detail=f"LLM call failed: {str(e)}")
 
-@app.get("/search", response_model=List[SearchResponse])
+@app.get("/search", response_model=List[SearchResponse], tags=["SEARCH"])
 def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
@@ -101,7 +139,7 @@ def api_search(
     results = search_api(query, top_k, origin)
     return results
 
-@app.get("/search/docs", response_model=List[SearchDocResponse])
+@app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
 def api_search_docs(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
@@ -117,7 +155,22 @@ def api_search_docs(
         
     return enriched_results
 
-@app.post("/llm/ask")
+@app.get("/search/keyword", response_model=List[KeywordSearchResponse], tags=["SEARCH"])
+def api_search_keyword(
+    query: str = Query(..., description="Keywords, acronyms, or search terms to match"),
+    top_k: int = Query(5, description="Number of results to return"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    use_llm: bool = Query(True, description="Enable LLM keyword expansion (synonyms, acronyms)")
+):
+    """
+    Perform high-speed keyword search using SQLite FTS5 with BM25 ranking and Porter stemming.
+    Ideal for short queries, acronyms (e.g. ATSEP, AMC-20), and specific regulatory terms.
+    Optionally uses local LLM to expand queries with synonyms and domain terms.
+    """
+    results = search_keywords(query=query, top_k=top_k, origin=origin, use_llm_expansion=use_llm)
+    return results
+
+@app.post("/llm/ask", tags=["LLM"])
 def api_llm_ask(request: LLMAskRequest):
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
@@ -161,7 +214,7 @@ def api_llm_ask(request: LLMAskRequest):
     answer = call_lm_studio_chat(messages)
     return {"answer": answer}
 
-@app.post("/llm/extract")
+@app.post("/llm/extract", tags=["LLM"])
 def api_llm_extract(request: LLMExtractRequest):
     messages = [
         {"role": "system", "content": "You are a helpful assistant that extracts information into precise JSON matching the requested schema."},

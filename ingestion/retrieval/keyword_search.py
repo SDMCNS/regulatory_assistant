@@ -1,0 +1,264 @@
+import sys
+import json
+import re
+import sqlite3
+import textwrap
+import argparse
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+import requests
+from ingestion.core.config import settings
+
+def ensure_fts_index(conn: sqlite3.Connection):
+    """
+    Ensures the SQLite FTS5 virtual table exists for chunks.
+    Uses external content table linking to `chunks` rowid to minimize disk usage.
+    """
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_fts';")
+    if not cursor.fetchone():
+        print("[KeywordSearch] Initializing FTS5 index on chunks...")
+        cursor.execute("""
+            CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                source_text,
+                section_path,
+                document_id,
+                content='chunks',
+                content_rowid='rowid',
+                tokenize='porter unicode61'
+            );
+        """)
+        cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
+        conn.commit()
+        print("[KeywordSearch] FTS5 index built successfully.")
+
+def expand_query_with_llm(query: str, timeout: int = 5) -> List[str]:
+    """
+    Asks the local LLM in LM Studio to suggest relevant keywords,
+    synonyms, and aviation regulatory acronyms for query expansion.
+    Falls back gracefully if the LLM is not loaded.
+    """
+    prompt = (
+        f"You are an expert search assistant for aviation regulations (EASA and EU).\n"
+        f"Given the user query: \"{query}\", generate 3 to 6 closely related keywords, "
+        f"aviation acronyms, or standard regulatory phrases for full-text search.\n"
+        f"Return ONLY a valid JSON list of strings (e.g. [\"term1\", \"term2\"]). Do not include explanations."
+    )
+    
+    payload = {
+        "model": settings.LLM_MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": "You output only valid JSON arrays."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 150
+    }
+    
+    try:
+        response = requests.post(
+            f"{settings.LM_STUDIO_BASE_URL}/chat/completions",
+            json=payload,
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            data = response.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            # Clean up potential markdown formatting like ```json ... ```
+            content = re.sub(r"^```(?:json)?\s*", "", content)
+            content = re.sub(r"\s*```$", "", content)
+            keywords = json.loads(content)
+            if isinstance(keywords, list):
+                return [str(k).strip() for k in keywords if str(k).strip()]
+    except Exception:
+        # LLM not running, model not loaded, or timeout
+        pass
+    
+    return []
+
+def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = None) -> str:
+    """
+    Builds a robust FTS5 match query prioritizing exact phrases and exact terms
+    over broad wildcards to avoid false positives (e.g. 'rest' matching 'restraint').
+    """
+    # Clean special FTS characters
+    clean_query = re.sub(r'["\':*^]', ' ', raw_query).strip()
+    words = [w for w in clean_query.split() if len(w) > 0]
+    
+    if not words:
+        return ""
+        
+    clauses = []
+    
+    # 1. Exact phrase (highest relevance)
+    if len(words) > 1:
+        clauses.append(f'"{clean_query}"')
+        
+    # 2. All words required (AND)
+    if len(words) > 1:
+        clauses.append(f"({' AND '.join(words)})")
+    else:
+        clauses.append(words[0])
+        
+    # 3. Expanded keywords from LLM (if any)
+    if expanded_keywords:
+        exp_clauses = []
+        for kw in expanded_keywords:
+            clean_kw = re.sub(r'["\':*^]', ' ', kw).strip()
+            if not clean_kw:
+                continue
+            if " " in clean_kw:
+                exp_clauses.append(f'"{clean_kw}"')
+            else:
+                exp_clauses.append(clean_kw)
+        if exp_clauses:
+            clauses.append(f"({' OR '.join(exp_clauses)})")
+            
+    # 4. Optional prefix fallback for longer words (> 4 chars)
+    long_words = [w for w in words if len(w) >= 5]
+    if long_words and len(words) == len(long_words):
+        clauses.append(f"({' AND '.join([f'{w}*' for w in words])})")
+            
+    return " OR ".join(clauses)
+
+def search_keywords(
+    query: str,
+    top_k: int = 5,
+    origin: str = "all",
+    use_llm_expansion: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Performs full-text keyword search in SQLite with BM25 ranking.
+    """
+    db_path = settings.SQLITE_PATH
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database not found at {db_path}")
+
+    expanded_terms = []
+    if use_llm_expansion:
+        expanded_terms = expand_query_with_llm(query)
+        
+    fts_query = build_fts_query(query, expanded_terms)
+    
+    results = []
+    with sqlite3.connect(db_path) as conn:
+        ensure_fts_index(conn)
+        cursor = conn.cursor()
+        
+        # Column weights for BM25:
+        # source_text: 1.0, section_path: 3.0, document_id: 2.0
+        # In FTS5 bm25(table, weight1, weight2, ...)
+        sql = """
+            SELECT 
+                c.chunk_id,
+                c.document_id,
+                c.section_path,
+                c.source_text,
+                d.metadata_json,
+                bm25(chunks_fts, 1.0, 3.0, 2.0) AS bm25_score
+            FROM chunks_fts f
+            JOIN chunks c ON f.rowid = c.rowid
+            JOIN documents d ON c.document_id = d.document_id
+            WHERE chunks_fts MATCH ?
+            ORDER BY bm25_score ASC
+            LIMIT ?;
+        """
+        
+        fetch_limit = top_k * 5 if origin != "all" else top_k
+        try:
+            cursor.execute(sql, (fts_query, fetch_limit))
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError:
+            # Fallback for simple literal search if complex query fails
+            simple_q = " ".join([f"{w}*" for w in query.split()])
+            cursor.execute(sql, (simple_q, fetch_limit))
+            rows = cursor.fetchall()
+            
+        count = 0
+        for row in rows:
+            if count >= top_k:
+                break
+            chunk_id, doc_id, section_path, source_text, meta_json, score = row
+            
+            is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
+            if origin == "eu" and is_easa:
+                continue
+            if origin == "easa" and not is_easa:
+                continue
+                
+            count += 1
+            try:
+                path_list = json.loads(section_path)
+            except Exception:
+                path_list = []
+                
+            meta_dict = json.loads(meta_json) if meta_json else {}
+            results.append({
+                "rank": count,
+                "score": float(score),
+                "chunk_id": chunk_id,
+                "document_id": doc_id,
+                "path": path_list,
+                "section_path": path_list,
+                "text": source_text,
+                "source_text": source_text,
+                "source": "EASA" if is_easa else "EU",
+                "metadata": meta_dict,
+                "expanded_terms": expanded_terms
+            })
+            
+    return results
+
+def main():
+    parser = argparse.ArgumentParser(description="SQLite Keyword Search for Aviation Regulations (FTS5 + BM25 + LLM Expansion)")
+    parser.add_argument("query", type=str, help="Search terms or keywords")
+    parser.add_argument("--top_k", "-k", type=int, default=5, help="Number of results to return")
+    parser.add_argument("--origin", choices=["all", "eu", "easa"], default="all", help="Filter by regulation source")
+    parser.add_argument("--no_llm", action="store_true", help="Disable LLM keyword expansion")
+    args = parser.parse_args()
+
+    print("=" * 80)
+    print(f"QUERY: \"{args.query}\"")
+    print("=" * 80)
+
+    use_llm = not args.no_llm
+    if use_llm:
+        print("[1/2] Checking for LLM keyword expansion...")
+    else:
+        print("[1/2] Skipping LLM keyword expansion (--no_llm set).")
+
+    results = search_keywords(
+        args.query,
+        top_k=args.top_k,
+        origin=args.origin,
+        use_llm_expansion=use_llm
+    )
+
+    if not results:
+        print(f"\nNo keyword matches found for query: '{args.query}'")
+        return
+
+    first_item = results[0]
+    if first_item.get("expanded_terms"):
+        print(f"-> LLM Expanded Keywords: {', '.join(first_item['expanded_terms'])}\n")
+    else:
+        print("-> Using direct keyword matching with Porter stemming and prefix expansion.\n")
+
+    print(f"[2/2] Retrieved {len(results)} ranked matches from SQLite FTS5:\n")
+    for r in results:
+        print("=" * 80)
+        print(f"RANK {r['rank']} | BM25 Score: {r['score']:.4f} | Source: {r['source']} | Chunk ID: {r['chunk_id']}")
+        print(f"Document: {r['document_id']}")
+        if r['section_path']:
+            print(f"Section:  {' > '.join(r['section_path'])}")
+        print("-" * 80)
+        print(textwrap.fill(r['source_text'][:600] + ("..." if len(r['source_text']) > 600 else ""), width=80))
+        print("=" * 80 + "\n")
+
+if __name__ == "__main__":
+    main()

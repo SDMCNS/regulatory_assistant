@@ -1,6 +1,19 @@
 import re
+import sys
+from pathlib import Path
 from typing import Optional
-from models import ExtractedSemanticMetadata, LegalRole, Modality
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+try:
+    from ingestion.core.models import ExtractedSemanticMetadata, LegalRole, Modality
+except ImportError:
+    try:
+        from .models import ExtractedSemanticMetadata, LegalRole, Modality
+    except ImportError:
+        from models import ExtractedSemanticMetadata, LegalRole, Modality
 
 class DeterministicSemanticExtractor:
     """Extracts structured legal roles and modalities without external dependencies."""

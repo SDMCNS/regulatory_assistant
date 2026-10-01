@@ -6,9 +6,17 @@ import json
 import sys
 from pathlib import Path
 
-from .parser import parse_formex
-from .render import render_text
-from .schema import build_schema
+try:
+    from .parser import parse_formex
+    from .render import render_text
+    from .schema import build_schema
+except ImportError:
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    if str(_project_root) not in sys.path:
+        sys.path.insert(0, str(_project_root))
+    from ingestion.euroform.parser import parse_formex
+    from ingestion.euroform.render import render_text
+    from ingestion.euroform.schema import build_schema
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,14 +46,20 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     if a.version:
-        from . import __version__
+        try:
+            from . import __version__
+        except ImportError:
+            from ingestion.euroform import __version__
         sys.stdout.write(f"euroform {__version__}\n")
         return 0
 
     if a.serve:
         try:
             import uvicorn
-            from .api.app import app
+            try:
+                from .api.app import app
+            except ImportError:
+                from ingestion.euroform.api.app import app
         except ImportError as err:
             sys.stderr.write(f"Error starting server: {err}. Please ensure uvicorn and fastapi are installed.\n")
             return 1

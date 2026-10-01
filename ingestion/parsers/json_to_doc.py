@@ -1,7 +1,13 @@
 import sys
 import json
+import re
 import argparse
 from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from ingestion.core.config import settings
 
 def find_json_file(document_id: str) -> Path:
@@ -150,38 +156,96 @@ def render_formex(data):
             
     return "".join(lines)
 
-def render_easa(data):
+def render_easa(data, title: str = None) -> str:
     lines = []
-    lines.append(f"# DOCUMENT: {data.get('title', 'Unknown EASA Title')}\n\n")
     
-    if data.get('raw_text'):
-        lines.append(data.get('raw_text') + "\n\n")
+    if isinstance(data, list):
+        doc_title = title
+        if not doc_title:
+            for item in data:
+                if isinstance(item, dict) and item.get("meta", {}).get("subject"):
+                    doc_title = item["meta"]["subject"].rstrip(";")
+                    break
+        doc_title = doc_title or "Unknown EASA Title"
+        lines.append(f"# DOCUMENT: {doc_title}\n\n")
         
-    for topic in data.get("topics", []):
-        topic_title = topic.get('title', '')
-        if topic_title:
-            lines.append(f"## {topic_title}\n\n")
+        current_heading = None
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            meta = item.get("meta", {})
+            text = item.get("text", "").strip()
+            t_type = meta.get("type", "")
+            t_title = meta.get("title", "").strip()
             
-        topic_text = topic.get('raw_text', '')
-        if topic_text:
-            lines.append(topic_text + "\n\n")
+            # Check if first line of text is redundant with t_title
+            lines_in_text = text.split("\n")
+            first_line = lines_in_text[0].strip() if lines_in_text else ""
+            t_title_norm = re.sub(r'\s+', ' ', t_title).strip().lower()
+            first_line_norm = re.sub(r'\s+', ' ', first_line).strip().lower()
             
-        for p in topic.get("paragraphs", []):
-            p_text = p.get("raw_text", "")
-            if p_text:
-                lines.append(p_text + "\n\n")
+            if t_title_norm and t_title_norm == first_line_norm:
+                body_text = "\n".join(lines_in_text[1:]).strip()
+            else:
+                body_text = text
+            
+            if t_type == "heading":
+                current_heading = t_title
+                heading_title = t_title or first_line
+                if heading_title:
+                    lines.append(f"## {heading_title}\n\n")
+                if body_text and body_text != heading_title:
+                    lines.append(f"{body_text}\n\n")
+            else:
+                if t_title:
+                    level = "###" if current_heading else "##"
+                    lines.append(f"{level} {t_title}\n\n")
+                if body_text:
+                    lines.append(f"{body_text}\n\n")
+                    
+        return "".join(lines)
+        
+    elif isinstance(data, dict):
+        doc_title = title or data.get('title', 'Unknown EASA Title')
+        lines.append(f"# DOCUMENT: {doc_title}\n\n")
+        
+        if data.get('raw_text'):
+            lines.append(data.get('raw_text') + "\n\n")
+            
+        for topic in data.get("topics", []):
+            topic_title = topic.get('title', '')
+            if topic_title:
+                lines.append(f"## {topic_title}\n\n")
                 
-    return "".join(lines)
+            topic_text = topic.get('raw_text', '')
+            if topic_text:
+                lines.append(topic_text + "\n\n")
+                
+            for p in topic.get("paragraphs", []):
+                p_text = p.get("raw_text", "")
+                if p_text:
+                    lines.append(p_text + "\n\n")
+                    
+        return "".join(lines)
+    else:
+        return f"```json\n{json.dumps(data, indent=2)}\n```"
 
 def render_document(json_path: Path) -> str:
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
         
     # Detect if it's Formex or EASA
-    if data.get("format") == "formex":
-        return render_formex(data)
-    elif "topics" in data:
-        return render_easa(data)
+    if isinstance(data, dict):
+        if data.get("format") == "formex":
+            return render_formex(data)
+        elif "topics" in data:
+            return render_easa(data, title=data.get("title") or json_path.stem)
+        else:
+            # Generic fallback
+            return f"```json\n{json.dumps(data, indent=2)}\n```"
+    elif isinstance(data, list):
+        # EASA JSON format is a list of section/topic objects
+        return render_easa(data, title=json_path.stem)
     else:
         # Generic fallback
         return f"```json\n{json.dumps(data, indent=2)}\n```"

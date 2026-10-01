@@ -7,9 +7,13 @@ class Settings(BaseSettings):
     DATA_DIR: Path = BASE_DIR / "data"
 
     # Storage Paths
-    SQLITE_PATH: Path = DATA_DIR / "sqlite" / "regulations.db"
+    REGULATIONS_DIR: Path = DATA_DIR / "regulations"
+    SQLITE_PATH: Path = DATA_DIR / "regulations" / "sqlite" / "chunks.db"
+    SQLITE_DB_PATH: Path = DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     JSONL_PATH: Path = DATA_DIR / "regulations" / "canonical.jsonl"
+    JSONL_OUTPUT_PATH: Path = DATA_DIR / "regulations" / "canonical.jsonl"
     EMBEDDINGS_DIR: Path = DATA_DIR / "embeddings"
+    VECTOR_INDEX_DIR: Path = DATA_DIR / "embeddings"
     LOGS_DIR: Path = BASE_DIR / "logs"
 
     # LM Studio Local API Config

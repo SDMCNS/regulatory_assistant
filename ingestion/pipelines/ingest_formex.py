@@ -30,16 +30,20 @@ from lxml import etree
 # ---------------------------------------------------------------------------
 # Local imports – everything is co-located inside ``ingestion``
 # ---------------------------------------------------------------------------
-# Ensure the current directory is in sys.path so local imports work
+# Ensure the project root and current directory are in sys.path
 _current_dir = Path(__file__).resolve().parent
+_project_root = _current_dir.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 if str(_current_dir) not in sys.path:
     sys.path.insert(0, str(_current_dir))
-from euroform.parser import parse_formex
-from euroform.render import render_block
 
-from chunking_pipeline import ChunkerPipeline
-from embed_chunks import run_embedding_pipeline
-from config import settings
+from ingestion.euroform.parser import parse_formex
+from ingestion.euroform.render import render_block
+
+from ingestion.pipelines.chunking_pipeline import ChunkerPipeline
+from ingestion.retrieval.embed_chunks import run_embedding_pipeline
+from ingestion.core.config import settings
 
 # ---------------------------------------------------------------------------
 # Logging

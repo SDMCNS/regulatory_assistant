@@ -1,7 +1,13 @@
+import sys
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import argparse
 import sqlite3
 import json
-from pathlib import Path
 import textwrap
 
 def list_documents(db_path: Path, limit: int = 10):

@@ -1,8 +1,13 @@
+import sys
 import os
 import json
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 class EASAIChunkerPipeline:
     def __init__(self, db_path: str):

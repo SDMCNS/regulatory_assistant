@@ -1,8 +1,14 @@
+import sys
+from pathlib import Path
+
+_project_root = Path(__file__).resolve().parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 import sqlite3
 import requests
 import hashlib
 from typing import List, Dict, Any
-from pathlib import Path
 import json
 
 from ingestion.core.config import settings

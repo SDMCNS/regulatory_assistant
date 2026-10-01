@@ -11,9 +11,10 @@ import { MemoryHub } from './components/MemoryHub';
 import { ExtractTool } from './components/ExtractTool';
 import { SettingsModal } from './components/SettingsModal';
 import { DocViewerModal } from './components/DocViewerModal';
-import { AppSettings, ConnectionStatus, SearchDocResponse } from './types';
+import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
 import { getQueryMemory } from './services/memoryService';
+import { getChats, createChat, addSectionToChat } from './services/chatService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('assistant');
@@ -23,6 +24,19 @@ export default function App() {
   const [targetedChunks, setTargetedChunks] = useState<string[]>([]);
   const [activeMemoryCount, setActiveMemoryCount] = useState<number>(0);
   const [isPinging, setIsPinging] = useState(false);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
+
+  // Initialize activeChatId
+  useEffect(() => {
+    const chats = getChats();
+    if (chats.length > 0) {
+      setActiveChatId(chats[0].id);
+    } else {
+      const newChat = createChat('Default Chat');
+      setActiveChatId(newChat.id);
+    }
+  }, []);
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     state: 'checking',
@@ -110,6 +124,8 @@ export default function App() {
             targetedChunks={targetedChunks}
             onClearTargetedChunks={handleClearTargetedChunks}
             onViewDoc={(doc) => setSelectedDoc(doc)}
+            activeChatId={activeChatId}
+            onChatChange={setActiveChatId}
           />
         )}
 
@@ -120,6 +136,22 @@ export default function App() {
             onAskAboutChunk={handleAskAboutChunk}
             targetedChunks={targetedChunks}
             onToggleTargetChunk={handleToggleTargetChunk}
+            initialQuery={activeSearchQuery}
+            onBookmarkChunk={(chunk) => {
+              if (activeChatId) {
+                const section: DocSection = {
+                  index: 0,
+                  id: chunk.chunk_id,
+                  type: 'search_chunk',
+                  title: chunk.path[chunk.path.length - 1] || chunk.chunk_id,
+                  meta: chunk.metadata || {},
+                  markdown: chunk.text,
+                  wordCount: chunk.text.split(/\s+/).length,
+                };
+                addSectionToChat(activeChatId, section);
+                setActiveTab('assistant');
+              }
+            }}
           />
         )}
 
@@ -152,6 +184,17 @@ export default function App() {
         doc={selectedDoc}
         onClose={() => setSelectedDoc(null)}
         onAskAboutChunk={handleAskAboutChunk}
+        onBookmarkSection={(section) => {
+          if (activeChatId) {
+            addSectionToChat(activeChatId, section);
+            // Optionally switch to assistant tab
+            setActiveTab('assistant');
+          }
+        }}
+        onSearchSection={(sectionMarkdown) => {
+          setActiveSearchQuery(sectionMarkdown);
+          setActiveTab('search');
+        }}
       />
     </div>
   );

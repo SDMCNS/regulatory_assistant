@@ -18,7 +18,7 @@ import time
 # Import ingestion logic
 from ingestion.retrieval.search_chunks import search_api
 from ingestion.retrieval.keyword_search import search_keywords
-from ingestion.parsers.json_to_doc import render_document, find_json_file
+from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
 from ingestion.core.config import settings
 
 def log_debug_info(event: str, data: Any):
@@ -79,6 +79,7 @@ class KeywordSearchResponse(SearchResponse):
 class LLMAskRequest(BaseModel):
     prompt: str
     chunk_ids: Optional[List[str]] = None
+    context_sections: Optional[List[Dict[str, Any]]] = None
 
 class LLMExtractRequest(BaseModel):
     text: str
@@ -155,6 +156,37 @@ def api_search_docs(
         
     return enriched_results
 
+@app.get("/search/docs/{document_id:path}", tags=["SEARCH"])
+def api_get_doc_markdown(document_id: str):
+    """
+    Retrieve just the full markdown document for a specific document_id.
+    """
+    json_path = find_json_file(document_id)
+    if not json_path:
+        raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
+    md_text = render_document(json_path)
+    return {
+        "document_id": document_id,
+        "markdown_doc": md_text
+    }
+
+@app.get("/search/docs/{document_id:path}/sections", tags=["SEARCH"])
+def api_get_doc_sections(document_id: str):
+    """
+    Retrieve structured parsed sections for a specific regulation document.
+    Returns a list of sections with metadata (id, title, type) and individual markdown text.
+    """
+    json_path = find_json_file(document_id)
+    if not json_path:
+        raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
+    md_text = render_document(json_path)
+    sections = parse_document_sections(md_text)
+    return {
+        "document_id": document_id,
+        "total_sections": len(sections),
+        "sections": sections
+    }
+
 @app.get("/search/keyword", response_model=List[KeywordSearchResponse], tags=["SEARCH"])
 def api_search_keyword(
     query: str = Query(..., description="Keywords, acronyms, or search terms to match"),
@@ -176,14 +208,14 @@ def api_llm_ask(request: LLMAskRequest):
     if not db_path.exists():
         raise HTTPException(status_code=500, detail="Database not found")
         
-    doc_texts = {}
+    chunk_texts = {}
     
     # If chunk_ids are missing or just the Swagger default, do the search automatically!
     active_chunk_ids = request.chunk_ids or []
     if active_chunk_ids == ["string"]:
         active_chunk_ids = []
         
-    if not active_chunk_ids:
+    if not active_chunk_ids and (not request.context_sections or len(request.context_sections) == 0):
         log_debug_info("API /llm/ask - DOING AUTO SEARCH", request.prompt)
         search_results = search_api(request.prompt, top_k=3)
         active_chunk_ids = [res["chunk_id"] for res in search_results]
@@ -193,18 +225,22 @@ def api_llm_ask(request: LLMAskRequest):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         for chunk_id in active_chunk_ids:
-            cursor.execute("SELECT document_id FROM chunks WHERE chunk_id = ?", (chunk_id,))
+            cursor.execute("SELECT text FROM chunks WHERE chunk_id = ?", (chunk_id,))
             row = cursor.fetchone()
             if row:
-                doc_id = row[0]
-                if doc_id not in doc_texts:
-                    md_text = get_markdown_for_doc(doc_id)
-                    if md_text:
-                        doc_texts[doc_id] = md_text
+                chunk_texts[chunk_id] = row[0]
 
-    context_str = "\n\n".join([f"--- Document: {did} ---\n{text}" for did, text in doc_texts.items()])
+    context_str = ""
+    # Process user supplied sections if available
+    if request.context_sections and len(request.context_sections) > 0:
+        context_str += "--- USER BOOKMARKED SECTIONS ---\n"
+        for sec in request.context_sections:
+            if sec.get('enabled', True):
+                context_str += f"[Section: {sec.get('title', 'Unknown')}]\n{sec.get('markdown', '')}\n\n"
+
+    context_str += "\n\n".join([f"--- Chunk: {cid} ---\n{text}" for cid, text in chunk_texts.items()])
     
-    log_debug_info("API /llm/ask - RESOLVED CONTEXT DOC IDs", list(doc_texts.keys()))
+    log_debug_info("API /llm/ask - RESOLVED CONTEXT CHUNKS", list(chunk_texts.keys()))
     
     messages = [
         {"role": "system", "content": "You are a helpful regulatory assistant. Use the provided document contexts to answer the user's question."},

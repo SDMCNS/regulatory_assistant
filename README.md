@@ -78,7 +78,8 @@ This starts a uvicorn server on `http://0.0.0.0:8000` with hot-reload enabled. I
 #### `SEARCH` Operations
 - `GET /search`: Search document chunks using semantic dense vectors (FAISS).
 - `GET /search/keyword`: High-speed keyword & acronym search powered by SQLite FTS5 (BM25) with Porter stemming. Ideal for short queries, acronyms (`ATSEP`, `AMC-20`, `FTL`), and clause codes (`CAT.OP.MPA`). Includes `use_llm` flag (default: `true`) to toggle local LLM query expansion.
-- `GET /search/docs`: Search and retrieve the full markdown representation of the matching documents.
+- `GET /search/docs`: Search and retrieve matching documents with embedded section delimiters (`<!-- SECTION_BREAK ... -->`).
+- `GET /search/docs/{document_id}/sections`: Retrieve structured, parsed regulatory sections (Subparts, CS specifications, AMCs, Annexes) with metadata and individual markdown text.
 
 #### `LLM` Operations
 - `POST /llm/ask`: Ask a regulatory question. It automatically retrieves relevant document contexts from the index and queries the local LLM.

@@ -21,6 +21,17 @@ export interface SearchDocResponse extends SearchResponse {
   markdown_doc: string;
 }
 
+export interface DocSection {
+  index: number;
+  id: string;
+  type: string;
+  title: string;
+  meta: Record<string, any>;
+  markdown: string;
+  wordCount: number;
+  enabled?: boolean;
+}
+
 export interface KeywordSearchResponse {
   chunk_id: string;
   score: number;
@@ -35,6 +46,7 @@ export interface KeywordSearchResponse {
 export interface LLMAskRequest {
   prompt: string;
   chunk_ids?: string[] | null;
+  context_sections?: DocSection[] | null;
 }
 
 export interface LLMExtractRequest {
@@ -90,4 +102,13 @@ export interface ChatMessage {
   referencedChunks?: (SearchResponse | KeywordSearchResponse | SearchDocResponse)[];
   usedMemoryItemIds?: string[];
   isError?: boolean;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  savedSections: DocSection[];
+  createdAt: number;
+  updatedAt: number;
 }

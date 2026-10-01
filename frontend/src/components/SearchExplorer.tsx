@@ -6,10 +6,10 @@
  * - /search/docs (Semantic Search with Full Markdown Documents)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, FileText, Layers, Check, Copy, ArrowUpRight, 
-  BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash
+  BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash, Database, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { 
   AppSettings, KeywordSearchResponse, RegulationOrigin, 
@@ -26,6 +26,8 @@ interface SearchExplorerProps {
   onAskAboutChunk: (chunkId: string, title: string) => void;
   targetedChunks: string[];
   onToggleTargetChunk: (chunkId: string) => void;
+  initialQuery?: string;
+  onBookmarkChunk?: (chunk: SearchResponse | KeywordSearchResponse | SearchDocResponse) => void;
 }
 
 export const SearchExplorer: React.FC<SearchExplorerProps> = ({
@@ -34,6 +36,8 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   onAskAboutChunk,
   targetedChunks,
   onToggleTargetChunk,
+  initialQuery,
+  onBookmarkChunk,
 }) => {
   const [query, setQuery] = useState('');
   const [searchMethod, setSearchMethod] = useState<SearchMethod>('keyword');
@@ -48,6 +52,23 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   const [hasSearched, setHasSearched] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
+  const [collapsedChunks, setCollapsedChunks] = useState<Set<string>>(new Set());
+
+  const toggleCollapse = (chunkId: string) => {
+    setCollapsedChunks(prev => {
+      const next = new Set(prev);
+      if (next.has(chunkId)) next.delete(chunkId);
+      else next.add(chunkId);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (initialQuery && initialQuery !== query) {
+      setQuery(initialQuery);
+      executeSearch(initialQuery);
+    }
+  }, [initialQuery]);
 
   const executeSearch = async (searchTerm?: string) => {
     const q = (searchTerm !== undefined ? searchTerm : query).trim();
@@ -392,8 +413,15 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                 >
                   {/* Card Header */}
                   <div className="flex flex-wrap items-start justify-between gap-3 mb-2.5">
-                    <div className="space-y-1 min-w-0">
+                    <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-xs">
+                        <button 
+                          onClick={() => toggleCollapse(doc.chunk_id)}
+                          className="p-0.5 hover:bg-slate-800 rounded transition-colors text-slate-400 hover:text-slate-200"
+                          title={collapsedChunks.has(doc.chunk_id) ? "Expand chunk" : "Collapse chunk"}
+                        >
+                          {collapsedChunks.has(doc.chunk_id) ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                        </button>
                         <span className="font-mono text-sky-400 uppercase tracking-wider font-semibold">
                           {doc.source}
                         </span>
@@ -402,7 +430,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         <span aria-hidden="true" className="text-slate-600">·</span>
                         <span className="font-mono text-slate-500">{doc.chunk_id}</span>
                       </div>
-                      <h3 className="text-sm font-semibold text-slate-100">
+                      <h3 className="text-sm font-semibold text-slate-100 pl-6 cursor-pointer hover:text-sky-300 transition-colors" onClick={() => toggleCollapse(doc.chunk_id)}>
                         {doc.path[doc.path.length - 1] || doc.chunk_id}
                       </h3>
                     </div>
@@ -432,24 +460,28 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                     </div>
                   </div>
 
-                  {/* Hierarchical Breadcrumb */}
-                  {doc.path && doc.path.length > 0 && (
-                    <div className="text-xs text-slate-400 mb-3 bg-slate-950/40 p-1.5 rounded border border-slate-800/40 overflow-x-auto whitespace-nowrap">
-                      {doc.path.map((step, idx) => (
-                        <React.Fragment key={idx}>
-                          {idx > 0 && <span className="mx-1 text-slate-600">/</span>}
-                          <span className={idx === doc.path.length - 1 ? 'text-slate-300 font-medium' : 'text-slate-500'}>
-                            {step}
-                          </span>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  )}
+                  {!collapsedChunks.has(doc.chunk_id) && (
+                    <>
+                      {/* Hierarchical Breadcrumb */}
+                      {doc.path && doc.path.length > 0 && (
+                        <div className="text-xs text-slate-400 mb-3 bg-slate-950/40 p-1.5 rounded border border-slate-800/40 overflow-x-auto whitespace-nowrap ml-6">
+                          {doc.path.map((step, idx) => (
+                            <React.Fragment key={idx}>
+                              {idx > 0 && <span className="mx-1 text-slate-600">/</span>}
+                              <span className={idx === doc.path.length - 1 ? 'text-slate-300 font-medium' : 'text-slate-500'}>
+                                {step}
+                              </span>
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      )}
 
-                  {/* Text Snippet */}
-                  <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans bg-slate-950/30 p-3 rounded-lg border border-slate-800/60 mb-3 whitespace-pre-wrap">
-                    {doc.text}
-                  </p>
+                      {/* Text Snippet */}
+                      <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans bg-slate-950/30 p-3 rounded-lg border border-slate-800/60 mb-3 whitespace-pre-wrap ml-6">
+                        {doc.text}
+                      </p>
+                    </>
+                  )}
 
                   {/* Card Actions */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/60 text-xs">
@@ -463,6 +495,18 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                     </button>
 
                     <div className="flex items-center gap-2">
+                      {onBookmarkChunk && (
+                        <button
+                          type="button"
+                          onClick={() => onBookmarkChunk(doc)}
+                          className="flex items-center gap-1 px-2.5 py-1 text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-800/40 rounded transition-colors"
+                          title="Bookmark this chunk for LLM Context"
+                        >
+                          <Database className="w-3 h-3" />
+                          <span>Bookmark</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => onAskAboutChunk(doc.chunk_id, doc.path[doc.path.length - 1] || doc.chunk_id)}

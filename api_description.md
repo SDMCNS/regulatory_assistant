@@ -16,7 +16,10 @@ This API provides a semantic search and LLM (Large Language Model) querying inte
    - `use_llm`: Boolean flag (`true` by default) to enable LLM query expansion. When enabled, the local LLM generates synonyms and domain acronyms to broaden the search; if set to `false` or if the LLM is unavailable, it runs direct Porter-stemmed keyword matching.
 
 3. **Contextual Search (`GET /search/docs`)**
-   Similar to standard search, but this endpoint additionally returns the **full markdown representation** of the entire document where the chunk was found. This is highly useful for displaying the complete original context in a web UI.
+   Similar to standard search, but this endpoint additionally returns the **full markdown representation** of the entire document where the chunk was found with embedded section break comments (`<!-- SECTION_BREAK ... -->`). This is used by the frontend modal to render interactive, collapsible sections.
+
+4. **Document Sections (`GET /search/docs/{document_id}/sections`)**
+   Retrieves structured regulatory sections (Subparts, CS specifications, AMCs, Annexes) for a specific document ID. Each section includes metadata (`id`, `title`, `type`) and isolated markdown text.
 
 ### LLM Operations
 4. **Ask a Question (`POST /llm/ask`)**

@@ -149,6 +149,47 @@
         }
       }
     },
+    "/search/docs/{document_id}/sections": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Get Doc Sections",
+        "description": "Retrieve structured parsed sections for a specific regulation document.\nReturns a list of sections with metadata (id, title, type) and individual markdown text.",
+        "operationId": "api_get_doc_sections_search_docs__document_id__sections_get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/search/keyword": {
       "get": {
         "tags": [

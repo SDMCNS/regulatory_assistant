@@ -1,0 +1,36 @@
+# Frontend Node modules and build output
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/coverage/
+
+# Python Cache and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Data and Databases
+ingestion/data/
+*.sqlite
+*.db
+*.sqlite3
+
+# Logs
+*.log
+ingestion/logs/
+
+# Env Variables
+.env
+.env.local
+!.env.example
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/

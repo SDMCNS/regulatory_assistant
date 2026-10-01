@@ -126,6 +126,31 @@ In the **Search & Document Explorer** tab, you can toggle between two complement
 - **Keyword & Acronym Search (`GET /search/keyword`)**: Uses SQLite FTS5 with BM25 ranking and Porter stemming. Best for short queries, exact acronyms (e.g., `ATSEP`, `AMC-20`, `FTL`), part numbers, and clause references (`CAT.OP.MPA`).
   - **LLM Expansion Toggle**: In the **Settings Modal**, you can toggle **LLM Keyword Expansion** (`use_llm`). When enabled, your local LLM in LM Studio suggests synonyms and domain terms before querying the FTS5 index.
 
+### Interactive Document Section Viewer & Client-Side Similarity Highlighting
+
+When viewing documents in the **Document Viewer Modal** (from `/search/docs`), the viewer automatically parses section boundaries and provides an in-browser similarity search engine:
+- **Client-Side Text Similarity Search**:
+  - Instant text similarity search evaluated entirely on the client side using a multi-factor BM25/TF-IDF scoring algorithm with exact-phrase bonuses and title weighting.
+  - **Dynamic Score Badges**: Displays match relevance (e.g., `85% Match`, `42% Match`) directly on each section card.
+  - **Luminous Highlighting**:
+    - High-relevance sections (>= 60% match) illuminate with amber borders (`border-amber-500`) and a glowing ring.
+    - Moderate matches (25% - 59%) display sky-blue borders (`border-sky-500`).
+    - Non-matching sections are dimmed to make matching sections stand out.
+  - **In-Text Highlight**: Matched terms inside each section's Markdown body (and in Continuous View) are highlighted with amber `<mark>` tags.
+  - **Match Stepper (`Prev` / `Next`)**: Smoothly scrolls and centers the viewport on matching sections one by one.
+  - **Sort by Relevance**: One-click toggle to sort matching sections to the top by similarity score instead of document sequence.
+  - **Sensitivity Threshold**: Quick filter chips (`10%`, `25%`, `50%`) to control minimum matching threshold.
+  - **Auto-Expand Matches**: Automatically expands cards that match the similarity query.
+- **Sections View (Default)**:
+  - Collapsible cards for individual Subparts, Certification Specifications (CS), and Acceptable Means of Compliance (AMC).
+  - Type badges (`CS`, `AMC`, `Subpart`, `Annex`).
+  - Category filter chips (`All`, `CS`, `AMC`, `Heading`, etc.).
+  - **Original Query Chunk Indicator**: Highlights the exact section card that produced your initial search result.
+  - Per-section actions: Copy section Markdown or Ask LLM about that specific section.
+  - One-click **Expand All** / **Collapse All**.
+- **Continuous View**:
+  - Switch anytime to traditional continuous single-document Markdown viewing with query terms highlighted throughout.
+
 ---
 
 ## 4. Available Scripts

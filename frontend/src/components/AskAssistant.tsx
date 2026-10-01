@@ -7,11 +7,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, Database, Copy, Check, Layers, ChevronDown, 
-  ChevronUp, FileText, ExternalLink, CornerDownLeft, Info
+  ChevronUp, FileText, ExternalLink, CornerDownLeft, Info, X
 } from 'lucide-react';
-import { AppSettings, ChatMessage, QueryMemoryItem, SearchDocResponse } from '../types';
-import { askLLM, searchDocsRegulations } from '../services/apiClient';
+import { AppSettings, ChatMessage, QueryMemoryItem, SearchDocResponse, ChatSession } from '../types';
+import { askLLM, searchRegulations } from '../services/apiClient';
 import { buildMemoryContextPrompt, recordQuery, getQueryMemory } from '../services/memoryService';
+import { getChats, createChat, addMessageToChat, deleteChat, toggleSectionInChat } from '../services/chatService';
 import { marked } from 'marked';
 
 interface AskAssistantProps {
@@ -20,27 +21,29 @@ interface AskAssistantProps {
   onClearTargetedChunks: () => void;
   onViewDoc: (doc: SearchDocResponse) => void;
   onSelectQueryFromMemory?: (query: string) => void;
+  activeChatId: string | null;
+  onChatChange: (chatId: string) => void;
 }
 
 export const AskAssistant: React.FC<AskAssistantProps> = ({
   settings,
   targetedChunks,
   onClearTargetedChunks,
+  activeChatId,
+  onChatChange,
   onViewDoc,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome-msg',
-      role: 'assistant',
-      content: `### Regulation Assistant LLM Interface
-Connected to your local FastAPI backend (\`POST /llm/ask\`).
+  const [chats, setChats] = useState<ChatSession[]>(getChats());
+  
+  useEffect(() => {
+    const handleUpdate = () => setChats(getChats());
+    window.addEventListener('chat_updated', handleUpdate);
+    return () => window.removeEventListener('chat_updated', handleUpdate);
+  }, []);
 
-- **Auto-Search Mode**: Submit any natural language prompt without targeting chunk IDs; the API automatically performs semantic retrieval over EU Formex and EASA regulations.
-- **Targeted Mode**: Select specific chunks from the Search tab to force the LLM to inspect only those clauses.
-- **Query Memory**: Enable below to cross-reference previous queries in your session as conversational context.`,
-      timestamp: Date.now(),
-    }
-  ]);
+  const activeChat = chats.find(c => c.id === activeChatId);
+  const messages = activeChat?.messages || [];
+  const savedSections = activeChat?.savedSections || [];
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -66,6 +69,8 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
     const prompt = (textToSend || inputPrompt).trim();
     if (!prompt || isLoading) return;
 
+    if (!activeChatId) return;
+
     setInputPrompt('');
 
     const userMessage: ChatMessage = {
@@ -75,7 +80,7 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
       timestamp: Date.now(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    addMessageToChat(activeChatId, userMessage);
     setIsLoading(true);
 
     try {
@@ -93,14 +98,20 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
       const result = await askLLM(
         prompt,
         targetedChunks.length > 0 ? targetedChunks : null,
+        savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
         memoryContext,
         settings
       );
 
       // Search matching documents to provide rich citations from real API
-      let matchedChunks: SearchDocResponse[] = [];
+      let matchedChunks: any[] = [];
       try {
-        matchedChunks = await searchDocsRegulations(prompt, 3, settings.defaultOrigin, settings);
+        const rawChunks = await searchRegulations(prompt, 3, settings.defaultOrigin, settings);
+        // Strip heavy fields to prevent blowing up localStorage quota
+        matchedChunks = rawChunks.map(c => {
+          const { text, metadata, ...lightweightChunk } = c as any;
+          return lightweightChunk;
+        });
       } catch (e) {
         console.warn('Could not retrieve supplementary doc chunks', e);
       }
@@ -114,7 +125,7 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
         usedMemoryItemIds: usedMemoryIds,
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      addMessageToChat(activeChatId, assistantMessage);
 
       // Record this query into Query Memory
       recordQuery({
@@ -145,7 +156,7 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
         timestamp: Date.now(),
         isError: true,
       };
-      setMessages(prev => [...prev, errorMessage]);
+      addMessageToChat(activeChatId, errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -165,7 +176,46 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-61px)] bg-slate-950">
+    <div className="flex h-[calc(100vh-61px)] bg-slate-950 overflow-hidden">
+      {/* Sidebar for Chats */}
+      <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
+        <div className="p-3 border-b border-slate-800">
+          <button
+            onClick={() => {
+              const newChat = createChat('Chat ' + (chats.length + 1));
+              onChatChange(newChat.id);
+            }}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-sm font-medium transition-colors"
+          >
+            <span>+ New Chat</span>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {chats.map(chat => (
+            <div key={chat.id} className="group flex items-center justify-between">
+              <button
+                onClick={() => onChatChange(chat.id)}
+                className={`flex-1 text-left px-3 py-2 rounded-md text-sm truncate transition-colors ${
+                  activeChatId === chat.id ? 'bg-slate-800 text-sky-400 font-medium' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                }`}
+              >
+                {chat.title}
+              </button>
+              <button
+                onClick={() => {
+                  deleteChat(chat.id);
+                  if (activeChatId === chat.id) onChatChange(chats.find(c => c.id !== chat.id)?.id || '');
+                }}
+                className="p-2 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col min-w-0">
       {/* Top Context Subheader */}
       <div className="flex flex-wrap items-center justify-between px-6 py-2.5 bg-slate-900/60 border-b border-slate-800/80 text-xs text-slate-400 gap-3 shrink-0">
         {/* Left: Memory Status & Toggle */}
@@ -245,6 +295,34 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Display Saved Sections for context */}
+      {savedSections.length > 0 && (
+        <div className="px-6 py-2 bg-emerald-950/20 border-b border-emerald-900/50 text-xs shrink-0 flex items-center gap-3 overflow-x-auto whitespace-nowrap">
+          <div className="font-semibold text-emerald-400 flex items-center gap-1.5 shrink-0">
+            <Database className="w-3.5 h-3.5" />
+            Bookmarked Context ({savedSections.filter(s => s.enabled !== false).length}/{savedSections.length}):
+            <span className="ml-2 font-mono text-[10px] bg-emerald-900/40 px-1.5 py-0.5 rounded text-emerald-300">
+              ~{Math.round(savedSections.filter(s => s.enabled !== false).reduce((acc, s) => acc + s.wordCount, 0) * 1.3)} tokens
+            </span>
+          </div>
+          {savedSections.map(sec => (
+            <button 
+              key={sec.id} 
+              onClick={() => activeChatId && toggleSectionInChat(activeChatId, sec.id)}
+              className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-md truncate max-w-xs transition-colors ${
+                sec.enabled !== false 
+                  ? 'bg-slate-900 border-emerald-700/50 text-slate-300' 
+                  : 'bg-slate-950/50 border-slate-800 text-slate-500 opacity-60 line-through'
+              }`}
+              title={sec.enabled !== false ? 'Click to disable from LLM context' : 'Click to enable for LLM context'}
+            >
+              {sec.enabled !== false ? <Check className="w-3 h-3 text-emerald-400 shrink-0" /> : <X className="w-3 h-3 shrink-0" />}
+              <span className="truncate">{sec.title}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -407,6 +485,7 @@ Connected to your local FastAPI backend (\`POST /llm/ask\`).
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -289,12 +289,47 @@ export async function searchDocsRegulations(
 }
 
 /**
+ * GET /search/docs/{document_id}
+ * Fetch full markdown document for a specific document_id
+ */
+export async function getDocumentMarkdown(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<{ document_id: string; markdown_doc: string }> {
+  const clean = cleanUrl(settings.apiUrl);
+  
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+  
+  const doFetch = async (targetBase: string) => {
+    // Avoid double encoding if it's already encoded, but safe to just use standard fetch path
+    const res = await fetch(`${targetBase}/search/docs/${encodeURIComponent(documentId)}`, { headers });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from ${targetBase}/search/docs`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
  * POST /llm/ask
  * Ask question to local LLM with optional targeted chunk IDs
  */
 export async function askLLM(
   prompt: string,
   chunkIds?: string[] | null,
+  contextSections?: import('../types').DocSection[] | null,
   memoryContext?: string,
   settings: AppSettings = loadSettings()
 ): Promise<{ answer: string; rawResponse?: any }> {
@@ -308,6 +343,7 @@ export async function askLLM(
   const reqBody: LLMAskRequest = {
     prompt: finalPrompt,
     chunk_ids: chunkIds && chunkIds.length > 0 ? chunkIds : null,
+    context_sections: contextSections && contextSections.length > 0 ? contextSections : null,
   };
 
   const headers: Record<string, string> = {

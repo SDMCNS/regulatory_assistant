@@ -86,43 +86,49 @@ def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = Non
     Builds a robust FTS5 match query prioritizing exact phrases and exact terms
     over broad wildcards to avoid false positives (e.g. 'rest' matching 'restraint').
     """
-    # Clean special FTS characters
-    clean_query = re.sub(r'["\':*^]', ' ', raw_query).strip()
-    words = [w for w in clean_query.split() if len(w) > 0]
+    # Clean special FTS characters. Strip punctuation that might cause FTS5 syntax errors.
+    clean_query = re.sub(r'[^\w\s\-/]', ' ', raw_query).strip()
+    raw_words = [w for w in clean_query.split() if len(w) > 0]
     
-    if not words:
+    if not raw_words:
         return ""
         
+    def _quote_word(w: str) -> str:
+        if "-" in w or "/" in w or "." in w:
+            return f'"{w}"'
+        return w
+        
+    safe_words = [_quote_word(w) for w in raw_words]
     clauses = []
     
     # 1. Exact phrase (highest relevance)
-    if len(words) > 1:
+    if len(raw_words) > 1:
         clauses.append(f'"{clean_query}"')
         
     # 2. All words required (AND)
-    if len(words) > 1:
-        clauses.append(f"({' AND '.join(words)})")
+    if len(safe_words) > 1:
+        clauses.append(f"({' AND '.join(safe_words)})")
     else:
-        clauses.append(words[0])
+        clauses.append(safe_words[0])
         
     # 3. Expanded keywords from LLM (if any)
     if expanded_keywords:
         exp_clauses = []
         for kw in expanded_keywords:
-            clean_kw = re.sub(r'["\':*^]', ' ', kw).strip()
+            clean_kw = re.sub(r'[^\w\s\-/]', ' ', kw).strip()
             if not clean_kw:
                 continue
-            if " " in clean_kw:
+            if " " in clean_kw or "-" in clean_kw or "/" in clean_kw:
                 exp_clauses.append(f'"{clean_kw}"')
             else:
                 exp_clauses.append(clean_kw)
         if exp_clauses:
             clauses.append(f"({' OR '.join(exp_clauses)})")
             
-    # 4. Optional prefix fallback for longer words (> 4 chars)
-    long_words = [w for w in words if len(w) >= 5]
-    if long_words and len(words) == len(long_words):
-        clauses.append(f"({' AND '.join([f'{w}*' for w in words])})")
+    # 4. Optional prefix fallback for longer simple words (> 4 chars without hyphens)
+    long_words = [w for w in raw_words if len(w) >= 5 and "-" not in w and "/" not in w]
+    if long_words and len(raw_words) == len(long_words):
+        clauses.append(f"({' AND '.join([f'{w}*' for w in long_words])})")
             
     return " OR ".join(clauses)
 
@@ -173,9 +179,13 @@ def search_keywords(
         try:
             cursor.execute(sql, (fts_query, fetch_limit))
             rows = cursor.fetchall()
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e:
             # Fallback for simple literal search if complex query fails
-            simple_q = " ".join([f"{w}*" for w in query.split()])
+            clean_words = re.sub(r'[^\w\s\-/]', ' ', query).split()
+            simple_q = " ".join([f'"{w}"' if ("-" in w or "/" in w) else f"{w}*" for w in clean_words if w])
+            if not simple_q:
+                # If everything was stripped, return empty result
+                return []
             cursor.execute(sql, (simple_q, fetch_limit))
             rows = cursor.fetchall()
             

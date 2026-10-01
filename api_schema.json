@@ -149,6 +149,47 @@
         }
       }
     },
+    "/search/docs/{document_id}": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Get Doc Markdown",
+        "description": "Retrieve just the full markdown document for a specific document_id.",
+        "operationId": "api_get_doc_markdown_search_docs__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Document Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/search/docs/{document_id}/sections": {
       "get": {
         "tags": [
@@ -450,6 +491,21 @@
               }
             ],
             "title": "Chunk Ids"
+          },
+          "context_sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Sections"
           }
         },
         "type": "object",

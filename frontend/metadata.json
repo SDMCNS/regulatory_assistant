@@ -1,0 +1,7 @@
+{
+  "name": "AeroLex EU - Aviation Regulation Assistant",
+  "description": "Interactive front-end for local LLM and semantic search over EU Aviation regulations (EASA Easy Access Rules and EU Formex) with persistent query memory.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

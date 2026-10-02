@@ -160,13 +160,15 @@ export async function searchRegulations(
   query: string,
   topK: number = 5,
   origin: RegulationOrigin = 'all',
+  useHyde: boolean = false,
   settings: AppSettings = loadSettings()
 ): Promise<SearchResponse[]> {
   const clean = cleanUrl(settings.apiUrl);
   const params = new URLSearchParams({
     query: query.trim(),
     top_k: String(topK),
-    origin: origin
+    origin: origin,
+    use_hyde: String(useHyde)
   });
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
@@ -264,9 +266,10 @@ export async function searchHybridRegulations(
   query: string,
   topK: number = 5,
   origin: RegulationOrigin = 'all',
+  useHyde: boolean = false,
   settings: AppSettings = loadSettings()
 ): Promise<KeywordSearchResponse[]> {
-  const cacheKey = `aerolex_search_cache_hybrid_${query}_${topK}_${origin}`;
+  const cacheKey = `aerolex_search_cache_hybrid_${query}_${topK}_${origin}_${useHyde}`;
   try {
     const cached = await get<KeywordSearchResponse[]>(cacheKey);
     if (cached) return cached;
@@ -278,7 +281,8 @@ export async function searchHybridRegulations(
   const params = new URLSearchParams({
     query: query.trim(),
     top_k: String(topK),
-    origin: origin
+    origin: origin,
+    use_hyde: String(useHyde)
   });
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
@@ -320,9 +324,10 @@ export async function searchDocsRegulations(
   query: string,
   topK: number = 5,
   origin: RegulationOrigin = 'all',
+  useHyde: boolean = false,
   settings: AppSettings = loadSettings()
 ): Promise<SearchDocResponse[]> {
-  const cacheKey = `aerolex_search_cache_docs_${query}_${topK}_${origin}`;
+  const cacheKey = `aerolex_search_cache_docs_${query}_${topK}_${origin}_${useHyde}`;
   try {
     const cached = await get<SearchDocResponse[]>(cacheKey);
     if (cached) return cached;
@@ -334,7 +339,8 @@ export async function searchDocsRegulations(
   const params = new URLSearchParams({
     query: query.trim(),
     top_k: String(topK),
-    origin: origin
+    origin: origin,
+    use_hyde: String(useHyde)
   });
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };

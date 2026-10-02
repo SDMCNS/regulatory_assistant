@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional
 import time
 
 # Import ingestion logic
-from ingestion.retrieval.search_chunks import search_api
+from ingestion.retrieval.search_chunks import search_semantic
 from ingestion.retrieval.keyword_search import search_keywords
 from ingestion.retrieval.hybrid_search import search_hybrid
 from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
@@ -136,18 +136,20 @@ def call_lm_studio_chat(messages: List[dict], schema: Optional[dict] = None) -> 
 def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'")
+    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)")
 ):
-    results = search_api(query, top_k, origin)
+    results = search_semantic(query, top_k, origin, use_hyde=use_hyde)
     return results
 
 @app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
 def api_search_docs(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'")
+    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)")
 ):
-    results = search_api(query, top_k, origin)
+    results = search_semantic(query, top_k, origin, use_hyde=use_hyde)
     
     enriched_results = []
     for r in results:
@@ -207,12 +209,13 @@ def api_search_keyword(
 def api_search_hybrid(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'")
+    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    use_hyde: bool = Query(False, description="Use HyDE for the semantic component")
 ):
     """
     Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.
     """
-    results = search_hybrid(query=query, top_k=top_k, origin=origin)
+    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde)
     return results
 
 @app.post("/llm/ask", tags=["LLM"])
@@ -230,7 +233,7 @@ def api_llm_ask(request: LLMAskRequest):
         
     if not active_chunk_ids and (not request.context_sections or len(request.context_sections) == 0):
         log_debug_info("API /llm/ask - DOING AUTO SEARCH", request.prompt)
-        search_results = search_api(request.prompt, top_k=3)
+        search_results = search_semantic(request.prompt, top_k=3, use_hyde=True)
         active_chunk_ids = [res["chunk_id"] for res in search_results]
 
     log_debug_info("API /llm/ask - INCOMING/AUTO CHUNK IDs", active_chunk_ids)

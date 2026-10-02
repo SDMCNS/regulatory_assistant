@@ -44,6 +44,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   const [query, setQuery] = useState('');
   const [searchMethod, setSearchMethod] = useState<SearchMethod>('keyword');
   const [useLLMExpansion, setUseLLMExpansion] = useState<boolean>(settings.defaultKeywordUseLLM);
+  const [useHyde, setUseHyde] = useState<boolean>(false);
   const [origin, setOrigin] = useState<RegulationOrigin>(settings.defaultOrigin);
   const [topK, setTopK] = useState<number>(settings.defaultTopK);
 
@@ -93,13 +94,13 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
           setExpandedTerms(allExpanded);
         }
       } else if (searchMethod === 'hybrid') {
-        const hybridData = await searchHybridRegulations(q, topK, origin, settings);
+        const hybridData = await searchHybridRegulations(q, topK, origin, useHyde, settings);
         setResults(hybridData);
       } else if (searchMethod === 'docs') {
-        const docsData = await searchDocsRegulations(q, topK, origin, settings);
+        const docsData = await searchDocsRegulations(q, topK, origin, useHyde, settings);
         setResults(docsData);
       } else {
-        const semanticData = await searchRegulations(q, topK, origin, settings);
+        const semanticData = await searchRegulations(q, topK, origin, useHyde, settings);
         setResults(semanticData);
       }
 
@@ -322,7 +323,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
           </div>
 
           {/* Keyword Search Specific Options: LLM Query Expansion Toggle */}
-          {searchMethod === 'keyword' && (
+          {searchMethod === 'keyword' ? (
             <div className="flex items-center justify-between pt-1 text-xs">
               <label className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white select-none">
                 <input
@@ -339,6 +340,25 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
 
               <span className="text-[11px] text-slate-500 font-mono">
                 API Endpoint: GET /search/keyword
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between pt-1 text-xs">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-300 hover:text-white select-none">
+                <input
+                  type="checkbox"
+                  checked={useHyde}
+                  onChange={(e) => setUseHyde(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-900 border-slate-700"
+                />
+                <span className="flex items-center gap-1 text-slate-400">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Enable Hypothetical Document Embeddings (HyDE) (<code className="font-mono text-[11px] text-indigo-300">use_hyde=true</code>)</span>
+                </span>
+              </label>
+
+              <span className="text-[11px] text-slate-500 font-mono">
+                API Endpoint: GET /search{searchMethod === 'hybrid' ? '/hybrid' : searchMethod === 'docs' ? '/docs' : ''}
               </span>
             </div>
           )}

@@ -28,6 +28,42 @@ def get_query_embedding(query: str) -> list[float]:
         print(f"Failed to generate query embedding: {e}")
         return []
 
+def generate_hyde_document(query: str, timeout: int = 5) -> str:
+    """
+    Generates a hypothetical document (HyDE) using the local LLM.
+    """
+    prompt = (
+        f"You are an expert on aviation regulations (EASA and EU).\n"
+        f"Please write a short, factual passage that directly answers the following query or contains the relevant regulatory information.\n"
+        f"Query: \"{query}\"\n"
+        f"Passage:"
+    )
+    
+    payload = {
+        "model": settings.LLM_MODEL_NAME,
+        "messages": [
+            {"role": "system", "content": "You are a helpful expert. Generate a direct, factual passage that answers the query as if it were an excerpt from official regulations. Do not use conversational filler."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 200
+    }
+    
+    try:
+        response = requests.post(
+            f"{settings.LM_STUDIO_BASE_URL}/chat/completions",
+            json=payload,
+            timeout=timeout
+        )
+        if response.status_code == 200:
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"HyDE generation failed: {e}")
+        pass
+        
+    return query
+
 def search(query: str, top_k: int = 5, origin: str = "all"):
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
@@ -116,45 +152,32 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
             print("Invalid rank.")
 
 
-def search_api(query: str, top_k: int = 5, origin: str = "all") -> list[dict]:
+def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: bool = False) -> list[dict]:
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
         return []
 
-    from ingestion.retrieval.keyword_search import search_keywords
-    
     # 1. Semantic Search (FAISS)
     vector_index = LocalVectorIndex()
-    query_vector = get_query_embedding(query)
+    
+    if use_hyde:
+        hyde_doc = generate_hyde_document(query)
+        print(f"HyDE Document generated: {hyde_doc}")
+        query_vector = get_query_embedding(hyde_doc)
+    else:
+        query_vector = get_query_embedding(query)
     
     search_k = top_k * 10 if origin != "all" else top_k
     vector_results = []
     if query_vector:
         vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
         
-    # 2. Keyword Search (FTS5) - no LLM expansion to keep it fast
-    keyword_results = search_keywords(query, top_k=search_k, origin=origin, use_llm_expansion=False)
-    
-    # 3. Reciprocal Rank Fusion (RRF)
-    k = 60
-    rrf_scores = {}
-    
-    for rank, (chunk_id, _) in enumerate(vector_results):
-        rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (k + rank + 1)
-        
-    for rank, kw_res in enumerate(keyword_results):
-        chunk_id = kw_res["chunk_id"]
-        rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (k + rank + 1)
-        
-    # Sort chunks by fused score
-    sorted_chunk_ids = [chunk_id for chunk_id, score in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)]
-    
     final_results = []
     
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         
-        for chunk_id in sorted_chunk_ids:
+        for chunk_id, score in vector_results:
             if len(final_results) >= top_k:
                 break
                 
@@ -179,7 +202,7 @@ def search_api(query: str, top_k: int = 5, origin: str = "all") -> list[dict]:
                 path_list = json.loads(section_path)
                 final_results.append({
                     "chunk_id": chunk_id,
-                    "score": rrf_scores[chunk_id],
+                    "score": float(score),
                     "source": "EASA" if is_easa else "EU",
                     "document_id": doc_id,
                     "path": path_list,

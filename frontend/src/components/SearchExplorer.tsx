@@ -16,7 +16,7 @@ import {
   SearchDocResponse, SearchMethod, SearchResponse 
 } from '../types';
 import { 
-  searchDocsRegulations, searchKeywordRegulations, searchRegulations 
+  searchDocsRegulations, searchKeywordRegulations, searchRegulations, searchHybridRegulations
 } from '../services/apiClient';
 import { recordQuery } from '../services/memoryService';
 
@@ -28,6 +28,7 @@ interface SearchExplorerProps {
   onToggleTargetChunk: (chunkId: string) => void;
   initialQuery?: string;
   onBookmarkChunk?: (chunk: SearchResponse | KeywordSearchResponse | SearchDocResponse) => void;
+  bookmarkedChunkIds?: string[];
 }
 
 export const SearchExplorer: React.FC<SearchExplorerProps> = ({
@@ -38,6 +39,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   onToggleTargetChunk,
   initialQuery,
   onBookmarkChunk,
+  bookmarkedChunkIds = [],
 }) => {
   const [query, setQuery] = useState('');
   const [searchMethod, setSearchMethod] = useState<SearchMethod>('keyword');
@@ -90,6 +92,9 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
         if (allExpanded.length > 0) {
           setExpandedTerms(allExpanded);
         }
+      } else if (searchMethod === 'hybrid') {
+        const hybridData = await searchHybridRegulations(q, topK, origin, settings);
+        setResults(hybridData);
       } else if (searchMethod === 'docs') {
         const docsData = await searchDocsRegulations(q, topK, origin, settings);
         setResults(docsData);
@@ -208,6 +213,20 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
 
               <button
                 type="button"
+                onClick={() => setSearchMethod('hybrid')}
+                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  searchMethod === 'hybrid'
+                    ? 'bg-slate-800 text-sky-400 shadow-sm border border-slate-700/60'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="GET /search/hybrid: Uses Reciprocal Rank Fusion (RRF) to combine keyword and semantic vector search."
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Hybrid (RRF)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setSearchMethod('docs')}
                 className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                   searchMethod === 'docs'
@@ -284,10 +303,10 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                 onChange={(e) => setTopK(Number(e.target.value))}
                 className="px-3 py-2 text-xs bg-slate-950 border border-slate-800 rounded-lg text-slate-300 focus:outline-none focus:border-sky-500 font-mono"
               >
-                <option value={3}>Top 3</option>
                 <option value={5}>Top 5</option>
-                <option value={8}>Top 8</option>
                 <option value={10}>Top 10</option>
+                <option value={20}>Top 20</option>
+                <option value={50}>Top 50</option>
               </select>
 
               <button
@@ -400,6 +419,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
           <div className="space-y-3">
             {results.map((doc) => {
               const isTargeted = targetedChunks.includes(doc.chunk_id);
+              const isBookmarked = bookmarkedChunkIds.includes(doc.chunk_id);
               const scorePercent = typeof doc.score === 'number' ? Math.round(doc.score * 100) : 0;
 
               return (
@@ -498,12 +518,17 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                       {onBookmarkChunk && (
                         <button
                           type="button"
-                          onClick={() => onBookmarkChunk(doc)}
-                          className="flex items-center gap-1 px-2.5 py-1 text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-800/40 rounded transition-colors"
-                          title="Bookmark this chunk for LLM Context"
+                          onClick={() => !isBookmarked && onBookmarkChunk(doc)}
+                          disabled={isBookmarked}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                            isBookmarked
+                              ? 'text-emerald-300 bg-emerald-950/20 border border-emerald-800/20 cursor-default opacity-80'
+                              : 'text-emerald-400 hover:text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-800/40'
+                          }`}
+                          title={isBookmarked ? "Already bookmarked in active chat" : "Bookmark this chunk for LLM Context"}
                         >
-                          <Database className="w-3 h-3" />
-                          <span>Bookmark</span>
+                          {isBookmarked ? <Check className="w-3 h-3" /> : <Database className="w-3 h-3" />}
+                          <span>{isBookmarked ? 'Bookmarked' : 'Bookmark'}</span>
                         </button>
                       )}
 

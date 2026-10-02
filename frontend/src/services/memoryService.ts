@@ -5,27 +5,49 @@
 
 import { QueryMemoryItem } from '../types';
 
+import { get, set } from 'idb-keyval';
+
 const MEMORY_STORAGE_KEY = 'aerolex_eu_user_query_memory_v2';
 
-export function getQueryMemory(): QueryMemoryItem[] {
+let inMemoryQueries: QueryMemoryItem[] | null = null;
+
+export async function initMemory(): Promise<void> {
+  if (inMemoryQueries !== null) return;
+
   try {
-    const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
-    if (!raw) {
-      return [];
+    const dbMem = await get<QueryMemoryItem[]>(MEMORY_STORAGE_KEY);
+    if (dbMem && dbMem.length > 0) {
+      inMemoryQueries = dbMem;
+    } else {
+      // Synchronous fallback / Migration
+      const raw = localStorage.getItem(MEMORY_STORAGE_KEY);
+      if (raw) {
+        inMemoryQueries = JSON.parse(raw);
+        // Async migration to IDB
+        set(MEMORY_STORAGE_KEY, inMemoryQueries)
+          .then(() => localStorage.removeItem(MEMORY_STORAGE_KEY))
+          .catch(err => console.error("IDB migration failed", err));
+      } else {
+        inMemoryQueries = [];
+      }
     }
-    return JSON.parse(raw);
   } catch (err) {
-    console.error('Failed to read query memory from localStorage', err);
-    return [];
+    console.error('Error loading memory', err);
+    inMemoryQueries = [];
   }
 }
 
-export function saveQueryMemory(items: QueryMemoryItem[]): void {
-  try {
-    localStorage.setItem(MEMORY_STORAGE_KEY, JSON.stringify(items));
-  } catch (err) {
-    console.error('Failed to save query memory to localStorage', err);
+export function getQueryMemory(): QueryMemoryItem[] {
+  if (inMemoryQueries === null) {
+    inMemoryQueries = []; // Fallback if called before init
   }
+  return inMemoryQueries;
+}
+
+export function saveQueryMemory(items: QueryMemoryItem[]): void {
+  inMemoryQueries = items;
+  set(MEMORY_STORAGE_KEY, items).catch(e => console.error('IDB save failed', e));
+  window.dispatchEvent(new Event('memory_updated'));
 }
 
 export function recordQuery(entry: Omit<QueryMemoryItem, 'id' | 'timestamp' | 'isActiveInContext'> & { isActiveInContext?: boolean }): QueryMemoryItem {

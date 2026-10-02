@@ -13,8 +13,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { DocViewerModal } from './components/DocViewerModal';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
-import { getQueryMemory } from './services/memoryService';
-import { getChats, createChat, addSectionToChat } from './services/chatService';
+import { getQueryMemory, initMemory } from './services/memoryService';
+import { getChats, createChat, addSectionToChat, initChats } from './services/chatService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('assistant');
@@ -26,17 +26,31 @@ export default function App() {
   const [isPinging, setIsPinging] = useState(false);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
+  const [isStoreReady, setIsStoreReady] = useState(false);
 
   // Initialize activeChatId
   useEffect(() => {
-    const chats = getChats();
-    if (chats.length > 0) {
-      setActiveChatId(chats[0].id);
-    } else {
-      const newChat = createChat('Default Chat');
-      setActiveChatId(newChat.id);
-    }
+    Promise.all([initChats(), initMemory()]).then(() => {
+      setIsStoreReady(true);
+      const chats = getChats();
+      if (chats.length > 0) {
+        setActiveChatId(chats[0].id);
+      } else {
+        const newChat = createChat('Default Chat');
+        setActiveChatId(newChat.id);
+      }
+    });
   }, []);
+
+  const [chatUpdateTrigger, setChatUpdateTrigger] = useState(0);
+  useEffect(() => {
+    const handleUpdate = () => setChatUpdateTrigger(prev => prev + 1);
+    window.addEventListener('chat_updated', handleUpdate);
+    return () => window.removeEventListener('chat_updated', handleUpdate);
+  }, []);
+
+  const activeChat = getChats().find(c => c.id === activeChatId);
+  const bookmarkedChunkIds = activeChat?.savedSections.map(s => s.id) || [];
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     state: 'checking',
@@ -103,6 +117,17 @@ export default function App() {
     setActiveTab('assistant');
   };
 
+  if (!isStoreReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+          <p className="text-sm font-mono">Loading local storage...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Bar Header */}
@@ -137,6 +162,7 @@ export default function App() {
             targetedChunks={targetedChunks}
             onToggleTargetChunk={handleToggleTargetChunk}
             initialQuery={activeSearchQuery}
+            bookmarkedChunkIds={bookmarkedChunkIds}
             onBookmarkChunk={(chunk) => {
               if (activeChatId) {
                 const section: DocSection = {
@@ -149,7 +175,7 @@ export default function App() {
                   wordCount: chunk.text.split(/\s+/).length,
                 };
                 addSectionToChat(activeChatId, section);
-                setActiveTab('assistant');
+                // Removed setActiveTab('assistant') so user can continue bookmarking from search results
               }
             }}
           />

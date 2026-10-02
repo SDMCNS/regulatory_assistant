@@ -5,32 +5,37 @@ const CHATS_KEY = 'aerolex_chats_v1';
 
 let inMemoryChats: ChatSession[] | null = null;
 
-export function getChats(): ChatSession[] {
-  if (inMemoryChats === null) {
-    // Synchronous fallback / Migration from localStorage
-    try {
+export async function initChats(): Promise<void> {
+  if (inMemoryChats !== null) return;
+  
+  try {
+    const dbChats = await get<ChatSession[]>(CHATS_KEY);
+    if (dbChats && dbChats.length > 0) {
+      inMemoryChats = dbChats;
+    } else {
+      // Synchronous fallback / Migration from localStorage
       const raw = localStorage.getItem(CHATS_KEY);
       if (raw) {
         inMemoryChats = JSON.parse(raw);
         // Async migration to IndexedDB
-        set(CHATS_KEY, inMemoryChats).catch(e => console.error("IDB migration failed", e));
+        set(CHATS_KEY, inMemoryChats)
+          .then(() => localStorage.removeItem(CHATS_KEY))
+          .catch(e => console.error("IDB migration failed", e));
       } else {
         inMemoryChats = [];
       }
-      
-      // Async initialization to load from IDB if it exists (takes priority next render)
-      get<ChatSession[]>(CHATS_KEY).then(dbChats => {
-        if (dbChats && dbChats.length > 0) {
-          inMemoryChats = dbChats;
-          window.dispatchEvent(new Event('chat_updated'));
-        }
-      });
-    } catch (e) {
-      console.error('Error loading chats', e);
-      inMemoryChats = [];
     }
+  } catch (e) {
+    console.error('Error initializing chats', e);
+    inMemoryChats = [];
   }
-  return inMemoryChats as ChatSession[];
+}
+
+export function getChats(): ChatSession[] {
+  if (inMemoryChats === null) {
+    inMemoryChats = []; // Fallback if called before init
+  }
+  return inMemoryChats;
 }
 
 export function saveChats(chats: ChatSession[]) {

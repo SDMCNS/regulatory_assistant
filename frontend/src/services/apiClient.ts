@@ -244,6 +244,51 @@ export async function searchKeywordRegulations(
 }
 
 /**
+ * GET /search/hybrid
+ * Reciprocal Rank Fusion of keyword and semantic search
+ */
+export async function searchHybridRegulations(
+  query: string,
+  topK: number = 5,
+  origin: RegulationOrigin = 'all',
+  settings: AppSettings = loadSettings()
+): Promise<KeywordSearchResponse[]> {
+  const clean = cleanUrl(settings.apiUrl);
+  const params = new URLSearchParams({
+    query: query.trim(),
+    top_k: String(topK),
+    origin: origin
+  });
+
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/search/hybrid?${params.toString()}`, {
+      method: 'GET',
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from ${targetBase}/search/hybrid: ${res.statusText}`);
+    }
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    throw new Error('Invalid response from /search/hybrid: expected an array');
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
  * GET /search/docs
  * Semantic search returning full markdown documents
  */

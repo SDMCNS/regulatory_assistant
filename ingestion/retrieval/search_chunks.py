@@ -121,24 +121,40 @@ def search_api(query: str, top_k: int = 5, origin: str = "all") -> list[dict]:
     if not db_path.exists():
         return []
 
+    from ingestion.retrieval.keyword_search import search_keywords
+    
+    # 1. Semantic Search (FAISS)
     vector_index = LocalVectorIndex()
     query_vector = get_query_embedding(query)
     
-    if not query_vector:
-        return []
-        
     search_k = top_k * 10 if origin != "all" else top_k
-    results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
-    
-    if not results:
-        return []
+    vector_results = []
+    if query_vector:
+        vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
         
+    # 2. Keyword Search (FTS5) - no LLM expansion to keep it fast
+    keyword_results = search_keywords(query, top_k=search_k, origin=origin, use_llm_expansion=False)
+    
+    # 3. Reciprocal Rank Fusion (RRF)
+    k = 60
+    rrf_scores = {}
+    
+    for rank, (chunk_id, _) in enumerate(vector_results):
+        rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (k + rank + 1)
+        
+    for rank, kw_res in enumerate(keyword_results):
+        chunk_id = kw_res["chunk_id"]
+        rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + 1.0 / (k + rank + 1)
+        
+    # Sort chunks by fused score
+    sorted_chunk_ids = [chunk_id for chunk_id, score in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)]
+    
     final_results = []
     
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         
-        for (chunk_id, score) in results:
+        for chunk_id in sorted_chunk_ids:
             if len(final_results) >= top_k:
                 break
                 
@@ -163,7 +179,7 @@ def search_api(query: str, top_k: int = 5, origin: str = "all") -> list[dict]:
                 path_list = json.loads(section_path)
                 final_results.append({
                     "chunk_id": chunk_id,
-                    "score": float(score),
+                    "score": rrf_scores[chunk_id],
                     "source": "EASA" if is_easa else "EU",
                     "document_id": doc_id,
                     "path": path_list,

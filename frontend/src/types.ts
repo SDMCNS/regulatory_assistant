@@ -5,7 +5,7 @@
 
 export type RegulationOrigin = 'all' | 'eu' | 'easa';
 
-export type SearchMethod = 'semantic' | 'docs' | 'keyword';
+export type SearchMethod = 'semantic' | 'docs' | 'keyword' | 'hybrid';
 
 export interface SearchResponse {
   chunk_id: string;

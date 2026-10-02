@@ -83,25 +83,37 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
     addMessageToChat(activeChatId, userMessage);
     setIsLoading(true);
 
-    try {
-      // Build memory context if enabled
-      let memoryContext = '';
-      let usedMemoryIds: string[] = [];
+    // Build memory context if enabled
+    let memoryContext = '';
+    let usedMemoryIds: string[] = [];
 
-      if (useMemoryInPrompt) {
-        const memBuild = buildMemoryContextPrompt(settings.maxMemoryContextItems);
-        memoryContext = memBuild.contextString;
-        usedMemoryIds = memBuild.usedItemIds;
+    if (useMemoryInPrompt) {
+      const memBuild = buildMemoryContextPrompt(settings.maxMemoryContextItems);
+      memoryContext = memBuild.contextString;
+      usedMemoryIds = memBuild.usedItemIds;
+    }
+    let result: any;
+      try {
+        // Live call to POST /llm/ask
+        result = await askLLM(
+          prompt,
+          targetedChunks.length > 0 ? targetedChunks : null,
+          savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
+          memoryContext,
+          settings
+        );
+      } catch (err: any) {
+        const errorMessage: ChatMessage = {
+          id: 'msg-err-' + Date.now(),
+          role: 'assistant',
+          content: `**API Error from \`${settings.apiUrl}/llm/ask\`**: ${err.message || 'Request failed'}.\n\nPlease check your FastAPI server or use the \`/api\` Vite Proxy preset in Settings.`,
+          timestamp: Date.now(),
+          isError: true,
+        };
+        addMessageToChat(activeChatId, errorMessage);
+        setIsLoading(false);
+        return;
       }
-
-      // Live call to POST /llm/ask
-      const result = await askLLM(
-        prompt,
-        targetedChunks.length > 0 ? targetedChunks : null,
-        savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
-        memoryContext,
-        settings
-      );
 
       // Search matching documents to provide rich citations from real API
       let matchedChunks: any[] = [];
@@ -125,41 +137,37 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
         usedMemoryItemIds: usedMemoryIds,
       };
 
-      addMessageToChat(activeChatId, assistantMessage);
+      try {
+        addMessageToChat(activeChatId, assistantMessage);
 
-      // Record this query into Query Memory
-      recordQuery({
-        query: prompt,
-        type: 'ask',
-        origin: settings.defaultOrigin,
-        top_k: settings.defaultTopK,
-        resultsCount: matchedChunks.length,
-        answerSnippet: result.answer.slice(0, 160).replace(/[#*`]/g, '') + '...',
-        fullAnswer: result.answer,
-        retrievedChunks: matchedChunks.map(c => ({
-          chunk_id: c.chunk_id,
-          document_id: c.document_id,
-          source: c.source,
-          path: c.path,
-          score: c.score
-        })),
-        isPinned: false,
-        isActiveInContext: true,
-      });
+        // Record this query into Query Memory
+        recordQuery({
+          query: prompt,
+          type: 'ask',
+          origin: settings.defaultOrigin,
+          top_k: settings.defaultTopK,
+          resultsCount: matchedChunks.length,
+          answerSnippet: result.answer.slice(0, 160).replace(/[#*`]/g, '') + '...',
+          fullAnswer: result.answer,
+          retrievedChunks: matchedChunks.map(c => ({
+            chunk_id: c.chunk_id,
+            document_id: c.document_id,
+            source: c.source,
+            path: c.path,
+            score: c.score
+          })),
+          isPinned: false,
+          isActiveInContext: true,
+        });
 
-      refreshMemoryState();
-    } catch (err: any) {
-      const errorMessage: ChatMessage = {
-        id: 'msg-err-' + Date.now(),
-        role: 'assistant',
-        content: `**API Error from \`${settings.apiUrl}/llm/ask\`**: ${err.message || 'Request failed'}.\n\nPlease check your FastAPI server or use the \`/api\` Vite Proxy preset in Settings.`,
-        timestamp: Date.now(),
-        isError: true,
-      };
-      addMessageToChat(activeChatId, errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
+        refreshMemoryState();
+      } catch (localErr: any) {
+        console.error("Failed to save local state:", localErr);
+        alert(`Failed to save chat to local storage. Your browser storage might be full.\n\nError: ${localErr.message}`);
+      } finally {
+        setIsLoading(false);
+      }
+
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

@@ -111,6 +111,14 @@ def main():
     cmd_embed = [sys.executable, "-m", "ingestion.retrieval.embed_chunks"]
     subprocess.run(cmd_embed, check=False)
     
+    # 6. Rebuild FTS Index for keyword search
+    print("\n" + "="*80)
+    print("6. REBUILDING FULL-TEXT SEARCH (FTS) INDEX")
+    print("="*80)
+    
+    cmd_rebuild_fts = [sys.executable, "-m", "ingestion.retrieval.rebuild_fts"]
+    subprocess.run(cmd_rebuild_fts, check=False)
+    
     print("\n" + "="*80)
     print("ALL PIPELINES COMPLETED SUCCESSFULLY")
     print("="*80)

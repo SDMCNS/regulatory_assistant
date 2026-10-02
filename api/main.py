@@ -18,6 +18,7 @@ import time
 # Import ingestion logic
 from ingestion.retrieval.search_chunks import search_api
 from ingestion.retrieval.keyword_search import search_keywords
+from ingestion.retrieval.hybrid_search import search_hybrid
 from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
 from ingestion.core.config import settings
 
@@ -202,6 +203,18 @@ def api_search_keyword(
     results = search_keywords(query=query, top_k=top_k, origin=origin, use_llm_expansion=use_llm)
     return results
 
+@app.get("/search/hybrid", response_model=List[KeywordSearchResponse], tags=["SEARCH"])
+def api_search_hybrid(
+    query: str = Query(..., description="The text to search for"),
+    top_k: int = Query(5, description="Number of results to return"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'")
+):
+    """
+    Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.
+    """
+    results = search_hybrid(query=query, top_k=top_k, origin=origin)
+    return results
+
 @app.post("/llm/ask", tags=["LLM"])
 def api_llm_ask(request: LLMAskRequest):
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
@@ -225,10 +238,28 @@ def api_llm_ask(request: LLMAskRequest):
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         for chunk_id in active_chunk_ids:
-            cursor.execute("SELECT text FROM chunks WHERE chunk_id = ?", (chunk_id,))
+            # Small-to-Big: Sliding Window Retrieval
+            cursor.execute("SELECT previous_chunk_id, next_chunk_id, source_text FROM chunks WHERE chunk_id = ?", (chunk_id,))
             row = cursor.fetchone()
             if row:
-                chunk_texts[chunk_id] = row[0]
+                prev_id, next_id, text = row
+                context_text = text
+                
+                # Fetch previous chunk for context
+                if prev_id:
+                    cursor.execute("SELECT source_text FROM chunks WHERE chunk_id = ?", (prev_id,))
+                    p_row = cursor.fetchone()
+                    if p_row:
+                        context_text = f"[Previous Context]\n{p_row[0]}\n\n[Matched Section]\n{context_text}"
+                        
+                # Fetch next chunk for context
+                if next_id:
+                    cursor.execute("SELECT source_text FROM chunks WHERE chunk_id = ?", (next_id,))
+                    n_row = cursor.fetchone()
+                    if n_row:
+                        context_text = f"{context_text}\n\n[Following Context]\n{n_row[0]}"
+                        
+                chunk_texts[chunk_id] = context_text
 
     context_str = ""
     # Process user supplied sections if available

@@ -8,6 +8,8 @@
  * - POST /llm/extract (JSON schema extraction)
  */
 
+import { get, set } from 'idb-keyval';
+
 import {
   AppSettings,
   ConnectionStatus,
@@ -207,6 +209,14 @@ export async function searchKeywordRegulations(
   useLLM: boolean = true,
   settings: AppSettings = loadSettings()
 ): Promise<KeywordSearchResponse[]> {
+  const cacheKey = `aerolex_search_cache_kw_${query}_${topK}_${origin}_${useLLM}`;
+  try {
+    const cached = await get<KeywordSearchResponse[]>(cacheKey);
+    if (cached) return cached;
+  } catch (err) {
+    console.warn("Search cache read error:", err);
+  }
+
   const clean = cleanUrl(settings.apiUrl);
   const params = new URLSearchParams({
     query: query.trim(),
@@ -229,7 +239,10 @@ export async function searchKeywordRegulations(
       throw new Error(`HTTP ${res.status} from ${targetBase}/search/keyword: ${res.statusText}`);
     }
     const data = await res.json();
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+      try { await set(cacheKey, data); } catch (e) { console.warn("Search cache write error:", e); }
+      return data;
+    }
     throw new Error('Invalid response from /search/keyword: expected an array');
   };
 
@@ -253,6 +266,14 @@ export async function searchHybridRegulations(
   origin: RegulationOrigin = 'all',
   settings: AppSettings = loadSettings()
 ): Promise<KeywordSearchResponse[]> {
+  const cacheKey = `aerolex_search_cache_hybrid_${query}_${topK}_${origin}`;
+  try {
+    const cached = await get<KeywordSearchResponse[]>(cacheKey);
+    if (cached) return cached;
+  } catch (err) {
+    console.warn("Search cache read error:", err);
+  }
+
   const clean = cleanUrl(settings.apiUrl);
   const params = new URLSearchParams({
     query: query.trim(),
@@ -274,7 +295,10 @@ export async function searchHybridRegulations(
       throw new Error(`HTTP ${res.status} from ${targetBase}/search/hybrid: ${res.statusText}`);
     }
     const data = await res.json();
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+      try { await set(cacheKey, data); } catch (e) { console.warn("Search cache write error:", e); }
+      return data;
+    }
     throw new Error('Invalid response from /search/hybrid: expected an array');
   };
 
@@ -298,6 +322,14 @@ export async function searchDocsRegulations(
   origin: RegulationOrigin = 'all',
   settings: AppSettings = loadSettings()
 ): Promise<SearchDocResponse[]> {
+  const cacheKey = `aerolex_search_cache_docs_${query}_${topK}_${origin}`;
+  try {
+    const cached = await get<SearchDocResponse[]>(cacheKey);
+    if (cached) return cached;
+  } catch (err) {
+    console.warn("Search cache read error:", err);
+  }
+
   const clean = cleanUrl(settings.apiUrl);
   const params = new URLSearchParams({
     query: query.trim(),
@@ -319,7 +351,10 @@ export async function searchDocsRegulations(
       throw new Error(`HTTP ${res.status} from ${targetBase}/search/docs: ${res.statusText}`);
     }
     const data = await res.json();
-    if (Array.isArray(data)) return data;
+    if (Array.isArray(data)) {
+      try { await set(cacheKey, data); } catch (e) { console.warn("Search cache write error:", e); }
+      return data;
+    }
     throw new Error('Invalid response from /search/docs: expected an array');
   };
 
@@ -341,6 +376,14 @@ export async function getDocumentMarkdown(
   documentId: string,
   settings: AppSettings = loadSettings()
 ): Promise<{ document_id: string; markdown_doc: string }> {
+  const cacheKey = `aerolex_doc_cache_${documentId}`;
+  try {
+    const cached = await get<{ document_id: string; markdown_doc: string }>(cacheKey);
+    if (cached) return cached;
+  } catch (err) {
+    console.warn("Doc cache read error:", err);
+  }
+
   const clean = cleanUrl(settings.apiUrl);
   
   const headers: Record<string, string> = { 'Accept': 'application/json' };
@@ -354,7 +397,13 @@ export async function getDocumentMarkdown(
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} from ${targetBase}/search/docs`);
     }
-    return await res.json();
+    const data = await res.json();
+    try {
+      await set(cacheKey, data);
+    } catch (err) {
+      console.warn("Doc cache write error:", err);
+    }
+    return data;
   };
 
   try {

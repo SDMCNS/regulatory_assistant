@@ -9,6 +9,7 @@ import { AskAssistant } from './components/AskAssistant';
 import { SearchExplorer } from './components/SearchExplorer';
 import { MemoryHub } from './components/MemoryHub';
 import { ExtractTool } from './components/ExtractTool';
+import { CacheExplorer } from './components/CacheExplorer';
 import { SettingsModal } from './components/SettingsModal';
 import { DocViewerModal } from './components/DocViewerModal';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
@@ -191,6 +192,13 @@ export default function App() {
         {activeTab === 'extract' && (
           <ExtractTool
             settings={settings}
+          />
+        )}
+
+        {activeTab === 'cache' && (
+          <CacheExplorer 
+            onViewDoc={(doc) => setSelectedDoc(doc)}
+            onAskAboutChunk={handleAskAboutChunk}
           />
         )}
       </main>

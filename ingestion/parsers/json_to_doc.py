@@ -354,6 +354,43 @@ def render_document(json_path: Path, with_sections: bool = True) -> str:
     If with_sections=True (default), introduces section break delimiters
     with embedded JSON metadata for frontend section rendering.
     """
+    
+    # Check if this is a multi-part formex file
+    is_formex_part = ".fmx.json" in json_path.name and not json_path.name.endswith(".chunks.json")
+    if is_formex_part:
+        # Extract base name like L_202601821EN
+        base_name = json_path.name.split('.')[0]
+        # Find all sibling parts
+        siblings = [f for f in json_path.parent.glob(f"{base_name}.*.fmx.json") if not f.name.endswith('.chunks.json')]
+        
+        if len(siblings) > 1:
+            # It is a multi-part document, render them in order
+            # The .doc.fmx.json should ideally be first.
+            doc_file = json_path.parent / f"{base_name}.doc.fmx.json"
+            other_files = sorted([f for f in siblings if f != doc_file])
+            
+            all_files_to_render = []
+            if doc_file.exists():
+                all_files_to_render.append(doc_file)
+            all_files_to_render.extend(other_files)
+            
+            full_md = []
+            for f_path in all_files_to_render:
+                with open(f_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and data.get("format") == "formex":
+                    md_text = render_formex(data, with_sections=with_sections)
+                    
+                    # Prevent duplicate "# DOCUMENT:" headers for parts other than the first
+                    if len(full_md) > 0 and md_text.startswith("# DOCUMENT:"):
+                        lines = md_text.split('\n')
+                        # strip the "# DOCUMENT: ..." line
+                        md_text = "\n".join(lines[1:]).lstrip()
+
+                    full_md.append(md_text.strip())
+                
+            return "\n\n".join(full_md)
+
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
         

@@ -7,7 +7,7 @@ import React from 'react';
 import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap } from 'lucide-react';
 import { ConnectionStatus } from '../types';
 
-export type ActiveTab = 'assistant' | 'search' | 'memory' | 'extract';
+export type ActiveTab = 'assistant' | 'search' | 'memory' | 'extract' | 'cache';
 
 interface TopBarProps {
   activeTab: ActiveTab;
@@ -94,6 +94,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           Schema Extractor
+        </button>
+
+        <button
+          onClick={() => onSelectTab('cache')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap hidden lg:block ${
+            activeTab === 'cache'
+              ? 'bg-slate-800 text-sky-400 shadow-sm border border-slate-700/60'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Local Cache
         </button>
       </nav>
 

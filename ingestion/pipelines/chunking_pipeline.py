@@ -62,10 +62,10 @@ class ChunkerPipeline:
         
         # We need to walk the tree. 
         # For simplicity, let's define a recursive function.
-        def walk(node, context_path, context_numbers, parent_id=None):
+        def walk(node, context_path, context_numbers, parent_id=None, effective_type=None):
             if isinstance(node, list):
                 for child in node:
-                    walk(child, context_path, context_numbers, parent_id)
+                    walk(child, context_path, context_numbers, parent_id, effective_type)
                 return
 
             if not isinstance(node, dict):
@@ -73,6 +73,11 @@ class ChunkerPipeline:
                 
             node_type = node.get("type")
             text = node.get("text", "").strip()
+            
+            # Determine effective block type for children
+            current_effective_type = effective_type
+            if node_type in ["paragraph", "item", "article", "section"]:
+                current_effective_type = node_type
             
             # Build context
             new_path = list(context_path)
@@ -106,10 +111,15 @@ class ChunkerPipeline:
                     embedding_text += "Context:\n" + "\n".join([f"- {p}" for p in new_path]) + "\n\n"
                 embedding_text += f"{text}"
                 
+                # Use effective_type if node_type is just generic text
+                use_type = node_type
+                if node_type == "text" and current_effective_type in ["item", "paragraph"]:
+                    use_type = current_effective_type
+                    
                 chunk = {
                     "chunk_id": chunk_id,
                     "document_id": document_id,
-                    "chunk_type": node_type,
+                    "chunk_type": use_type,
                     "section_path": json.dumps(new_path),
                     "section_numbers": json.dumps(new_numbers),
                     "source_text": text,
@@ -126,19 +136,19 @@ class ChunkerPipeline:
                 
             # Recurse
             if "content" in node:
-                walk(node["content"], new_path, new_numbers, current_id)
+                walk(node["content"], new_path, new_numbers, current_id, current_effective_type)
             if "items" in node:
-                walk(node["items"], new_path, new_numbers, current_id)
+                walk(node["items"], new_path, new_numbers, current_id, current_effective_type)
             if "children" in node:
-                walk(node["children"], new_path, new_numbers, current_id)
+                walk(node["children"], new_path, new_numbers, current_id, current_effective_type)
 
         # Walk preamble
         if "preamble" in data:
-            walk(data["preamble"].get("recitals", []), ["Preamble", "Recitals"], [], None)
+            walk(data["preamble"].get("recitals", []), ["Preamble", "Recitals"], [], None, None)
             
         # Walk body
         if "body" in data:
-            walk(data["body"], ["Body"], [], None)
+            walk(data["body"], ["Body"], [], None, None)
             
         # Post-process: merge lists for clarity
         # If a chunk ends with ':', merge it with its logical child items

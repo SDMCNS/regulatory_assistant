@@ -28,8 +28,21 @@ This API provides a semantic search and LLM (Large Language Model) querying inte
    - **Section Context:** You can provide `context_sections` (custom sections of text selected by the user) to provide direct context to the LLM and bypass the backend retrieval entirely.
    - **Auto-Search:** If no `chunk_ids` or `context_sections` are provided, the API automatically performs a semantic search behind the scenes, retrieves the relevant documents, and asks the LLM to answer the question based on that context.
 
-5. **Structured Extraction (`POST /llm/extract`)**
-   Send an unstructured `text` string and a `json_schema` definition. The API prompts the LLM to extract information from the text and guarantees the response is formatted as a valid JSON object matching the provided schema.
+### RESEARCH Operations
+6. **Autonomous Deep Research (`POST /research/jobs`, `GET /research/jobs`, `GET /research/jobs/{job_id}`)**
+   Empowers clients to conduct non-blocking, recursive exploration across the entire regulatory database:
+   - `POST /research/jobs`: Queues an asynchronous deep research job with `query`, `recursion_level` (1-3), and optional cloud LLM parameters (`gemini_api_key`, `gemini_model`). Supports scientific multi-perspective synthesis (questioning, validating, and negating selected chunks).
+   - `GET /research/jobs`: Returns a lightweight list of historical and active research jobs.
+   - `GET /research/jobs/{job_id}`: Returns the full report in markdown, list of consulted regulations, and a dictionary of referenced chunk texts supporting interactive tooltips and citation traceability (`[Citation](chunk:CHUNK_ID)`).
+   - `DELETE /research/jobs/{job_id}`: Removes a research job from the persistent SQLite queue.
+   - `POST /research/validate-gemini`: Validates connectivity and API key verification for Google Gemini Cloud models.
+
+### REGULATIONS Operations
+7. **Regulations Catalog & Dedicated Workspace (`/regulations/...`)**
+   - `GET /regulations/catalog`: Browse, filter by origin (`eu` / `easa`), and search the complete regulation catalog at the title level.
+   - `POST /regulations/batch-download`: Fetch full markdown representations of multiple selected regulations for in-app offline caching via IndexedDB or external export.
+   - `POST /regulations/workspace-fts`: High-speed SQLite FTS5 search restricted specifically to selected active workspace regulations, computing cross-document overlap metrics, shared terms, and matching clauses.
 
 ## Integration Note
 An OpenAPI 3.1 schema is provided alongside this document (`api_schema.json`), which can be directly imported into Google AI Studio, Postman, or used to automatically generate client-side TypeScript/JavaScript SDKs for your Single Page App.
+

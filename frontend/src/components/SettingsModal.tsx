@@ -3,9 +3,9 @@
  */
 
 import React, { useState } from 'react';
-import { X, Check, RefreshCw, AlertTriangle, ShieldCheck, Database, HardDrive, Terminal } from 'lucide-react';
+import { X, Check, RefreshCw, AlertTriangle, ShieldCheck, Database, HardDrive, Terminal, Sparkles, Cloud, Cpu, Eye, EyeOff } from 'lucide-react';
 import { AppSettings, ConnectionStatus } from '../types';
-import { pingFastApi, saveSettings } from '../services/apiClient';
+import { pingFastApi, saveSettings, testGeminiApiKey } from '../services/apiClient';
 import { clearMemory, getQueryMemory } from '../services/memoryService';
 
 interface SettingsModalProps {
@@ -25,11 +25,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   connectionStatus,
   onConnectionChange,
 }) => {
-  const [form, setForm] = useState<AppSettings>(settings);
+  const [form, setForm] = useState<AppSettings>(() => {
+    const initial = { ...settings };
+    if (!initial.geminiModel || initial.geminiModel.startsWith('gemini-1.') || initial.geminiModel.startsWith('gemini-2.')) {
+      initial.geminiModel = 'gemini-3.5-flash';
+    }
+    return initial;
+  });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionStatus | null>(connectionStatus);
   const [memoryCount, setMemoryCount] = useState<number>(() => getQueryMemory().length);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // Gemini Settings state
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [testingGemini, setTestingGemini] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string; model?: string } | null>(null);
 
   if (!isOpen) return null;
 
@@ -52,6 +63,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleTestGemini = async () => {
+    if (!form.geminiApiKey?.trim()) {
+      setGeminiTestResult({
+        success: false,
+        message: 'Please enter a Gemini API Key first before testing.'
+      });
+      return;
+    }
+    setTestingGemini(true);
+    setGeminiTestResult(null);
+    try {
+      const res = await testGeminiApiKey(form.geminiApiKey, form.geminiModel || 'gemini-3.5-flash', form);
+      setGeminiTestResult(res);
+    } catch (e: any) {
+      setGeminiTestResult({
+        success: false,
+        message: e.message || 'Failed to connect to Gemini API endpoint.'
+      });
+    } finally {
+      setTestingGemini(false);
+    }
+  };
+
   const handleSave = () => {
     saveSettings(form);
     onSaveSettings(form);
@@ -63,6 +97,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setMemoryCount(getQueryMemory().length);
     setShowClearConfirm(false);
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -207,7 +242,223 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          {/* Section 3: Query Memory Preferences */}
+          {/* Section 3: Deep Research Engine & Cloud Acceleration */}
+          <div className="space-y-4 pt-4 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Deep Research Engine & Cloud Acceleration
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 font-medium">
+                Research Activity
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Configure the reasoning engine for recursive regulatory research and adversarial chunk evaluation.
+              Standard assistant queries and keyword search remain 100% local on your LM Studio instance.
+            </p>
+
+            {/* Provider Selection Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Local Option */}
+              <div
+                onClick={() => setForm({ ...form, researchProvider: 'local' })}
+                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  (form.researchProvider || 'local') === 'local'
+                    ? 'bg-slate-850 border-indigo-500/80 shadow-sm shadow-indigo-950/40'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-slate-300" />
+                    <span className="text-xs font-semibold text-slate-200">Local LLM (LM Studio)</span>
+                  </div>
+                  <input
+                    type="radio"
+                    name="researchProvider"
+                    checked={(form.researchProvider || 'local') === 'local'}
+                    onChange={() => setForm({ ...form, researchProvider: 'local' })}
+                    className="accent-indigo-500"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  100% on-device local execution using your local LLM model (e.g. Gemma 4). Fully private with zero cloud communication.
+                </p>
+              </div>
+
+              {/* Gemini Cloud Option */}
+              <div
+                onClick={() => setForm({ ...form, researchProvider: 'gemini' })}
+                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  form.researchProvider === 'gemini'
+                    ? 'bg-indigo-950/40 border-indigo-500/80 shadow-sm shadow-indigo-950/40'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <span className="text-xs font-semibold text-white">Google Gemini Cloud</span>
+                  </div>
+                  <input
+                    type="radio"
+                    name="researchProvider"
+                    checked={form.researchProvider === 'gemini'}
+                    onChange={() => setForm({ ...form, researchProvider: 'gemini' })}
+                    className="accent-indigo-500"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Cloud reasoning acceleration for deep multi-pass research, adversarial chunk falsification, and comprehensive report synthesis.
+                </p>
+              </div>
+            </div>
+
+            {/* Gemini Configuration Drawer */}
+            {form.researchProvider === 'gemini' && (
+              <div className="p-4 bg-slate-950/90 rounded-xl border border-indigo-900/60 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                {/* Gemini API Key */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-300">
+                      Google Gemini API Key
+                    </label>
+                    <a
+                      href="https://aistudio.google.com/app/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline"
+                    >
+                      Get API Key (Google AI Studio) &rarr;
+                    </a>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showGeminiKey ? 'text' : 'password'}
+                        value={form.geminiApiKey || ''}
+                        onChange={(e) => setForm({ ...form, geminiApiKey: e.target.value })}
+                        placeholder="AIzaSy... or AQ.Ab8..."
+                        className="w-full px-3 py-2 pr-9 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowGeminiKey(!showGeminiKey)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      >
+                        {showGeminiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleTestGemini}
+                      disabled={testingGemini}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap shadow-sm"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${testingGemini ? 'animate-spin' : ''}`} />
+                      <span>{testingGemini ? 'Verifying...' : 'Test Key'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Gemini Model Selection */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-medium text-slate-300">
+                      Gemini Model for Research
+                    </label>
+                    <span className="text-[10px] font-mono text-indigo-400">
+                      Active: {form.geminiModel || 'gemini-3.5-flash'}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    <select
+                      value={
+                        ['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'].includes(form.geminiModel || '')
+                          ? form.geminiModel
+                          : 'custom'
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== 'custom') {
+                          setForm({ ...form, geminiModel: val });
+                        }
+                      }}
+                      className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                    >
+                      <option value="gemini-3.5-flash">gemini-3.5-flash (Recommended: High Availability & Speed)</option>
+                      <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-fast & Lightweight)</option>
+                      <option value="gemini-3.8-flash">gemini-3.8-flash (Reasoning Thinking Model)</option>
+                      <option value="gemini-3.6-flash">gemini-3.6-flash (Stable Standard)</option>
+                      <option value="gemini-3.7-flash">gemini-3.7-flash (Multimodal Reasoning)</option>
+                      <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Deep Pro Synthesis)</option>
+                      <option value="custom">Custom Model Identifier...</option>
+                    </select>
+
+                    {/* Custom Model Input if selected or non-standard */}
+                    {(!['gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'].includes(form.geminiModel || '') ||
+                      form.geminiModel === 'custom') && (
+                      <input
+                        type="text"
+                        value={form.geminiModel === 'custom' ? '' : form.geminiModel || ''}
+                        onChange={(e) => setForm({ ...form, geminiModel: e.target.value })}
+                        placeholder="e.g. gemini-3.5-flash or fine-tuned model"
+                        className="w-full px-3 py-1.5 text-xs bg-slate-900 border border-indigo-700/60 rounded-lg text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Test Result Indicator */}
+                {geminiTestResult && (() => {
+                  const isSuccess = Boolean(
+                    geminiTestResult.success === true ||
+                    (geminiTestResult as any).status === 'connected' ||
+                    (typeof geminiTestResult.message === 'string' && geminiTestResult.message.toLowerCase().includes('successfully connected'))
+                  );
+                  return (
+                    <div
+                      className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
+                        isSuccess
+                          ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                          : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                      }`}
+                    >
+                      {isSuccess ? (
+                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="space-y-0.5">
+                        <div className="font-semibold">
+                          {isSuccess ? 'Gemini API Connected Successfully' : 'Gemini Validation Failed'}
+                        </div>
+                        <div className="text-[11px] opacity-90">{geminiTestResult.message}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Scientific Rigor Assurance Notice */}
+                <div className="text-[11px] text-slate-400 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80 space-y-1">
+                  <div className="flex items-center gap-1.5 text-indigo-300 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Scientific Falsification & Adversarial Negation Enabled</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    The research engine actively audits retrieved regulatory chunks, rejecting out-of-scope material (e.g. VTOL airworthiness chunks on CNS queries) and iteratively formulating refined searches to guarantee high-value citations.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Section 4: Query Memory Preferences */}
           <div className="space-y-4 pt-4 border-t border-slate-800">
             <div className="flex items-center gap-2">
               <Database className="w-4 h-4 text-sky-400" />
@@ -215,6 +466,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 User Query Memory & Context Retention
               </h3>
             </div>
+
 
             <div className="flex items-start justify-between gap-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800">
               <div className="space-y-0.5">

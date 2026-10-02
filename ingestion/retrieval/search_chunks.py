@@ -20,7 +20,7 @@ def get_query_embedding(query: str) -> list[float]:
         "model": settings.EMBEDDING_MODEL_NAME
     }
     try:
-        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload)
+        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload, timeout=10)
         response.raise_for_status()
         data = response.json()
         return data["data"][0]["embedding"]
@@ -28,9 +28,31 @@ def get_query_embedding(query: str) -> list[float]:
         print(f"Failed to generate query embedding: {e}")
         return []
 
-def generate_hyde_document(query: str, timeout: int = 5) -> str:
+def get_embeddings_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
+    if not texts:
+        return []
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        payload = {
+            "input": batch,
+            "model": settings.EMBEDDING_MODEL_NAME
+        }
+        try:
+            response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload, timeout=25)
+            response.raise_for_status()
+            data = response.json()
+            all_embeddings.extend([item["embedding"] for item in data["data"]])
+        except Exception as e:
+            print(f"Failed to generate batch embeddings for slice {i}-{i+len(batch)}: {e}")
+            all_embeddings.extend([[] for _ in batch])
+    return all_embeddings
+
+
+def generate_hyde_document(query: str, timeout: int = 15) -> str:
     """
     Generates a hypothetical document (HyDE) using the local LLM.
+    Guarantees safe fallback to the original query if generation is empty or truncated.
     """
     prompt = (
         f"You are an expert on aviation regulations (EASA and EU).\n"
@@ -46,7 +68,7 @@ def generate_hyde_document(query: str, timeout: int = 5) -> str:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,
-        "max_tokens": 200
+        "max_tokens": 512
     }
     
     try:
@@ -57,10 +79,17 @@ def generate_hyde_document(query: str, timeout: int = 5) -> str:
         )
         if response.status_code == 200:
             data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            choice = data["choices"][0]["message"]
+            content = (choice.get("content") or "").strip()
+            # If model used internal thinking and content is sparse, fallback to reasoning content or query
+            if not content or len(content) < 25:
+                reasoning = (choice.get("reasoning_content") or "").strip()
+                if reasoning and len(reasoning) >= 25:
+                    content = reasoning
+            if content and len(content) >= 25:
+                return content
     except Exception as e:
         print(f"HyDE generation failed: {e}")
-        pass
         
     return query
 
@@ -162,15 +191,17 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
     
     if use_hyde:
         hyde_doc = generate_hyde_document(query)
-        print(f"HyDE Document generated: {hyde_doc}")
+        if not hyde_doc or len(hyde_doc.strip()) < 15:
+            hyde_doc = query
         query_vector = get_query_embedding(hyde_doc)
     else:
         query_vector = get_query_embedding(query)
     
+    if not query_vector:
+        return []
+    
     search_k = top_k * 10 if origin != "all" else top_k
-    vector_results = []
-    if query_vector:
-        vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
+    vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
         
     final_results = []
     
@@ -182,7 +213,7 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
                 break
                 
             cursor.execute("""
-                SELECT c.document_id, c.section_path, c.source_text, d.metadata_json 
+                SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
                 WHERE c.chunk_id = ?
@@ -190,7 +221,7 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
             row = cursor.fetchone()
             
             if row:
-                doc_id, section_path, source_text, meta_json = row
+                doc_id, section_path, source_text, meta_json, doc_title = row
                 is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
                 
                 if origin == "eu" and is_easa:
@@ -198,8 +229,26 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
                 if origin == "easa" and not is_easa:
                     continue
                 
+                # Fetch parent title if this is an ANNEX or lacks a good title
+                if not doc_title or str(doc_title).upper().startswith("ANNEX") or str(doc_title).upper().startswith("APPENDIX"):
+                    prefix = doc_id.split(".")[0] + "%"
+                    cursor.execute("""
+                        SELECT title FROM documents 
+                        WHERE document_id <= ? AND document_id LIKE ? 
+                          AND title NOT LIKE 'ANNEX%' 
+                          AND title NOT LIKE 'APPENDIX%'
+                        ORDER BY document_id DESC LIMIT 1
+                    """, (doc_id, prefix))
+                    p_row = cursor.fetchone()
+                    if p_row and p_row[0]:
+                        doc_title = p_row[0]
+
                 import json
                 path_list = json.loads(section_path)
+                meta_dict = json.loads(meta_json) if meta_json else {}
+                if doc_title:
+                    meta_dict["document_title"] = doc_title
+
                 final_results.append({
                     "chunk_id": chunk_id,
                     "score": float(score),
@@ -207,7 +256,7 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
                     "document_id": doc_id,
                     "path": path_list,
                     "text": source_text,
-                    "metadata": json.loads(meta_json) if meta_json else {}
+                    "metadata": meta_dict
                 })
                 
     return final_results

@@ -16,29 +16,29 @@ from typing import List, Dict, Any, Optional
 import time
 
 # Import ingestion logic
-from ingestion.retrieval.search_chunks import search_semantic
+from ingestion.retrieval.search_chunks import search_semantic, get_query_embedding, get_embeddings_batch
 from ingestion.retrieval.keyword_search import search_keywords
 from ingestion.retrieval.hybrid_search import search_hybrid
 from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
 from ingestion.core.config import settings
 
-def log_debug_info(event: str, data: Any):
-    log_file = settings.LOGS_DIR / "llm_debug.log"
-    try:
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} | {event} ---\n")
-            if isinstance(data, (dict, list)):
-                f.write(json.dumps(data, indent=2))
-            else:
-                f.write(str(data))
-            f.write("\n\n")
-    except Exception as e:
-        print(f"Failed to write to debug log: {e}")
+# Shared API utilities
+from api.utils import log_debug_info, call_lm_studio_chat, cosine_similarity, get_document_metadata
+from api import research
+from api import regulations
 
 tags_metadata = [
     {
+        "name": "REGULATIONS",
+        "description": "Regulation catalog, multi-select download, and workspace FTS cross-document overlap analysis."
+    },
+    {
         "name": "SEARCH",
         "description": "Regulatory search operations (semantic vector search and SQLite FTS5 BM25 keyword search)."
+    },
+    {
+        "name": "RESEARCH",
+        "description": "Autonomous Deep Regulatory Research with recursive background jobs and citation tracking."
     },
     {
         "name": "LLM",
@@ -51,6 +51,8 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=tags_metadata
 )
+app.include_router(research.router, prefix="/research", tags=["RESEARCH"])
+app.include_router(regulations.router, prefix="/regulations", tags=["REGULATIONS"])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -96,41 +98,6 @@ def get_markdown_for_doc(document_id: str) -> str:
         print(f"Failed to render document {document_id}: {e}")
         return ""
 
-def call_lm_studio_chat(messages: List[dict], schema: Optional[dict] = None) -> str:
-    if schema:
-        schema_prompt = f"\n\nYou MUST return ONLY a JSON object that adheres to the following JSON schema:\n{json.dumps(schema, indent=2)}"
-        if messages and messages[0]["role"] == "system":
-            messages[0]["content"] += schema_prompt
-        else:
-            messages.insert(0, {"role": "system", "content": schema_prompt})
-
-    payload = {
-        "model": settings.LLM_MODEL_NAME,
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 2048,
-        "stream": False
-    }
-    
-    if schema:
-        payload["response_format"] = {
-            "type": "json_object"
-        }
-        
-    try:
-        log_debug_info("RAW LLM PAYLOAD", payload)
-        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/chat/completions", json=payload)
-        response.raise_for_status()
-        data = response.json()
-        log_debug_info("RAW LLM RESPONSE", data)
-        return data["choices"][0]["message"]["content"]
-    except requests.exceptions.HTTPError as e:
-        log_debug_info("LLM HTTP ERROR", e.response.text)
-        print(f"HTTPError from LM Studio: {e.response.text}")
-        raise HTTPException(status_code=500, detail=f"LLM API Error: {e.response.text}")
-    except Exception as e:
-        log_debug_info("LLM EXCEPTION", str(e))
-        raise HTTPException(status_code=500, detail=f"LLM call failed: {str(e)}")
 
 @app.get("/search", response_model=List[SearchResponse], tags=["SEARCH"])
 def api_search(
@@ -149,7 +116,7 @@ def api_search_docs(
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)")
 ):
-    results = search_semantic(query, top_k, origin, use_hyde=use_hyde)
+    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde)
     
     enriched_results = []
     for r in results:
@@ -159,18 +126,45 @@ def api_search_docs(
         
     return enriched_results
 
+
 @app.get("/search/docs/{document_id:path}", tags=["SEARCH"])
-def api_get_doc_markdown(document_id: str):
+def api_get_doc_markdown(
+    document_id: str, 
+    query: str = Query(None, description="Optional search query to semantically score sections")
+):
     """
-    Retrieve just the full markdown document for a specific document_id.
+    Retrieve full markdown document and optionally semantic scores for its sections.
     """
     json_path = find_json_file(document_id)
     if not json_path:
         raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
     md_text = render_document(json_path)
+    
+    section_scores = []
+    if query:
+        # Get sections
+        sections = parse_document_sections(md_text)
+        
+        # Get query embedding
+        q_vec = get_query_embedding(query)
+        if q_vec:
+            # Batch embed sections
+            sec_texts = [s["markdown"] for s in sections]
+            # Since some documents are large, we might want to batch this, but for now we send all
+            sec_vecs = get_embeddings_batch(sec_texts)
+            
+            for s, v in zip(sections, sec_vecs):
+                score = cosine_similarity(q_vec, v) if v else 0.0
+                section_scores.append({
+                    "sectionId": s["id"],
+                    "score": score
+                })
+                
     return {
         "document_id": document_id,
-        "markdown_doc": md_text
+        "markdown_doc": md_text,
+        "metadata": get_document_metadata(document_id),
+        "section_scores": section_scores
     }
 
 @app.get("/search/docs/{document_id:path}/sections", tags=["SEARCH"])
@@ -233,7 +227,7 @@ def api_llm_ask(request: LLMAskRequest):
         
     if not active_chunk_ids and (not request.context_sections or len(request.context_sections) == 0):
         log_debug_info("API /llm/ask - DOING AUTO SEARCH", request.prompt)
-        search_results = search_semantic(request.prompt, top_k=3, use_hyde=True)
+        search_results = search_hybrid(request.prompt, top_k=5, use_hyde=False)
         active_chunk_ids = [res["chunk_id"] for res in search_results]
 
     log_debug_info("API /llm/ask - INCOMING/AUTO CHUNK IDs", active_chunk_ids)

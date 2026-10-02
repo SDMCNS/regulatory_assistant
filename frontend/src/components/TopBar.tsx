@@ -7,7 +7,7 @@ import React from 'react';
 import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap } from 'lucide-react';
 import { ConnectionStatus } from '../types';
 
-export type ActiveTab = 'assistant' | 'search' | 'memory' | 'extract' | 'cache';
+export type ActiveTab = 'assistant' | 'search' | 'research' | 'workspace' | 'memory' | 'extract' | 'cache';
 
 interface TopBarProps {
   activeTab: ActiveTab;
@@ -67,6 +67,28 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           Regulation Search
+        </button>
+
+        <button
+          onClick={() => onSelectTab('research')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            activeTab === 'research'
+              ? 'bg-slate-800 text-indigo-400 shadow-sm border border-slate-700/60'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Deep Research
+        </button>
+
+        <button
+          onClick={() => onSelectTab('workspace')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            activeTab === 'workspace'
+              ? 'bg-slate-800 text-emerald-400 shadow-sm border border-slate-700/60'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Workspace
         </button>
 
         <button

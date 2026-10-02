@@ -16,7 +16,8 @@ import {
   SearchDocResponse, SearchMethod, SearchResponse 
 } from '../types';
 import { 
-  searchDocsRegulations, searchKeywordRegulations, searchRegulations, searchHybridRegulations
+  searchDocsRegulations, searchKeywordRegulations, searchRegulations, searchHybridRegulations,
+  getDocumentMarkdown
 } from '../services/apiClient';
 import { recordQuery } from '../services/memoryService';
 
@@ -147,20 +148,15 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
     // Otherwise fetch the full doc representation via /search/docs for this document
     setLoadingDocId(item.chunk_id);
     try {
-      const docResults = await searchDocsRegulations(item.chunk_id, 1, origin, settings);
-      if (docResults.length > 0) {
-        onViewDoc(docResults[0]);
-      } else {
-        // Fallback: construct document viewer with available chunk text
-        onViewDoc({
-          ...item,
-          markdown_doc: `# ${item.document_id}\n\n${item.path.join(' > ')}\n\n---\n\n${item.text}`
-        });
-      }
+      const docResult = await getDocumentMarkdown(item.document_id, settings);
+      onViewDoc({
+        ...item,
+        markdown_doc: docResult.markdown_doc
+      });
     } catch (e: any) {
       onViewDoc({
         ...item,
-        markdown_doc: `# ${item.document_id}\n\n${item.path.join(' > ')}\n\n---\n\n${item.text}`
+        markdown_doc: `# ${item.metadata?.title || item.metadata?.document_title || item.document_id}\n\n${item.path.join(' > ')}\n\n---\n\n${item.text}`
       });
     } finally {
       setLoadingDocId(null);
@@ -471,7 +467,7 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         <span className="font-mono text-slate-500">{doc.chunk_id}</span>
                       </div>
                       <h3 className="text-sm font-semibold text-slate-100 pl-6 cursor-pointer hover:text-sky-300 transition-colors" onClick={() => toggleCollapse(doc.chunk_id)}>
-                        {doc.path[doc.path.length - 1] || doc.chunk_id}
+                        {doc.metadata?.title || doc.metadata?.document_title || doc.path[doc.path.length - 1] || doc.chunk_id}
                       </h3>
                     </div>
 
@@ -505,14 +501,24 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                       {/* Hierarchical Breadcrumb */}
                       {doc.path && doc.path.length > 0 && (
                         <div className="text-xs text-slate-400 mb-3 bg-slate-950/40 p-1.5 rounded border border-slate-800/40 overflow-x-auto whitespace-nowrap ml-6">
-                          {doc.path.map((step, idx) => (
-                            <React.Fragment key={idx}>
-                              {idx > 0 && <span className="mx-1 text-slate-600">/</span>}
-                              <span className={idx === doc.path.length - 1 ? 'text-slate-300 font-medium' : 'text-slate-500'}>
-                                {step}
-                              </span>
-                            </React.Fragment>
-                          ))}
+                          {doc.metadata?.document_title && (
+                            <>
+                              <span className="text-slate-400 font-medium">{doc.metadata.document_title}</span>
+                              <span className="mx-1 text-slate-600">/</span>
+                            </>
+                          )}
+                          {doc.path.map((step, idx) => {
+                            // If the first path item is just the chunk_id, skip it if we already have the doc title
+                            if (idx === 0 && doc.metadata?.document_title && step.includes(':')) return null;
+                            return (
+                              <React.Fragment key={idx}>
+                                {(idx > 0 || (idx === 0 && !doc.metadata?.document_title && !step.includes(':'))) && <span className="mx-1 text-slate-600">/</span>}
+                                <span className={idx === doc.path.length - 1 ? 'text-slate-300 font-medium' : 'text-slate-500'}>
+                                  {step}
+                                </span>
+                              </React.Fragment>
+                            );
+                          })}
                         </div>
                       )}
 

@@ -118,7 +118,7 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
       // Search matching documents to provide rich citations from real API
       let matchedChunks: any[] = [];
       try {
-        const rawChunks = await searchRegulations(prompt, 3, settings.defaultOrigin, settings);
+        const rawChunks = await searchRegulations(prompt, 3, settings.defaultOrigin, false, settings);
         // Strip heavy fields to prevent blowing up localStorage quota
         matchedChunks = rawChunks.map(c => {
           const { text, metadata, ...lightweightChunk } = c as any;

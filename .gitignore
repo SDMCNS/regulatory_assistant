@@ -18,9 +18,11 @@ ingestion/data/
 *.db
 *.sqlite3
 
-# Logs
+# Logs & Generated Summaries
 *.log
 ingestion/logs/
+ingested_regulations_summary.txt
+
 
 # Env Variables
 .env

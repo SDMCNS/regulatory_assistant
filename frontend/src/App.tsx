@@ -12,6 +12,8 @@ import { ExtractTool } from './components/ExtractTool';
 import { CacheExplorer } from './components/CacheExplorer';
 import { SettingsModal } from './components/SettingsModal';
 import { DocViewerModal } from './components/DocViewerModal';
+import { ResearchTab } from './components/ResearchTab';
+import { RegulationsWorkspace } from './components/RegulationsWorkspace';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
 import { getQueryMemory, initMemory } from './services/memoryService';
@@ -27,6 +29,8 @@ export default function App() {
   const [isPinging, setIsPinging] = useState(false);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [activeSearchQuery, setActiveSearchQuery] = useState<string>('');
+  const [workspaceInitialDocs, setWorkspaceInitialDocs] = useState<string[]>([]);
+  const [workspaceInitialQuery, setWorkspaceInitialQuery] = useState<string>('');
   const [isStoreReady, setIsStoreReady] = useState(false);
 
   // Initialize activeChatId
@@ -118,6 +122,14 @@ export default function App() {
     setActiveTab('assistant');
   };
 
+  const handleOpenWorkspaceWithDocs = (documentIds: string[], initialQuery?: string) => {
+    setWorkspaceInitialDocs(documentIds);
+    if (initialQuery) {
+      setWorkspaceInitialQuery(initialQuery);
+    }
+    setActiveTab('workspace');
+  };
+
   if (!isStoreReady) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">
@@ -176,8 +188,36 @@ export default function App() {
                   wordCount: chunk.text.split(/\s+/).length,
                 };
                 addSectionToChat(activeChatId, section);
-                // Removed setActiveTab('assistant') so user can continue bookmarking from search results
               }
+            }}
+          />
+        )}
+
+        {activeTab === 'research' && (
+          <ResearchTab
+            settings={settings}
+            onViewDoc={(doc) => setSelectedDoc(doc)}
+            onAskAboutChunk={handleAskAboutChunk}
+            onOpenWorkspaceWithDocs={handleOpenWorkspaceWithDocs}
+          />
+        )}
+
+        {activeTab === 'workspace' && (
+          <RegulationsWorkspace
+            settings={settings}
+            onViewDoc={(doc) => setSelectedDoc(doc)}
+            onAskAboutChunk={handleAskAboutChunk}
+            onSendToAssistant={(prompt, chunkIds) => {
+              if (chunkIds && chunkIds.length > 0) {
+                setTargetedChunks(chunkIds);
+              }
+              setActiveTab('assistant');
+            }}
+            initialSelectedDocIds={workspaceInitialDocs}
+            initialQuery={workspaceInitialQuery}
+            onClearInitialContext={() => {
+              setWorkspaceInitialDocs([]);
+              setWorkspaceInitialQuery('');
             }}
           />
         )}
@@ -218,6 +258,7 @@ export default function App() {
         doc={selectedDoc}
         onClose={() => setSelectedDoc(null)}
         onAskAboutChunk={handleAskAboutChunk}
+        initialSearchQuery={activeSearchQuery}
         onBookmarkSection={(section) => {
           if (activeChatId) {
             addSectionToChat(activeChatId, section);

@@ -57,7 +57,7 @@ def expand_query_with_llm(query: str, timeout: int = 5) -> List[str]:
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.2,
-        "max_tokens": 150
+        "max_tokens": 350
     }
     
     try:
@@ -68,67 +68,109 @@ def expand_query_with_llm(query: str, timeout: int = 5) -> List[str]:
         )
         if response.status_code == 200:
             data = response.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            msg = data.get("choices", [{}])[0].get("message", {})
+            content = (msg.get("content") or "").strip()
+            if not content and msg.get("reasoning_content"):
+                content = (msg.get("reasoning_content") or "").strip()
+            # Strip think tags if any
+            content = re.sub(r"<think>[\s\S]*?</think>", "", content).strip()
             # Clean up potential markdown formatting like ```json ... ```
             content = re.sub(r"^```(?:json)?\s*", "", content)
             content = re.sub(r"\s*```$", "", content)
-            keywords = json.loads(content)
-            if isinstance(keywords, list):
-                return [str(k).strip() for k in keywords if str(k).strip()]
+            
+            # Find JSON array
+            array_match = re.search(r"\[[\s\S]*?\]", content)
+            if array_match:
+                keywords = json.loads(array_match.group(0))
+                if isinstance(keywords, list):
+                    return [str(k).strip() for k in keywords if str(k).strip()]
     except Exception:
         # LLM not running, model not loaded, or timeout
         pass
     
     return []
 
+STOPWORDS = {
+    'what', 'are', 'the', 'for', 'and', 'in', 'used', 'is', 'to', 'of', 'on',
+    'with', 'from', 'by', 'as', 'at', 'an', 'a', 'or', 'do', 'does', 'how',
+    'can', 'could', 'should', 'would', 'which', 'who', 'whom', 'this', 'that',
+    'these', 'those', 'there', 'their', 'be', 'been', 'being', 'have', 'has', 'had',
+    'shall', 'may', 'must', 'into', 'under', 'about', 'between', 'out', 'all', 'any'
+}
+
 def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = None) -> str:
     """
-    Builds a robust FTS5 match query prioritizing exact phrases and exact terms
-    over broad wildcards to avoid false positives (e.g. 'rest' matching 'restraint').
+    Builds a robust FTS5 match query prioritizing exact phrases, domain acronyms,
+    and salient content terms, while filtering conversational stopwords.
+    Ensures safe quoting for tokens containing '-' or '/' to prevent FTS5 syntax errors.
     """
-    # Clean special FTS characters. Strip punctuation that might cause FTS5 syntax errors.
-    clean_query = re.sub(r'[^\w\s\-/]', ' ', raw_query).strip()
-    raw_words = [w for w in clean_query.split() if len(w) > 0]
-    
-    if not raw_words:
+    if not raw_query or not raw_query.strip():
         return ""
-        
-    def _quote_word(w: str) -> str:
-        if "-" in w or "/" in w or "." in w:
-            return f'"{w}"'
-        return w
-        
-    safe_words = [_quote_word(w) for w in raw_words]
+
+    # 1. Extract explicitly quoted phrases
+    quoted_phrases = re.findall(r'"([^"]+)"', raw_query)
+    
+    # 2. Process unquoted text: strip punctuation except hyphens, slashes, and periods in terms
+    unquoted_text = re.sub(r'"[^"]+"', ' ', raw_query)
+    clean = re.sub(r'[^\w\s\-/.]', ' ', unquoted_text).strip()
+    
+    raw_tokens = clean.split()
+    salient_tokens = []
+    
+    for token in raw_tokens:
+        clean_tok = token.strip(".-/")
+        if not clean_tok:
+            continue
+        # Filter conversational stopwords unless token has hyphens/slashes
+        if clean_tok.lower() in STOPWORDS and not ('-' in clean_tok or '/' in clean_tok):
+            continue
+        # Quote tokens with hyphens or slashes to avoid FTS5 operator collisions
+        if '-' in clean_tok or '/' in clean_tok or '.' in clean_tok:
+            salient_tokens.append(f'"{clean_tok}"')
+        else:
+            salient_tokens.append(clean_tok)
+            
     clauses = []
     
-    # 1. Exact phrase (highest relevance)
-    if len(raw_words) > 1:
-        clauses.append(f'"{clean_query}"')
+    # Add quoted phrases
+    for qp in quoted_phrases:
+        clean_qp = qp.strip()
+        if clean_qp:
+            clauses.append(f'"{clean_qp}"')
+            
+    # Add exact phrase candidate for multiple salient words
+    unquoted_salient = [t.strip('"') for t in salient_tokens]
+    if len(unquoted_salient) >= 2 and len(unquoted_salient) <= 5:
+        phrase_candidate = " ".join(unquoted_salient)
+        clauses.append(f'"{phrase_candidate}"')
         
-    # 2. All words required (AND)
-    if len(safe_words) > 1:
-        clauses.append(f"({' AND '.join(safe_words)})")
-    else:
-        clauses.append(safe_words[0])
-        
-    # 3. Expanded keywords from LLM (if any)
+    # Main search terms joined with OR (enables BM25 scoring across matching keywords)
+    if salient_tokens:
+        clauses.append(f"({' OR '.join(salient_tokens)})")
+        # Boost chunks that contain all salient terms if 2-4 key terms exist
+        if len(salient_tokens) >= 2 and len(salient_tokens) <= 4:
+            clauses.append(f"({' AND '.join(salient_tokens)})")
+
+    # 3. Incorporate expanded keywords from LLM (if any)
     if expanded_keywords:
         exp_clauses = []
         for kw in expanded_keywords:
-            clean_kw = re.sub(r'[^\w\s\-/]', ' ', kw).strip()
+            clean_kw = re.sub(r'[^\w\s\-/.]', ' ', kw).strip()
             if not clean_kw:
                 continue
-            if " " in clean_kw or "-" in clean_kw or "/" in clean_kw:
+            if " " in clean_kw or "-" in clean_kw or "/" in clean_kw or "." in clean_kw:
                 exp_clauses.append(f'"{clean_kw}"')
             else:
                 exp_clauses.append(clean_kw)
         if exp_clauses:
             clauses.append(f"({' OR '.join(exp_clauses)})")
-            
-    # 4. Optional prefix fallback for longer simple words (> 4 chars without hyphens)
-    long_words = [w for w in raw_words if len(w) >= 5 and "-" not in w and "/" not in w]
-    if long_words and len(raw_words) == len(long_words):
-        clauses.append(f"({' AND '.join([f'{w}*' for w in long_words])})")
+
+    if not clauses:
+        # Fallback to simple token search if everything was filtered
+        fallback = [w for w in clean.split() if w]
+        if fallback:
+            return " OR ".join([f'"{w}"' if ('-' in w or '/' in w) else w for w in fallback])
+        return ""
             
     return " OR ".join(clauses)
 
@@ -166,6 +208,7 @@ def search_keywords(
                 c.section_path,
                 c.source_text,
                 d.metadata_json,
+                d.title,
                 bm25(chunks_fts, 1.0, 3.0, 2.0) AS bm25_score
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
@@ -182,18 +225,21 @@ def search_keywords(
         except sqlite3.OperationalError as e:
             # Fallback for simple literal search if complex query fails
             clean_words = re.sub(r'[^\w\s\-/]', ' ', query).split()
-            simple_q = " ".join([f'"{w}"' if ("-" in w or "/" in w) else f"{w}*" for w in clean_words if w])
+            safe_terms = [f'"{w}"' if ("-" in w or "/" in w) else w for w in clean_words if w]
+            simple_q = " OR ".join(safe_terms)
             if not simple_q:
-                # If everything was stripped, return empty result
                 return []
-            cursor.execute(sql, (simple_q, fetch_limit))
-            rows = cursor.fetchall()
+            try:
+                cursor.execute(sql, (simple_q, fetch_limit))
+                rows = cursor.fetchall()
+            except sqlite3.OperationalError:
+                return []
             
         count = 0
         for row in rows:
             if count >= top_k:
                 break
-            chunk_id, doc_id, section_path, source_text, meta_json, score = row
+            chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score = row
             
             is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
             if origin == "eu" and is_easa:
@@ -202,12 +248,30 @@ def search_keywords(
                 continue
                 
             count += 1
+            
+            # Fetch parent title if this is an ANNEX or lacks a good title
+            if not doc_title or str(doc_title).upper().startswith("ANNEX") or str(doc_title).upper().startswith("APPENDIX"):
+                prefix = doc_id.split(".")[0] + "%"
+                cursor.execute("""
+                    SELECT title FROM documents 
+                    WHERE document_id <= ? AND document_id LIKE ? 
+                      AND title NOT LIKE 'ANNEX%' 
+                      AND title NOT LIKE 'APPENDIX%'
+                    ORDER BY document_id DESC LIMIT 1
+                """, (doc_id, prefix))
+                p_row = cursor.fetchone()
+                if p_row and p_row[0]:
+                    doc_title = p_row[0]
+
             try:
                 path_list = json.loads(section_path)
             except Exception:
                 path_list = []
                 
             meta_dict = json.loads(meta_json) if meta_json else {}
+            if doc_title:
+                meta_dict["document_title"] = doc_title
+
             results.append({
                 "rank": count,
                 "score": float(score),

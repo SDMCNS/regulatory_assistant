@@ -39,6 +39,7 @@ interface DocViewerModalProps {
   onAskAboutChunk?: (chunkId: string, docTitle: string) => void;
   onBookmarkSection?: (section: DocSection) => void;
   onSearchSection?: (sectionMarkdown: string) => void;
+  initialSearchQuery?: string;
 }
 
 export const DocViewerModal: React.FC<DocViewerModalProps> = ({
@@ -47,13 +48,14 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
   onAskAboutChunk,
   onBookmarkSection,
   onSearchSection,
+  initialSearchQuery,
 }) => {
   const [copied, setCopied] = useState(false);
   const [copiedSectionId, setCopiedSectionId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'sections' | 'continuous'>('sections');
   
   // Filtering & Similarity Search States
-  const [similarityQuery, setSimilarityQuery] = useState('');
+  const [similarityQuery, setSimilarityQuery] = useState(initialSearchQuery || '');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [minThreshold, setMinThreshold] = useState<number>(15);
   const [sortBySimilarity, setSortBySimilarity] = useState<boolean>(false);
@@ -63,16 +65,28 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
   // Track open/collapsed state of sections
   const [openSectionIds, setOpenSectionIds] = useState<Record<string, boolean>>({});
 
+  useEffect(() => {
+    if (doc && initialSearchQuery) {
+      setSimilarityQuery(initialSearchQuery);
+    }
+  }, [doc, initialSearchQuery]);
+
   // Fetch full markdown if it's missing (e.g., from a lightweight search citation)
   const [fullDocMarkdown, setFullDocMarkdown] = useState<string | null>(doc?.markdown_doc || null);
   const [loadingDoc, setLoadingDoc] = useState(false);
+  const [backendScores, setBackendScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (doc && !doc.markdown_doc && !fullDocMarkdown && !loadingDoc) {
       setLoadingDoc(true);
-      getDocumentMarkdown(doc.document_id)
+      getDocumentMarkdown(doc.document_id, undefined, initialSearchQuery)
         .then((res) => {
           setFullDocMarkdown(res.markdown_doc);
+          if (res.section_scores) {
+            const scores: Record<string, number> = {};
+            res.section_scores.forEach((s: any) => scores[s.sectionId] = s.score);
+            setBackendScores(scores);
+          }
         })
         .catch(err => {
           console.error("Failed to load document markdown", err);
@@ -110,8 +124,39 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
     if (!similarityQuery.trim()) {
       return new Map();
     }
-    return calculateDocumentSimilarity(similarityQuery, sections, minThreshold);
-  }, [similarityQuery, sections, minThreshold]);
+    const lexicalResults = calculateDocumentSimilarity(similarityQuery, sections, minThreshold);
+    
+    // Combine with semantic backend scores if available
+    if (Object.keys(backendScores).length > 0) {
+      const combined = new Map<string, SectionSimilarityResult>();
+      sections.forEach(sec => {
+        const lex = lexicalResults.get(sec.id);
+        const semScoreRaw = backendScores[sec.id] || 0;
+        // Transform backend score to percentage
+        const semScore = Math.max(0, semScoreRaw) * 100; 
+        
+        if (lex || semScore > 0) {
+          // If both exist, blend them. We heavily weight semantic score to surface conceptual matches
+          const finalScore = lex ? (lex.score * 0.3 + semScore * 0.7) : semScore;
+          
+          if (finalScore >= minThreshold) {
+            combined.set(sec.id, {
+              sectionId: sec.id,
+              score: finalScore,
+              matchCount: lex ? lex.matchCount : 0,
+              matchedTerms: lex ? lex.matchedTerms : [],
+              hasExactPhrase: lex ? lex.hasExactPhrase : false,
+              hasTitleMatch: lex ? lex.hasTitleMatch : false,
+              isMatch: true
+            });
+          }
+        }
+      });
+      return combined;
+    }
+    
+    return lexicalResults;
+  }, [similarityQuery, sections, minThreshold, backendScores]);
 
   // Sections that have a similarity match
   const matchingSections = useMemo(() => {

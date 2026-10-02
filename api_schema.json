@@ -5,6 +5,461 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/research/test-gemini": {
+      "post": {
+        "tags": [
+          "RESEARCH"
+        ],
+        "summary": "Api Test Gemini",
+        "description": "Validates a Google Gemini API Key and checks model connectivity.",
+        "operationId": "api_test_gemini_research_test_gemini_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestGeminiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Api Test Gemini Research Test Gemini Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research/jobs": {
+      "post": {
+        "tags": [
+          "RESEARCH"
+        ],
+        "summary": "Create Research Job",
+        "description": "Submits a new deep research job. If an equivalent research job has already completed\nand force_refresh is False, returns the preserved job instantly to prevent redundant work.",
+        "operationId": "create_research_job_research_jobs_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Create Research Job Research Jobs Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "RESEARCH"
+        ],
+        "summary": "List Research Jobs",
+        "description": "Returns a lightweight summary of all research jobs ordered by creation date.",
+        "operationId": "list_research_jobs_research_jobs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResearchJobSummary"
+                  },
+                  "title": "Response List Research Jobs Research Jobs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "RESEARCH"
+        ],
+        "summary": "Get Research Job",
+        "description": "Returns full details for a research job, including its synthesized report,\nconsulted regulations, referenced chunks, and scientific evaluation summary.",
+        "operationId": "get_research_job_research_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchJobDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "RESEARCH"
+        ],
+        "summary": "Delete Research Job",
+        "description": "Deletes a research job by ID.",
+        "operationId": "delete_research_job_research_jobs__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulations/catalog": {
+      "get": {
+        "tags": [
+          "REGULATIONS",
+          "REGULATIONS"
+        ],
+        "summary": "Api Get Regulations Catalog",
+        "description": "Returns the comprehensive catalog of European aviation regulations indexed in the database.\nSupports title-level search, origin filtering (EASA vs EU), and sorting by chunk size or date.",
+        "operationId": "api_get_regulations_catalog_regulations_catalog_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Title-level search query (searches title and document ID)",
+              "title": "Query"
+            },
+            "description": "Title-level search query (searches title and document ID)"
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by origin: 'all', 'eu', or 'easa'",
+              "default": "all",
+              "title": "Origin"
+            },
+            "description": "Filter by origin: 'all', 'eu', or 'easa'"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sort by 'chunks', 'title', or 'date'",
+              "default": "chunks",
+              "title": "Sort By"
+            },
+            "description": "Sort by 'chunks', 'title', or 'date'"
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sort order: 'asc' or 'desc'",
+              "default": "desc",
+              "title": "Sort Order"
+            },
+            "description": "Sort order: 'asc' or 'desc'"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Max regulations to return",
+              "default": 500,
+              "title": "Limit"
+            },
+            "description": "Max regulations to return"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pagination offset",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Pagination offset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulations/batch": {
+      "post": {
+        "tags": [
+          "REGULATIONS",
+          "REGULATIONS"
+        ],
+        "summary": "Api Batch Download Regulations",
+        "description": "Fetches full markdown and metadata for multiple selected regulations.\nUsed by the client to download regulations for local viewing and caching in the app.",
+        "operationId": "api_batch_download_regulations_regulations_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchDownloadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchDownloadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulations/workspace-fts": {
+      "post": {
+        "tags": [
+          "REGULATIONS",
+          "REGULATIONS"
+        ],
+        "summary": "Api Search Workspace Fts",
+        "description": "Executes a high-speed SQLite FTS5 search restricted specifically to the user's\nactive workspace regulations. Computes cross-document overlap metrics and returns\nmatching chunks grouped by document to visualize where the search idea overlaps.",
+        "operationId": "api_search_workspace_fts_regulations_workspace_fts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceFtsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceFtsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/search": {
       "get": {
         "tags": [
@@ -47,6 +502,18 @@
               "title": "Origin"
             },
             "description": "Filter by 'all', 'eu', or 'easa'"
+          },
+          {
+            "name": "use_hyde",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Use Hypothetical Document Embeddings (HyDE)",
+              "default": false,
+              "title": "Use Hyde"
+            },
+            "description": "Use Hypothetical Document Embeddings (HyDE)"
           }
         ],
         "responses": {
@@ -119,6 +586,18 @@
               "title": "Origin"
             },
             "description": "Filter by 'all', 'eu', or 'easa'"
+          },
+          {
+            "name": "use_hyde",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Use Hypothetical Document Embeddings (HyDE)",
+              "default": false,
+              "title": "Use Hyde"
+            },
+            "description": "Use Hypothetical Document Embeddings (HyDE)"
           }
         ],
         "responses": {
@@ -155,7 +634,7 @@
           "SEARCH"
         ],
         "summary": "Api Get Doc Markdown",
-        "description": "Retrieve just the full markdown document for a specific document_id.",
+        "description": "Retrieve full markdown document and optionally semantic scores for its sections.",
         "operationId": "api_get_doc_markdown_search_docs__document_id__get",
         "parameters": [
           {
@@ -166,6 +645,17 @@
               "type": "string",
               "title": "Document Id"
             }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Optional search query to semantically score sections",
+              "title": "Query"
+            },
+            "description": "Optional search query to semantically score sections"
           }
         ],
         "responses": {
@@ -316,6 +806,91 @@
         }
       }
     },
+    "/search/hybrid": {
+      "get": {
+        "tags": [
+          "SEARCH"
+        ],
+        "summary": "Api Search Hybrid",
+        "description": "Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.",
+        "operationId": "api_search_hybrid_search_hybrid_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The text to search for",
+              "title": "Query"
+            },
+            "description": "The text to search for"
+          },
+          {
+            "name": "top_k",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "Number of results to return",
+              "default": 5,
+              "title": "Top K"
+            },
+            "description": "Number of results to return"
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Filter by 'all', 'eu', or 'easa'",
+              "default": "all",
+              "title": "Origin"
+            },
+            "description": "Filter by 'all', 'eu', or 'easa'"
+          },
+          {
+            "name": "use_hyde",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Use HyDE for the semantic component",
+              "default": false,
+              "title": "Use Hyde"
+            },
+            "description": "Use HyDE for the semantic component"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KeywordSearchResponse"
+                  },
+                  "title": "Response Api Search Hybrid Search Hybrid Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/llm/ask": {
       "post": {
         "tags": [
@@ -397,6 +972,172 @@
   },
   "components": {
     "schemas": {
+      "BatchDownloadRequest": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Document Ids",
+            "description": "List of document IDs to fetch/download"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_ids"
+        ],
+        "title": "BatchDownloadRequest"
+      },
+      "BatchDownloadResponse": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DownloadedDocItem"
+            },
+            "type": "array",
+            "title": "Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "documents"
+        ],
+        "title": "BatchDownloadResponse"
+      },
+      "CatalogResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "filtered_count": {
+            "type": "integer",
+            "title": "Filtered Count"
+          },
+          "regulations": {
+            "items": {
+              "$ref": "#/components/schemas/RegulationItem"
+            },
+            "type": "array",
+            "title": "Regulations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "filtered_count",
+          "regulations"
+        ],
+        "title": "CatalogResponse"
+      },
+      "ChunkMatch": {
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "title": "Chunk Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "section_path": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Section Path"
+          },
+          "section_title": {
+            "type": "string",
+            "title": "Section Title"
+          },
+          "source_text": {
+            "type": "string",
+            "title": "Source Text"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "snippet": {
+            "type": "string",
+            "title": "Snippet"
+          },
+          "rank": {
+            "type": "number",
+            "title": "Rank"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chunk_id",
+          "document_id",
+          "section_path",
+          "section_title",
+          "source_text",
+          "snippet",
+          "rank",
+          "score"
+        ],
+        "title": "ChunkMatch"
+      },
+      "DownloadedDocItem": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "markdown_doc": {
+            "type": "string",
+            "title": "Markdown Doc"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "title",
+          "origin",
+          "markdown_doc",
+          "metadata",
+          "chunk_count"
+        ],
+        "title": "DownloadedDocItem"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -533,6 +1274,403 @@
         ],
         "title": "LLMExtractRequest"
       },
+      "OverlapSummary": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "total_documents_queried": {
+            "type": "integer",
+            "title": "Total Documents Queried"
+          },
+          "total_documents_matched": {
+            "type": "integer",
+            "title": "Total Documents Matched"
+          },
+          "overlap_rate": {
+            "type": "number",
+            "title": "Overlap Rate"
+          },
+          "all_documents_matched": {
+            "type": "boolean",
+            "title": "All Documents Matched"
+          },
+          "total_chunks_matched": {
+            "type": "integer",
+            "title": "Total Chunks Matched"
+          },
+          "matched_document_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Matched Document Ids"
+          },
+          "shared_search_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Shared Search Terms"
+          },
+          "document_summaries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Document Summaries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "total_documents_queried",
+          "total_documents_matched",
+          "overlap_rate",
+          "all_documents_matched",
+          "total_chunks_matched",
+          "matched_document_ids",
+          "shared_search_terms",
+          "document_summaries"
+        ],
+        "title": "OverlapSummary"
+      },
+      "RegulationItem": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "raw_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Title"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "origin": {
+            "type": "string",
+            "title": "Origin"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "chunk_count": {
+            "type": "integer",
+            "title": "Chunk Count"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "document_id",
+          "title",
+          "origin",
+          "chunk_count"
+        ],
+        "title": "RegulationItem"
+      },
+      "ResearchJobDetail": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "recursion_level": {
+            "type": "integer",
+            "title": "Recursion Level"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "report_markdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Markdown"
+          },
+          "consulted_regulations": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consulted Regulations"
+          },
+          "referenced_chunks": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referenced Chunks"
+          },
+          "evaluation_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Summary"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "query",
+          "recursion_level",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ResearchJobDetail"
+      },
+      "ResearchJobRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "title": "Query",
+            "description": "The query to investigate"
+          },
+          "recursion_level": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 1.0,
+            "title": "Recursion Level",
+            "description": "Depth of research (1-3)",
+            "default": 2
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "description": "Whether to bypass cached completed research and force a new run",
+            "default": false
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider",
+            "description": "LLM provider: 'local' or 'gemini'",
+            "default": "local"
+          },
+          "gemini_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gemini Api Key",
+            "description": "Optional user Gemini API key"
+          },
+          "gemini_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gemini Model",
+            "description": "Optional Gemini model name",
+            "default": "gemini-3.5-flash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "ResearchJobRequest"
+      },
+      "ResearchJobSummary": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "recursion_level": {
+            "type": "integer",
+            "title": "Recursion Level"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "query",
+          "recursion_level",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ResearchJobSummary"
+      },
       "SearchDocResponse": {
         "properties": {
           "chunk_id": {
@@ -632,6 +1770,31 @@
         ],
         "title": "SearchResponse"
       },
+      "TestGeminiRequest": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "title": "Api Key"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "default": "gemini-3.5-flash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "TestGeminiRequest"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -671,13 +1834,108 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkspaceFtsRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Query",
+            "description": "Keywords or search phrase to find across workspace documents"
+          },
+          "document_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Document Ids",
+            "description": "Selected workspace document IDs"
+          },
+          "top_k_per_doc": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Top K Per Doc",
+            "description": "Max chunks to return per document",
+            "default": 8
+          },
+          "total_top_k": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Total Top K",
+            "description": "Max total chunks across all documents",
+            "default": 50
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "document_ids"
+        ],
+        "title": "WorkspaceFtsRequest"
+      },
+      "WorkspaceFtsResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "fts_expression": {
+            "type": "string",
+            "title": "Fts Expression"
+          },
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches"
+          },
+          "overlap_summary": {
+            "$ref": "#/components/schemas/OverlapSummary"
+          },
+          "results_by_document": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/ChunkMatch"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Results By Document"
+          },
+          "all_results": {
+            "items": {
+              "$ref": "#/components/schemas/ChunkMatch"
+            },
+            "type": "array",
+            "title": "All Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "fts_expression",
+          "total_matches",
+          "overlap_summary",
+          "results_by_document",
+          "all_results"
+        ],
+        "title": "WorkspaceFtsResponse"
       }
     }
   },
   "tags": [
     {
+      "name": "REGULATIONS",
+      "description": "Regulation catalog, multi-select download, and workspace FTS cross-document overlap analysis."
+    },
+    {
       "name": "SEARCH",
       "description": "Regulatory search operations (semantic vector search and SQLite FTS5 BM25 keyword search)."
+    },
+    {
+      "name": "RESEARCH",
+      "description": "Autonomous Deep Regulatory Research with recursive background jobs and citation tracking."
     },
     {
       "name": "LLM",

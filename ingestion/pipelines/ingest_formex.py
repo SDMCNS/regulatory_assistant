@@ -1,10 +1,10 @@
 """
 Formex XML ingestion pipeline.
 
-Scans a directory of EU Formex XML/ZIP files, filters for aviation-related
-regulations, parses them via the local ``euroform`` library, builds canonical
-legal fragments, extracts relationships, generates embeddings, and persists
-everything to SQLite + FAISS.
+Scans a directory of EU Formex XML/ZIP files, groups them into coherent packages,
+classifies them into Core Regulations, Directives, Decisions (Qualifiers DB),
+Corrigenda, and Annexes. Consolidates technical annexes into their primary regulations,
+isolates master metadata wrappers (.doc/.toc), and persists everything to SQLite + FAISS.
 
 Usage::
 
@@ -28,9 +28,8 @@ from typing import List, Optional, Dict, Any, Set
 from lxml import etree
 
 # ---------------------------------------------------------------------------
-# Local imports – everything is co-located inside ``ingestion``
+# Local imports
 # ---------------------------------------------------------------------------
-# Ensure the project root and current directory are in sys.path
 _current_dir = Path(__file__).resolve().parent
 _project_root = _current_dir.parent.parent
 if str(_project_root) not in sys.path:
@@ -40,10 +39,24 @@ if str(_current_dir) not in sys.path:
 
 from ingestion.euroform.parser import parse_formex
 from ingestion.euroform.render import render_block
-
 from ingestion.pipelines.chunking_pipeline import ChunkerPipeline
 from ingestion.retrieval.embed_chunks import run_embedding_pipeline
 from ingestion.core.config import settings
+from ingestion.core.formex_package import (
+    FormexPackage,
+    FormexFileMeta,
+    LegalClassification,
+    discover_formex_packages,
+    iter_formex_packages,
+    classify_package,
+    extract_root_and_metadata,
+    is_aviation_text,
+    resolve_canonical_celex,
+    parse_eu_doc_number,
+    AVIATION_KEYWORDS,
+    AVIATION_PATTERN,
+    IGNORED_FILES,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -58,33 +71,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("IngestionPipeline")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-IGNORED_XML_NAMES = {"manifest.xml", "mets.xml", "biblio.xml", "notice.xml"}
-
-# CELEX regex: Sector (1-9), Year (4 digits), DocType (1-2 letters), Number (3-4 digits)
-CELEX_PATTERN = re.compile(r"\b([1-9][0-9]{4}[A-Z]{1,2}[0-9]{3,4})\b")
-
 # Footnote markers emitted by euroform, e.g. "[^E0001]"
 _NOTE_MARK = re.compile(r"\s?\[\^([^\]]+)\]")
-
-# Domain-specific keyword regex dictionary for fast title matching
-AVIATION_KEYWORDS = {
-    r"\baviation\b", r"\bairlift\b", r"\baircraft\b", r"\bairplane\b", r"\bairport\b", r"\bairports\b",
-    r"\bair carrier\b", r"\bair carriers\b", r"\bairline\b", r"\bairlines\b", r"\bair line\b",
-    r"\bair transport\b", r"\bair navigation\b", r"\bair traffic\b", r"\bairspace\b",
-    r"\bflight\b", r"\bflights\b", r"\bflight data\b", r"\baeronautical\b", r"\baerodrome\b",
-    r"\beasa\b", r"\beurocontrol\b", r"\bsesar\b", r"\bicao\b", r"\biata\b",
-    r"\bsingle european sky\b", r"\bsky\b", r"\batm/ans\b", r"\bairworthiness\b",
-    r"\bcabin\b", r"\bcabin crew\b", r"\bpilot\b", r"\bpilots\b", r"\bpassenger rights\b",
-    r"\bdenied boarding\b", r"\bdrone\b", r"\bdrones\b", r"\bu-space\b", r"\buas\b", r"\brpas\b",
-    r"\bcorsia\b", r"\bsaf\b", r"\bsustainable aviation\b", r"\bjet fuel\b", r"\bkerosene\b",
-    r"\bslot allocation\b", r"\bslots\b",
-}
-
-# Pre-compile single combined regex pattern for high execution speed
-AVIATION_PATTERN = re.compile("|".join(AVIATION_KEYWORDS), re.IGNORECASE)
+CELEX_PATTERN = re.compile(r"\b([1-9][0-9]{4}[A-Z]{1,2}[0-9]{3,4})\b")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -92,14 +81,7 @@ AVIATION_PATTERN = re.compile("|".join(AVIATION_KEYWORDS), re.IGNORECASE)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _euroform_doc_to_tree(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert a parsed euroform document dict into the legacy node-tree schema
-    expected by :class:`FragmentBuilder`.
-
-    The legacy schema uses::
-
-        {"tag", "attributes", "number", "heading", "text", "references",
-         "notes", "children"}
-    """
+    """Convert a parsed euroform document dict into the node-tree schema."""
     notes = doc.get("notes") or {}
     used: Set[str] = set()
 
@@ -132,7 +114,6 @@ def _euroform_doc_to_tree(doc: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     def hoist(node: Dict[str, Any]) -> Dict[str, Any]:
-        """Point intro sentence → the point's own text; children are sub-points."""
         kids = node["children"]
         if not node["text"] and kids and kids[0]["tag"] == "P" and not kids[0]["children"]:
             first = kids.pop(0)
@@ -226,8 +207,7 @@ def _euroform_doc_to_tree(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _metadata_from_euroform(doc: Dict[str, Any], celex_id: Optional[str], file_path: str) -> Dict[str, Any]:
-    """Build the flat metadata dict expected by :class:`FragmentBuilder` from
-    the euroform document."""
+    """Build the flat metadata dict expected by downstreams from euroform."""
     m = doc.get("metadata") or {}
     oj = m.get("official_journal") or {}
     ids = m.get("identifiers") or []
@@ -242,7 +222,6 @@ def _metadata_from_euroform(doc: Dict[str, Any], celex_id: Optional[str], file_p
         "file_path": file_path,
         "parser_engine": "euroform",
     }
-    # Additive extra fields
     if m.get("language"):
         meta["language"] = m["language"]
     if m.get("document_type"):
@@ -256,14 +235,8 @@ def _metadata_from_euroform(doc: Dict[str, Any], celex_id: Optional[str], file_p
     return meta
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# CELEX Resolution
-# ═══════════════════════════════════════════════════════════════════════════
-
 def resolve_celex_id(file_path: str) -> Optional[str]:
-    """Multi-pass CELEX ID extraction from XML content, file path, and OJ
-    naming conventions."""
-    # Pass 1: Structural XML search
+    """Multi-pass CELEX ID extraction."""
     try:
         parser = etree.XMLParser(recover=True, remove_blank_text=True)
         tree = etree.parse(file_path, parser)
@@ -277,7 +250,6 @@ def resolve_celex_id(file_path: str) -> Optional[str]:
     except Exception:
         pass
 
-    # Pass 2: Raw text header scan
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             header_text = f.read(2000)
@@ -287,12 +259,10 @@ def resolve_celex_id(file_path: str) -> Optional[str]:
     except Exception:
         pass
 
-    # Pass 3: Directory / file path regex
     match = CELEX_PATTERN.search(file_path)
     if match:
         return match.group(1)
 
-    # Pass 4: OJ filename heuristic
     oj_match = re.search(r"L_([12][0-9]{3})([0-9]{3})", os.path.basename(file_path))
     if oj_match:
         year, doc_num = oj_match.group(1), oj_match.group(2)
@@ -301,13 +271,8 @@ def resolve_celex_id(file_path: str) -> Optional[str]:
     return None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Aviation-relevance filter & XML discovery
-# ═══════════════════════════════════════════════════════════════════════════
-
-def extract_title_text(file_path: Path) -> str:
-    """Extracts raw text from title tags without building the full DOM tree."""
-    title_parts: List[str] = []
+def is_aviation_related(file_path: Path) -> bool:
+    """Returns True if any aviation keywords are found in file header/title."""
     try:
         for event, elem in etree.iterparse(
             str(file_path),
@@ -315,86 +280,44 @@ def extract_title_text(file_path: Path) -> str:
             tag=("TITLE", "TITLE.FINAL", "TI", "STI", "PREAMBLE.INIT"),
         ):
             text = "".join(elem.itertext()).strip()
-            if text:
-                title_parts.append(text)
+            if text and AVIATION_PATTERN.search(text):
+                elem.clear()
+                return True
             elem.clear()
-            if len(title_parts) >= 10:
-                break
-    except Exception as e:
-        logger.debug(f"Fast title scan warning for {file_path.name}: {e}")
-    return " ".join(title_parts)
-
-
-def is_aviation_related(file_path: Path) -> bool:
-    """Returns True if any aviation keywords are found in the document title/header."""
-    title_text = extract_title_text(file_path)
-    if not title_text:
-        return False
-    return bool(AVIATION_PATTERN.search(title_text))
-
-
-def deduplicate_xml_paths(xml_paths: List[Path]) -> List[Path]:
-    """Deduplicates Formex XML files per folder.
-    If 'name.doc.xml' and 'name.xml' exist in the same folder, drops 'name.doc.xml'.
-    """
-    grouped_by_folder: Dict[Path, Set[Path]] = {}
-    for p in xml_paths:
-        grouped_by_folder.setdefault(p.parent, set()).add(p)
-
-    canonical_paths: List[Path] = []
-    for folder, paths in grouped_by_folder.items():
-        file_map = {p.name.lower(): p for p in paths}
-        for name_lower, file_path in file_map.items():
-            if name_lower.endswith(".doc.xml"):
-                base_name = name_lower[:-8] + ".xml"
-                if base_name in file_map:
-                    logger.debug(f"Skipping duplicate Formex file: {file_path.name} (using {base_name})")
-                    continue
-            canonical_paths.append(file_path)
-    return sorted(canonical_paths)
+    except Exception:
+        pass
+    return False
 
 
 def find_xml_files(input_dir: Path, extract_zips: bool = True) -> List[Path]:
-    """Walk *input_dir*, extract ZIPs on the fly, return deduplicated XML paths."""
-    raw_xml_paths: List[Path] = []
-
+    """Backward-compatible discovery: returns all non-ignored XML files."""
+    xml_paths: List[Path] = []
     for root, _, files in os.walk(input_dir):
         for file in files:
-            file_path = Path(root) / file
-            file_lower = file.lower()
-
-            if extract_zips and file_lower.endswith(".zip"):
-                extract_target = file_path.parent / f"_extracted_{file_path.stem}"
-                if not extract_target.exists():
-                    logger.info(f"Extracting ZIP: {file_path.name}")
+            p = Path(root) / file
+            fl = file.lower()
+            if extract_zips and fl.endswith(".zip"):
+                tgt = p.parent / f"_extracted_{p.stem}"
+                if not tgt.exists():
                     try:
-                        with zipfile.ZipFile(file_path, "r") as zip_ref:
-                            zip_ref.extractall(extract_target)
-                    except Exception as e:
-                        logger.error(f"Failed to extract {file_path}: {e}")
+                        with zipfile.ZipFile(p, "r") as zr:
+                            zr.extractall(tgt)
+                    except Exception:
                         continue
-
-                for zroot, _, zfiles in os.walk(extract_target):
-                    for zfile in zfiles:
-                        if zfile.lower().endswith(".xml") and zfile.lower() not in IGNORED_XML_NAMES:
-                            raw_xml_paths.append(Path(zroot) / zfile)
-
-            elif file_lower.endswith(".xml"):
-                if file_lower in IGNORED_XML_NAMES:
-                    continue
-                raw_xml_paths.append(file_path)
-
-    return deduplicate_xml_paths(raw_xml_paths)
+                for zroot, _, zfiles in os.walk(tgt):
+                    for zf in zfiles:
+                        if zf.lower().endswith(".xml") and zf.lower() not in IGNORED_FILES:
+                            xml_paths.append(Path(zroot) / zf)
+            elif fl.endswith(".xml") and fl not in IGNORED_FILES:
+                xml_paths.append(p)
+    return sorted(xml_paths)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Regulations archive & environment helpers
+# Regulations Archive
 # ═══════════════════════════════════════════════════════════════════════════
 
 def resolve_regulations_dir(override: Optional[str] = None) -> Path:
-    """Regulations archive location:
-    --regulations-dir > settings.REGULATIONS_DIR > sibling of DB folder.
-    """
     if override:
         return Path(override).resolve()
     configured = getattr(settings, "REGULATIONS_DIR", None)
@@ -405,12 +328,7 @@ def resolve_regulations_dir(override: Optional[str] = None) -> Path:
 
 
 class RegulationArchive:
-    """Keeps, for every positively identified (aviation) regulation:
-      * a copy of the source Formex XML
-      * the parser's JSON (<name>.json) next to it
-      * an entry in regulations_index.json
-    """
-
+    """Keeps XML sources and parsed JSON in the archive."""
     INDEX_NAME = "regulations_index.json"
 
     def __init__(self, directory: Path, create: bool = True):
@@ -431,7 +349,7 @@ class RegulationArchive:
                 self._entries[e["file_name"]] = e
                 self._owners[e["file_name"]] = e.get("source_path", "")
         except Exception as e:
-            logger.warning(f"[Archive] Could not read existing index {self.index_path} ({e}); starting a new one.")
+            logger.warning(f"[Archive] Could not read existing index {self.index_path}: {e}")
 
     def save(self):
         payload = {
@@ -490,8 +408,8 @@ class RegulationArchive:
                 if e.get(key) and f.is_file():
                     try:
                         f.unlink()
-                    except Exception as err:
-                        logger.warning(f"Failed to remove archived file {f}: {err}")
+                    except Exception:
+                        pass
         if self.index_path.exists():
             self.index_path.unlink()
         self._entries.clear()
@@ -500,8 +418,6 @@ class RegulationArchive:
 
 
 def reset_environment(regulations_dir: Optional[Path] = None):
-    """Clears existing databases, vector stores, JSONL outputs, logs and the
-    regulations archive to allow a fresh run."""
     logger.info("=" * 60)
     logger.info("RESET OPTION TRIGGERED: Wiping old DB and generated files...")
     logger.info("=" * 60)
@@ -543,70 +459,233 @@ def reset_environment(regulations_dir: Optional[Path] = None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Summary report
+# Summary Report
 # ═══════════════════════════════════════════════════════════════════════════
 
 def write_summary_report(
     output_file: Path,
-    report_records: List[Dict[str, Any]],
+    core_records: List[Dict[str, Any]],
+    qualifier_records: List[Dict[str, Any]],
     execution_time: str,
-    total_scanned: int,
+    total_packages_scanned: int,
+    total_annexes_grouped: int,
+    total_wrappers_skipped: int,
 ):
-    """Generates a user-friendly plain text report of all processed regulations."""
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("=" * 100 + "\n")
-        f.write("                          EU AVIATION REGULATIONS INGESTION REPORT\n")
-        f.write(f" Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f" Total Formex Files Scanned: {total_scanned}\n")
-        f.write(f" Aviation Acts Ingested    : {len(report_records)}\n")
-        f.write(f" Total Ingestion Duration  : {execution_time}\n")
+        f.write("                 EU AVIATION REGULATIONS CONSOLIDATED INGESTION REPORT\n")
+        f.write(f" Generated At               : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f" Total Publication Packages : {total_packages_scanned}\n")
+        f.write(f" Core Regulations Ingested  : {len(core_records)} (Active Knowledge Base Target)\n")
+        f.write(f" Attached Annexes Grouped   : {total_annexes_grouped} (Consolidated with parent regulations)\n")
+        f.write(f" Supporting Qualifiers DB   : {len(qualifier_records)} (Decisions & Corrigenda linked by ID)\n")
+        f.write(f" Master Wrappers Isolated   : {total_wrappers_skipped} (.doc/.toc wrappers excluded)\n")
+        f.write(f" Total Ingestion Duration   : {execution_time}\n")
         f.write("=" * 100 + "\n\n")
 
-        if not report_records:
-            f.write("No aviation regulations were successfully ingested during this run.\n")
-            return
+        f.write("#" * 100 + "\n")
+        f.write(" SECTION 1: CORE AVIATION REGULATIONS (KNOWLEDGE BASE)\n")
+        f.write("#" * 100 + "\n\n")
 
-        for idx, rec in enumerate(report_records, 1):
-            f.write(f"[{idx}] {rec['celex']} | Year: {rec['year']} | File: {rec['file_name']}\n")
-            f.write(f"    Title        : {rec['title']}\n")
-            f.write(
-                    f"    Records      : {rec.get('num_chunks', 0)} Chunks generated\n"
-            )
-            f.write("-" * 100 + "\n")
+        if not core_records:
+            f.write("No core aviation regulations were ingested during this run.\n\n")
+        else:
+            for idx, rec in enumerate(core_records, 1):
+                f.write(f"[{idx}] {rec['celex']} | {rec.get('doc_number', 'N/A')} | File: {rec['file_name']}\n")
+                f.write(f"    Title          : {rec['title']}\n")
+                f.write(f"    Chunks         : {rec.get('num_chunks', 0)} chunks generated\n")
+                if rec.get("annex_files"):
+                    f.write(f"    Attached Annexes ({len(rec['annex_files'])}): {', '.join(rec['annex_files'])}\n")
+                if rec.get("amends_regs"):
+                    f.write(f"    Amends Regs    : {', '.join(rec['amends_regs'])}\n")
+                if rec.get("repeals_regs"):
+                    f.write(f"    Repeals Regs   : {', '.join(rec['repeals_regs'])}\n")
+                f.write("-" * 100 + "\n")
 
-    logger.info(f"Ingestion summary report generated: {output_file.resolve()}")
+        f.write("\n" + "#" * 100 + "\n")
+        f.write(" SECTION 2: SUPPORTING QUALIFIERS (DECISIONS & CORRIGENDA DATABASE)\n")
+        f.write(" Associated back to their target regulations by reference ID.\n")
+        f.write("#" * 100 + "\n\n")
+
+        if not qualifier_records:
+            f.write("No supporting qualifiers were registered during this run.\n\n")
+        else:
+            for idx, q in enumerate(qualifier_records, 1):
+                f.write(f"[{idx}] {q['qualifier_type']} | {q['qualifier_id']} | Date: {q.get('date', 'N/A')}\n")
+                f.write(f"    Title               : {q['title']}\n")
+                f.write(f"    Supports Regulation : {q.get('target_regulation_ref') or '[Autonomous / General]'}\n")
+                f.write(f"    Source File         : {q['source_file']}\n")
+                f.write("-" * 100 + "\n")
+
+    logger.info(f"Consolidated ingestion summary report saved to: {output_file.resolve()}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Core parsing function  (euroform → tree → fragments)
+# Core Ingestion Processing
 # ═══════════════════════════════════════════════════════════════════════════
 
-def parse_formex_file(file_path: Path) -> Dict[str, Any]:
-    """Parse a single Formex XML file and return::
+def process_regulation_package(
+    pkg: FormexPackage,
+    chunker_pipeline: ChunkerPipeline,
+    archive: RegulationArchive,
+) -> Optional[Dict[str, Any]]:
+    """Parses a Core Regulation package, merges attached Annexes, generates chunks,
+    and updates SQLite."""
+    if not pkg.primary_file:
+        logger.warning(f"Package in {pkg.folder_path.name} has no primary file. Skipping.")
+        return None
 
-        {"metadata": {...}, "structure": {...}, "raw_doc": {...}}
+    primary_path = pkg.primary_file.path
 
-    Uses the ``euroform`` library as the primary (and only) parser engine.
-    """
-    celex_id = resolve_celex_id(str(file_path))
-
-    doc = parse_formex(str(file_path))
-
+    # 1. Parse primary Act XML
+    doc = parse_formex(str(primary_path))
     if not (doc.get("body") or doc.get("preamble") or doc.get("final")):
-        raise ValueError(
-            f"euroform produced no body/preamble/final for '{file_path.name}' "
-            f"(root <{doc.get('root')}>)"
-        )
+        logger.warning(f"euroform produced empty content for {primary_path.name}")
+        return None
 
-    structure = _euroform_doc_to_tree(doc)
-    metadata = _metadata_from_euroform(doc, celex_id, str(file_path))
+    # 2. Parse and attach all Annexes
+    attached_annexes = []
+    for annex_meta in pkg.annex_files:
+        try:
+            annex_doc = parse_formex(str(annex_meta.path))
+            annex_title = annex_doc.get("title") or annex_meta.title or f"ANNEX ({annex_meta.filename})"
+            attached_annexes.append({
+                "title": annex_title,
+                "body": annex_doc.get("body", []),
+                "metadata": annex_doc.get("metadata", {}),
+                "source_file": annex_meta.filename,
+            })
+            # Also store source annex XML in archive
+            archive.store_source(annex_meta.path)
+            logger.info(f"Attached annex {annex_meta.filename} to {primary_path.name}")
+        except Exception as e:
+            logger.warning(f"Failed to parse annex {annex_meta.filename}: {e}")
 
-    logger.info(f"Parsed '{file_path.name}' with euroform (root <{doc.get('root')}>).")
-    return {"metadata": metadata, "structure": structure, "raw_doc": doc}
+    if attached_annexes:
+        doc["annexes"] = attached_annexes
+
+    # 3. Canonical CELEX & Metadata Enrichment
+    celex_id = pkg.celex or resolve_celex_id(str(primary_path)) or f"ACT_{primary_path.stem.upper()}"
+    act_title = doc.get("title") or pkg.title or primary_path.stem
+
+    metadata = _metadata_from_euroform(doc, celex_id, str(primary_path))
+    metadata["doc_number"] = pkg.doc_number
+    metadata["celex"] = celex_id
+    metadata["status"] = pkg.status
+    metadata["annex_count"] = len(attached_annexes)
+    metadata["annex_files"] = [a.filename for a in pkg.annex_files]
+    metadata["amends_regs"] = pkg.amends_regs
+    metadata["repeals_regs"] = pkg.repeals_regs
+    metadata["keywords"] = pkg.matched_keywords
+    metadata["wrapper_files"] = [w.filename for w in pkg.wrapper_files]
+    doc["metadata"] = metadata
+    doc["title"] = act_title
+
+    # 4. Store primary source & JSON in archive
+    archive_name = archive.store_source(primary_path)
+    archive.store_json_and_index(
+        archive_name, primary_path, doc, celex_id, act_title, 0
+    )
+    json_file_path = archive.directory / archive._json_name(archive_name)
+
+    # 5. Process through ChunkerPipeline
+    chunks = chunker_pipeline.process_file(json_file_path)
+    chunks_len = len(chunks)
+
+    # Update index with exact chunk count
+    if archive_name in archive._entries:
+        archive._entries[archive_name]["num_records"] = chunks_len
+        archive.save()
+
+    logger.info(f"Ingested {act_title[:70]}... -> {chunks_len} chunks (including {len(attached_annexes)} annexes)")
+
+    return {
+        "celex": celex_id,
+        "doc_number": pkg.doc_number,
+        "title": act_title,
+        "file_name": primary_path.name,
+        "num_chunks": chunks_len,
+        "annex_files": [a.filename for a in pkg.annex_files],
+        "amends_regs": pkg.amends_regs,
+        "repeals_regs": pkg.repeals_regs,
+    }
+
+
+def process_qualifier_package(
+    pkg: FormexPackage,
+    chunker_pipeline: ChunkerPipeline,
+    archive: RegulationArchive,
+) -> Optional[Dict[str, Any]]:
+    """Parses a Decision or Corrigendum and records it in the qualifiers database."""
+    primary_meta = pkg.primary_file or (pkg.corrigendum_files[0] if pkg.corrigendum_files else None)
+    if not primary_meta:
+        return None
+
+    primary_path = primary_meta.path
+    q_type = "CORRIGENDUM" if pkg.classification == LegalClassification.CORRIGENDUM else "DECISION"
+
+    content_snippet = ""
+    try:
+        doc = parse_formex(str(primary_path))
+        body_blocks = doc.get("body", [])
+        content_parts = []
+        for b in body_blocks[:5]:
+            if b.get("text"):
+                content_parts.append(b["text"])
+        content_snippet = "\n\n".join(content_parts)
+    except Exception:
+        content_snippet = primary_meta.title or ""
+
+    qualifier_id = primary_path.stem
+    target_ref = pkg.target_regulation or ""
+    parent_reg_id = None
+
+    if target_ref:
+        t_match = re.search(r"(\d+)/(\d+)", target_ref)
+        if t_match:
+            n1, n2 = t_match.group(1), t_match.group(2)
+            yr = n2 if len(n2) == 4 else n1
+            num = n1 if yr == n2 else n2
+            parent_reg_id = resolve_canonical_celex("R", yr, num)
+
+    pub_date = (pkg.primary_file.title or "")[:20] if pkg.primary_file else None
+
+    # Archive source XML
+    archive.store_source(primary_path)
+
+    # Store in qualifiers table
+    chunker_pipeline.store_qualifier(
+        qualifier_id=qualifier_id,
+        title=pkg.title,
+        qualifier_type=q_type,
+        parent_regulation_id=parent_reg_id,
+        target_regulation_ref=target_ref,
+        celex=pkg.celex,
+        date=pub_date,
+        source_file=primary_path.name,
+        content_text=content_snippet,
+        metadata={
+            "amends": pkg.amends_regs,
+            "repeals": pkg.repeals_regs,
+            "keywords": pkg.matched_keywords,
+            "folder": str(pkg.folder_path),
+        }
+    )
+
+    logger.info(f"Registered {q_type}: {pkg.title[:70]}... -> Supporting {target_ref or '[Autonomous]'}")
+
+    return {
+        "qualifier_id": qualifier_id,
+        "qualifier_type": q_type,
+        "title": pkg.title,
+        "target_regulation_ref": target_ref,
+        "source_file": primary_path.name,
+        "date": pub_date,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Main pipeline
+# Main Pipeline
 # ═══════════════════════════════════════════════════════════════════════════
 
 def run_pipeline(
@@ -615,6 +694,7 @@ def run_pipeline(
     reset: bool = False,
     defrag: bool = False,
     regulations_dir: Optional[str] = None,
+    include_non_aviation: bool = False,
 ):
     input_path = Path(input_directory)
     if not input_path.exists():
@@ -625,135 +705,106 @@ def run_pipeline(
     if reset:
         reset_environment(archive_dir)
 
-    logger.info(f"Scanning directory tree: {input_directory}")
-    xml_files = find_xml_files(input_path)
-
-    if not xml_files:
-        logger.error(f"No valid legal XML files found under: {input_directory}")
-        return
-
-    total_scanned_files = len(xml_files)
-    logger.info(f"Discovered {total_scanned_files} unique FORMEX XML file(s) across subdirectories.")
-    if limit is not None and limit > 0:
-        logger.info(f"Aviation match target limit set to: {limit} act(s).")
-
-    # --- Initialise pipeline components ---
+    # Initialise pipeline components
     db_path = str(archive_dir / "sqlite" / "chunks.db")
     chunker_pipeline = ChunkerPipeline(db_path)
     archive = RegulationArchive(archive_dir)
     logger.info(f"Regulations archive: {archive_dir}")
 
-    # Counters
-    successful_docs = 0
-    skipped_unchanged = 0
-    filtered_out_docs = 0
+    # Metrics
+    ingested_core: List[Dict[str, Any]] = []
+    registered_qualifiers: List[Dict[str, Any]] = []
+    total_annexes_grouped = 0
+    total_wrappers_skipped = 0
+    filtered_out = 0
     failed_docs = 0
-    matched_aviation_count = 0
+    scanned_packages = 0
 
-    report_records: List[Dict[str, Any]] = []
     pipeline_start_time = time.time()
-    idx = 0
 
-    for idx, file_path in enumerate(xml_files, 1):
-        if limit is not None and limit > 0 and matched_aviation_count >= limit:
-            logger.info(f"\nReached target limit of {limit} matched aviation regulation(s). Stopping pipeline scan.")
+    for pkg in iter_formex_packages(input_path):
+        scanned_packages += 1
+        if limit is not None and limit > 0 and len(ingested_core) >= limit:
+            logger.info(f"\nReached target limit of {limit} core aviation regulation(s). Stopping scan.")
             break
 
-        elapsed_seconds = time.time() - pipeline_start_time
-        elapsed_str = str(timedelta(seconds=int(elapsed_seconds)))
-        limit_str = f" / Target Limit: {limit}" if limit else ""
+        # Check Aviation Relevance
+        if not include_non_aviation and not pkg.is_aviation:
+            filtered_out += 1
+            continue
 
+        elapsed_str = str(timedelta(seconds=int(time.time() - pipeline_start_time)))
+        limit_str = f" / Target: {limit}" if limit else ""
         logger.info(
-            f"\n--- [Scanned: {idx}/{total_scanned_files} | Matched Aviation: {matched_aviation_count}{limit_str}] "
+            f"\n--- [Package {scanned_packages} | Ingested Core: {len(ingested_core)}{limit_str} | Qualifiers: {len(registered_qualifiers)}] "
             f"Elapsed: {elapsed_str} ---"
         )
-        logger.info(f"Checking: {file_path.name}")
+        logger.info(f"Package: {pkg.folder_path.name} | Type: {pkg.classification.value} | Title: {pkg.title[:80]}")
 
-        # --- STEP 0: Aviation Relevance Filter ---
-        if not is_aviation_related(file_path):
-            logger.info(f"Skipping non-aviation act: {file_path.name}")
-            filtered_out_docs += 1
-            continue
-
-        matched_aviation_count += 1
-        logger.info(
-            f"MATCH [{matched_aviation_count}]: Aviation regulation identified in {file_path.name}. "
-            f"Proceeding to ingestion."
-        )
-
-        # Archive source XML
-        archive_name: Optional[str] = None
-        try:
-            archive_name = archive.store_source(file_path)
-        except Exception as e:
-            logger.warning(f"[Archive] Could not copy {file_path.name}: {e}")
+        # Account for metadata wrappers safely skipped
+        total_wrappers_skipped += len(pkg.wrapper_files)
 
         try:
-            # 1. Parse Formex XML via euroform
-            parsed = parse_formex_file(file_path)
-            meta = parsed["metadata"]
-            raw_doc = parsed["raw_doc"]
-
-            act_id = meta["celex"] or f"ACT_{file_path.stem.upper()}"
-            act_title = parsed["structure"].get("heading") or meta.get("celex") or file_path.stem
-
-            # Archive JSON + index entry
-            json_file_path = None
-            if archive_name:
-                try:
-                    archive.store_json_and_index(
-                        archive_name, file_path, raw_doc, act_id, act_title, 0
-                    )
-                    json_file_path = archive.directory / archive._json_name(archive_name)
-                except Exception as e:
-                    logger.warning(f"[Archive] Could not archive JSON/index for {file_path.name}: {e}")
-
-            pub_year = (meta.get("publication_date") or "")[:4] or "N/A"
-            chunks_len = 0
-
-            # Process chunks
-            if json_file_path and json_file_path.exists():
-                chunks = chunker_pipeline.process_file(json_file_path)
-                chunks_len = len(chunks)
-                successful_docs += 1
-
-            report_records.append({
-                "celex": act_id,
-                "year": pub_year,
-                "title": act_title,
-                "file_name": file_path.name,
-                "num_chunks": chunks_len,
-            })
-
-            logger.info(f"Successfully processed {chunks_len} chunks from {file_path.name}")
-
+            if pkg.classification in (LegalClassification.CORE_REGULATION, LegalClassification.DIRECTIVE, LegalClassification.INTERNATIONAL_AGREEMENT):
+                rec = process_regulation_package(pkg, chunker_pipeline, archive)
+                if rec:
+                    ingested_core.append(rec)
+                    total_annexes_grouped += len(pkg.annex_files)
+            elif pkg.classification in (LegalClassification.QUALIFIER_DECISION, LegalClassification.CORRIGENDUM, LegalClassification.RECOMMENDATION):
+                q_rec = process_qualifier_package(pkg, chunker_pipeline, archive)
+                if q_rec:
+                    registered_qualifiers.append(q_rec)
+            else:
+                logger.info(f"Skipping package of type {pkg.classification.value}")
         except Exception as e:
             failed_docs += 1
-            logger.error(f"Error processing {file_path.name}: {e}", exc_info=True)
-            continue
+            logger.error(f"Error processing package {pkg.folder_path.name}: {e}", exc_info=True)
 
-    # 8. Generate Embeddings for the processed chunks
+    # Generate Embeddings for new chunks
     logger.info("Running embedding pipeline for new chunks...")
-    run_embedding_pipeline()
+    try:
+        run_embedding_pipeline(db_path=Path(db_path))
+    except Exception as e:
+        logger.warning(f"Embedding pipeline step skipped / error: {e}")
 
     total_duration = str(timedelta(seconds=int(time.time() - pipeline_start_time)))
 
-    # 9. Generate Text Summary File
+    # Generate Summary Report
     summary_txt_path = Path("ingested_regulations_summary.txt")
-    write_summary_report(summary_txt_path, report_records, total_duration, idx)
+    write_summary_report(
+        summary_txt_path,
+        ingested_core,
+        registered_qualifiers,
+        total_duration,
+        scanned_packages,
+        total_annexes_grouped,
+        total_wrappers_skipped,
+    )
+
+    # Defrag if requested
+    if defrag:
+        try:
+            import sqlite3
+            logger.info("Running VACUUM and WAL checkpoint on SQLite DB...")
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                conn.execute("VACUUM;")
+            logger.info("Database defragmentation complete.")
+        except Exception as e:
+            logger.warning(f"Defrag warning: {e}")
 
     logger.info("=" * 60)
-    logger.info("INGESTION SUMMARY")
+    logger.info("CONSOLIDATED INGESTION SUMMARY")
     logger.info("=" * 60)
-    logger.info(f"Total Files Scanned  : {idx}")
-    logger.info(f"Aviation Matched     : {matched_aviation_count}")
-    logger.info(f"Filtered Out (Other) : {filtered_out_docs}")
-    logger.info(f"Successfully Ingested: {successful_docs}")
-    logger.info(f"Skipped (Unchanged)  : {skipped_unchanged}")
-    logger.info(f"Failed / Errors      : {failed_docs}")
-    logger.info(f"Total Execution Time : {total_duration}")
-    logger.info(f"Summary Report File  : {summary_txt_path.resolve()}")
-    logger.info(f"Regulations Archive  : {archive_dir} ({len(archive._entries)} indexed)")
+    logger.info(f"Total Packages Scanned      : {scanned_packages}")
+    logger.info(f"Core Regulations Ingested   : {len(ingested_core)}")
+    logger.info(f"Attached Annexes Grouped    : {total_annexes_grouped}")
+    logger.info(f"Supporting Qualifiers Saved : {len(registered_qualifiers)}")
+    logger.info(f"Master Wrappers Excluded    : {total_wrappers_skipped}")
+    logger.info(f"Non-Aviation Filtered Out   : {filtered_out}")
+    logger.info(f"Errors / Failures           : {failed_docs}")
+    logger.info(f"Total Execution Time        : {total_duration}")
+    logger.info(f"Summary Report File         : {summary_txt_path.resolve()}")
     logger.info("=" * 60)
 
 
@@ -763,7 +814,7 @@ def run_pipeline(
 
 if __name__ == "__main__":
     arg_parser = argparse.ArgumentParser(
-        description="Ingest Formex XML regulations into SQLite and FAISS."
+        description="Ingest Formex XML regulations into SQLite and FAISS with package grouping."
     )
     arg_parser.add_argument(
         "input_directory",
@@ -774,7 +825,7 @@ if __name__ == "__main__":
         "-l", "--limit",
         type=int,
         default=None,
-        help="Maximum number of aviation-matched XML files to process (useful for fast testing).",
+        help="Maximum number of core aviation regulations to ingest.",
     )
     arg_parser.add_argument(
         "-r", "--reset",
@@ -790,8 +841,12 @@ if __name__ == "__main__":
         "--regulations-dir",
         type=str,
         default=None,
-        help="Where to copy matched XML files, their JSON and regulations_index.json "
-             "(default: 'regulations' folder beside the DB folder).",
+        help="Where to copy matched XML files, their JSON and regulations_index.json.",
+    )
+    arg_parser.add_argument(
+        "--all-domains",
+        action="store_true",
+        help="Ingest all legal acts regardless of aviation domain relevance.",
     )
 
     args = arg_parser.parse_args()
@@ -801,4 +856,5 @@ if __name__ == "__main__":
         reset=args.reset,
         defrag=args.defrag,
         regulations_dir=args.regulations_dir,
+        include_non_aviation=args.all_domains,
     )

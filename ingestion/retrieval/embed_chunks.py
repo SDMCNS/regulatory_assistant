@@ -18,13 +18,20 @@ from ingestion.retrieval.faiss_index import LocalVectorIndex
 def get_text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+def is_lm_studio_available() -> bool:
+    try:
+        r = requests.get(f"{settings.LM_STUDIO_BASE_URL}/models", timeout=1.5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
     payload = {
         "input": texts,
         "model": settings.EMBEDDING_MODEL_NAME
     }
     try:
-        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload)
+        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
         
@@ -35,11 +42,18 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         print(f"Failed to generate embeddings: {e}")
         return []
 
-def run_embedding_pipeline():
-    db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
+def run_embedding_pipeline(db_path: Optional[Path] = None):
+    if db_path is None:
+        target_db = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
+    else:
+        target_db = Path(db_path)
     
-    if not db_path.exists():
-        print(f"Database not found at {db_path}. Please run chunking pipeline first.")
+    if not target_db.exists():
+        print(f"Database not found at {target_db}. Please run chunking pipeline first.")
+        return
+
+    if not is_lm_studio_available():
+        print(f"[Embeddings] LM Studio is offline at {settings.LM_STUDIO_BASE_URL}. Vector generation skipped.")
         return
 
     vector_index = LocalVectorIndex()

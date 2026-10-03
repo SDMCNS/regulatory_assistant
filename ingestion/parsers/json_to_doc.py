@@ -233,8 +233,9 @@ def render_formex(data: Dict[str, Any], with_sections: bool = True) -> str:
         if with_sections:
             lines.append(make_section_break({"type": "annex", "title": annex_title}))
         lines.append(f"# ANNEX: {annex_title}\n\n")
-        if "content" in annex:
-            lines.extend(render_formex_content(annex["content"], with_sections=with_sections))
+        annex_content = annex.get("content") or annex.get("body") or []
+        if annex_content:
+            lines.extend(render_formex_content(annex_content, with_sections=with_sections))
             
     final = data.get("final", {})
     if final:

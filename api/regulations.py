@@ -311,6 +311,80 @@ def api_batch_download_regulations(req: BatchDownloadRequest):
     }
 
 
+@router.get("/regulations/{document_id}/qualifiers", tags=["REGULATIONS"])
+def api_get_regulation_qualifiers(document_id: str):
+    """
+    Returns supporting qualifiers (Decisions, Corrigenda, Implementing acts)
+    associated with a regulation.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT title, metadata_json FROM documents WHERE document_id = ?", (document_id,))
+            doc_row = cursor.fetchone()
+            
+            celex = None
+            doc_num = None
+            if doc_row and doc_row["metadata_json"]:
+                try:
+                    m = json.loads(doc_row["metadata_json"])
+                    celex = m.get("celex")
+                    doc_num = m.get("doc_number")
+                except Exception:
+                    pass
+
+            query = """
+                SELECT qualifier_id, parent_regulation_id, target_regulation_ref,
+                       qualifier_type, celex, title, date, source_file, content_text, metadata_json
+                FROM qualifiers
+                WHERE parent_regulation_id = ? OR qualifier_id = ?
+            """
+            params = [document_id, document_id]
+            if celex:
+                query += " OR parent_regulation_id = ? OR celex = ?"
+                params.extend([celex, celex])
+            if doc_num:
+                query += " OR target_regulation_ref LIKE ?"
+                params.append(f"%{doc_num}%")
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            qualifiers = []
+            for r in rows:
+                meta = {}
+                if r["metadata_json"]:
+                    try:
+                        meta = json.loads(r["metadata_json"])
+                    except Exception:
+                        pass
+                qualifiers.append({
+                    "qualifier_id": r["qualifier_id"],
+                    "parent_regulation_id": r["parent_regulation_id"],
+                    "target_regulation_ref": r["target_regulation_ref"],
+                    "qualifier_type": r["qualifier_type"],
+                    "celex": r["celex"],
+                    "title": r["title"],
+                    "date": r["date"],
+                    "source_file": r["source_file"],
+                    "content_preview": (r["content_text"] or "")[:300],
+                    "metadata": meta
+                })
+                
+            return {
+                "document_id": document_id,
+                "count": len(qualifiers),
+                "qualifiers": qualifiers
+            }
+    except Exception as e:
+        return {
+            "document_id": document_id,
+            "count": 0,
+            "qualifiers": [],
+            "error": str(e)
+        }
+
+
 @router.post("/workspace-fts", response_model=WorkspaceFtsResponse, tags=["REGULATIONS"])
 def api_search_workspace_fts(req: WorkspaceFtsRequest):
     """

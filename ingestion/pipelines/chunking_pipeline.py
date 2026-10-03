@@ -40,7 +40,57 @@ class ChunkerPipeline:
                     FOREIGN KEY(document_id) REFERENCES documents(document_id)
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS qualifiers (
+                    qualifier_id TEXT PRIMARY KEY,
+                    parent_regulation_id TEXT,
+                    target_regulation_ref TEXT,
+                    qualifier_type TEXT,
+                    celex TEXT,
+                    title TEXT,
+                    date TEXT,
+                    source_file TEXT,
+                    content_text TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_qualifiers_parent ON qualifiers(parent_regulation_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_qualifiers_target_ref ON qualifiers(target_regulation_ref)")
             
+    def store_qualifier(
+        self,
+        qualifier_id: str,
+        title: str,
+        qualifier_type: str = "DECISION",
+        parent_regulation_id: Optional[str] = None,
+        target_regulation_ref: Optional[str] = None,
+        celex: Optional[str] = None,
+        date: Optional[str] = None,
+        source_file: Optional[str] = None,
+        content_text: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO qualifiers (
+                    qualifier_id, parent_regulation_id, target_regulation_ref,
+                    qualifier_type, celex, title, date, source_file,
+                    content_text, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                qualifier_id,
+                parent_regulation_id,
+                target_regulation_ref,
+                qualifier_type,
+                celex,
+                title,
+                date,
+                source_file,
+                content_text or "",
+                json.dumps(metadata or {})
+            ))
+
     def process_file(self, file_path: Path):
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -54,7 +104,7 @@ class ChunkerPipeline:
         # Save to DB
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "INSERT OR IGNORE INTO documents (document_id, title, language, date, metadata_json) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO documents (document_id, title, language, date, metadata_json) VALUES (?, ?, ?, ?, ?)",
                 (document_id, title, metadata.get("language"), metadata.get("date"), json.dumps(metadata))
             )
             
@@ -149,6 +199,19 @@ class ChunkerPipeline:
         # Walk body
         if "body" in data:
             walk(data["body"], ["Body"], [], None, None)
+
+        # Walk annexes
+        if "annexes" in data:
+            for idx, annex in enumerate(data["annexes"]):
+                annex_title = annex.get("title") or f"Annex {idx + 1}"
+                annex_content = annex.get("body") or annex.get("content") or []
+                walk(annex_content, [annex_title], [f"ANNEX_{idx + 1}"], None, "annex")
+
+        # Walk final provisions if present
+        if "final" in data:
+            final_content = data["final"].get("content", []) if isinstance(data["final"], dict) else []
+            if final_content:
+                walk(final_content, ["Final Provisions"], ["FINAL"], None, None)
             
         # Post-process: merge lists for clarity
         # If a chunk ends with ':', merge it with its logical child items

@@ -342,103 +342,120 @@ def search_semantic(
         except Exception:
             pass
 
-        for chunk_id, raw_score in vector_results:
+        doc_chunks = None
+        if document_id:
             cursor.execute("""
-                SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
+                SELECT c.chunk_id, c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
-                WHERE c.chunk_id = ?
-            """, (chunk_id,))
-            row = cursor.fetchone()
-            
-            if row:
+                WHERE c.document_id = ?
+            """, (document_id,))
+            doc_chunks = {r[0]: r[1:] for r in cursor.fetchall()}
+            if not doc_chunks:
+                return []
+
+        for chunk_id, raw_score in vector_results:
+            if doc_chunks is not None:
+                if chunk_id not in doc_chunks:
+                    continue
+                doc_id, section_path, source_text, meta_json, doc_title = doc_chunks[chunk_id]
+            else:
+                cursor.execute("""
+                    SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
+                    FROM chunks c
+                    JOIN documents d ON c.document_id = d.document_id
+                    WHERE c.chunk_id = ?
+                """, (chunk_id,))
+                row = cursor.fetchone()
+                if not row:
+                    continue
                 doc_id, section_path, source_text, meta_json, doc_title = row
 
-                # Document ID filter
-                if document_id and doc_id != document_id:
-                    continue
-
-                is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
-                is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
-                
-                if origin == "eu" and (is_easa or is_faa):
+            is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
+            is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
+            is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
+            
+            if not doc_chunks:
+                if origin == "eu" and (is_easa or is_faa or is_manual):
                     continue
                 if origin == "easa" and not is_easa:
                     continue
                 if origin == "faa" and not is_faa:
                     continue
-                
-                # Fetch parent title if this is an ANNEX or lacks a good title
-                if not doc_title or str(doc_title).upper().startswith("ANNEX") or str(doc_title).upper().startswith("APPENDIX"):
-                    prefix = doc_id.split(".")[0] + "%"
-                    cursor.execute("""
-                        SELECT title FROM documents 
-                        WHERE document_id <= ? AND document_id LIKE ? 
-                          AND title NOT LIKE 'ANNEX%' 
-                          AND title NOT LIKE 'APPENDIX%'
-                        ORDER BY document_id DESC LIMIT 1
-                    """, (doc_id, prefix))
-                    p_row = cursor.fetchone()
-                    if p_row and p_row[0]:
-                        doc_title = p_row[0]
+                if origin == "manual" and not is_manual:
+                    continue
+            
+            # Fetch parent title if this is an ANNEX or lacks a good title
+            if not doc_title or str(doc_title).upper().startswith("ANNEX") or str(doc_title).upper().startswith("APPENDIX"):
+                prefix = doc_id.split(".")[0] + "%"
+                cursor.execute("""
+                    SELECT title FROM documents 
+                    WHERE document_id <= ? AND document_id LIKE ? 
+                      AND title NOT LIKE 'ANNEX%' 
+                      AND title NOT LIKE 'APPENDIX%'
+                    ORDER BY document_id DESC LIMIT 1
+                """, (doc_id, prefix))
+                p_row = cursor.fetchone()
+                if p_row and p_row[0]:
+                    doc_title = p_row[0]
 
-                import json
-                path_list = json.loads(section_path) if section_path else []
-                meta_dict = json.loads(meta_json) if meta_json else {}
-                if doc_title:
-                    meta_dict["document_title"] = doc_title
-                meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
+            import json
+            path_list = json.loads(section_path) if section_path else []
+            meta_dict = json.loads(meta_json) if meta_json else {}
+            if doc_title:
+                meta_dict["document_title"] = doc_title
+            meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
 
-                # Read stakeholder applicability scores if available
-                stakeholder_data = {}
-                primary_stk = None
-                stk_bonus = 0.0
+            # Read stakeholder applicability scores if available
+            stakeholder_data = {}
+            primary_stk = None
+            stk_bonus = 0.0
 
-                if has_stakeholder_table:
-                    cursor.execute("""
-                        SELECT score_airline, score_ansp, score_airport, score_economics, score_maintenance, score_flight_crew, primary_stakeholder
-                        FROM chunk_stakeholder_scores WHERE chunk_id = ?
-                    """, (chunk_id,))
-                    s_row = cursor.fetchone()
-                    if s_row:
-                        stakeholder_data = {
-                            "airline": s_row[0],
-                            "ansp": s_row[1],
-                            "airport": s_row[2],
-                            "economics": s_row[3],
-                            "maintenance": s_row[4],
-                            "flight_crew": s_row[5],
-                        }
-                        primary_stk = s_row[6]
-                        meta_dict["stakeholder_scores"] = stakeholder_data
-                        meta_dict["primary_stakeholder"] = primary_stk
+            if has_stakeholder_table:
+                cursor.execute("""
+                    SELECT score_airline, score_ansp, score_airport, score_economics, score_maintenance, score_flight_crew, primary_stakeholder
+                    FROM chunk_stakeholder_scores WHERE chunk_id = ?
+                """, (chunk_id,))
+                s_row = cursor.fetchone()
+                if s_row:
+                    stakeholder_data = {
+                        "airline": s_row[0],
+                        "ansp": s_row[1],
+                        "airport": s_row[2],
+                        "economics": s_row[3],
+                        "maintenance": s_row[4],
+                        "flight_crew": s_row[5],
+                    }
+                    primary_stk = s_row[6]
+                    meta_dict["stakeholder_scores"] = stakeholder_data
+                    meta_dict["primary_stakeholder"] = primary_stk
 
-                        if stakeholder and stakeholder.lower() in stakeholder_data:
-                            target_val = stakeholder_data[stakeholder.lower()]
-                            # Apply a 15% additive boost proportional to stakeholder alignment
-                            stk_bonus = float(target_val) * 0.15
+                    if stakeholder and stakeholder.lower() in stakeholder_data:
+                        target_val = stakeholder_data[stakeholder.lower()]
+                        # Apply a 15% additive boost proportional to stakeholder alignment
+                        stk_bonus = float(target_val) * 0.15
 
-                # Compute combined score: Chunk Score + Act Prior Boost + Stakeholder Bonus
-                base_score = float(raw_score)
-                act_prior = act_scores.get(doc_id, 0.0)
-                if act_prior > 0:
-                    combined_score = (0.75 * base_score) + (0.25 * act_prior) + stk_bonus
-                else:
-                    combined_score = base_score + stk_bonus
+            # Compute combined score: Chunk Score + Act Prior Boost + Stakeholder Bonus
+            base_score = float(raw_score)
+            act_prior = act_scores.get(doc_id, 0.0)
+            if act_prior > 0:
+                combined_score = (0.75 * base_score) + (0.25 * act_prior) + stk_bonus
+            else:
+                combined_score = base_score + stk_bonus
 
-                candidate_records.append({
-                    "chunk_id": chunk_id,
-                    "score": round(combined_score, 4),
-                    "raw_vector_score": round(base_score, 4),
-                    "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
-                    "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
-                    "document_id": doc_id,
-                    "path": path_list,
-                    "text": source_text,
-                    "metadata": meta_dict,
-                    "primary_stakeholder": primary_stk,
-                    "stakeholder_scores": stakeholder_data
-                })
+            candidate_records.append({
+                "chunk_id": chunk_id,
+                "score": round(combined_score, 4),
+                "raw_vector_score": round(base_score, 4),
+                "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
+                "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
+                "document_id": doc_id,
+                "path": path_list,
+                "text": source_text,
+                "metadata": meta_dict,
+                "primary_stakeholder": primary_stk,
+                "stakeholder_scores": stakeholder_data
+            })
 
     # Re-rank by combined score descending
     candidate_records.sort(key=lambda x: x["score"], reverse=True)

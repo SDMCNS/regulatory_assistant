@@ -255,12 +255,16 @@ def search_keywords(
             
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
-            if origin == "eu" and (is_easa or is_faa):
-                continue
-            if origin == "easa" and not is_easa:
-                continue
-            if origin == "faa" and not is_faa:
-                continue
+            is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
+            if not document_id:
+                if origin == "eu" and (is_easa or is_faa or is_manual):
+                    continue
+                if origin == "easa" and not is_easa:
+                    continue
+                if origin == "faa" and not is_faa:
+                    continue
+                if origin == "manual" and not is_manual:
+                    continue
                 
             count += 1
             

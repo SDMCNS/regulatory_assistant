@@ -540,6 +540,9 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                     — {focusedDocTitle}
                   </span>
                 )}
+                <span className="text-amber-400 font-mono text-[11px] bg-amber-900/50 px-2 py-0.5 rounded border border-amber-700/50">
+                  {results.length} {results.length === 1 ? 'provision' : 'provisions'} matching
+                </span>
               </div>
             </div>
             <button

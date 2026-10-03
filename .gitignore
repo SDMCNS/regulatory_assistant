@@ -22,6 +22,7 @@ ingestion/data/
 *.log
 ingestion/logs/
 ingested_regulations_summary.txt
+*report*.txt
 
 
 # Env Variables

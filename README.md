@@ -17,9 +17,11 @@ AeroLex EU enables aerospace engineers, flight operations compliance auditors, s
 ## Key Capabilities
 
 ### 1. Hybrid Multi-Stage Retrieval Engine
-- **Dense Vector Semantic Search (FAISS)**: Uses state-of-the-art embedding models to capture regulatory intent and natural language questions. Enhanced with **HyDE (Hypothetical Document Embeddings)** for query expansion.
+- **Dense Vector Semantic Search (FAISS)**: Uses state-of-the-art embedding models to capture regulatory intent and natural language questions. Enhanced with **HyDE (Hypothetical Document Embeddings)** for query expansion with configurable timeout and safe cold-start fallback.
 - **SQLite FTS5 Full-Text Keyword Search (BM25)**: Sub-millisecond keyword retrieval with Porter stemming, optimized for aviation acronyms (`ATSEP`, `AMC-20`, `CPDLC`, `ADS-B`, `FTL`, `SMS`) and clause numbering (`CAT.OP.MPA`, `CS-ACNS`, `Part-FCL`).
 - **Reciprocal Rank Fusion (RRF)**: Merges dense vector and BM25 ranked outputs into a unified score distribution to balance semantic comprehension with exact legal terminology.
+- **Context Expansion & Practical Implications ("Get Context")**: On any retrieved chunk, fetch surrounding provisions from the same regulation with sequential forward/backward linking and generate an AI synthesis of the legal context and practical operational implications.
+- **Document-Scoped Search ("Focus Document")**: Instantly isolate and re-query a single regulation from any search result to discover all related requirements within that specific act.
 
 ### 2. Autonomous Deep Regulatory Research Engine
 - **Scientific Multi-Perspective Synthesis**: Unlike naive RAG pipelines that blindly accept retrieved chunks, the research agent tests, validates, and actively attempts to negate candidate clauses to filter out false positives and ensure citations directly answer the query.
@@ -31,9 +33,10 @@ AeroLex EU enables aerospace engineers, flight operations compliance auditors, s
 - **Direct Workspace Integration**: Easily transition from a research report directly into the dedicated workspace by clicking **"Open All in Workspace"** to load all consulted regulatory sources into a cross-document overlap analysis.
 
 ### 3. Dedicated Multi-Regulation Workspace & Cross-Document Overlap
-- **Title-Level Catalog & Multi-Select**: Browse and search over 1,400+ EU aviation acts and comprehensive EASA Easy Access Rules with instant origin filtering (`easa` vs `eu`) and sorting.
+- **Title-Level Catalog & Multi-Select**: Browse and search over 1,400+ EU aviation acts, comprehensive EASA Easy Access Rules, and FAA 14 CFR regulations with instant origin filtering (`all`, `eu`, `easa`, `faa`) and sorting.
+- **Supporting Regulations & Qualifiers**: Tracks hierarchical relationships between primary acts and supporting decisions, corrigenda, and amendments, with dedicated qualifier exploration drawers.
 - **In-App Local Caching**: Download and persist multiple regulations into client-side browser storage via **IndexedDB** (`idb-keyval`) for offline viewing, or export full JSON bundles.
-- **Cross-Regulation Overlap Analysis (SQLite FTS5)**: Execute high-speed search across selected documents to visualize how safety concepts and technical specifications overlap across European regulations.
+- **Cross-Regulation Overlap Analysis (SQLite FTS5)**: Execute high-speed search across selected documents to visualize how safety concepts and technical specifications overlap across regulations.
 - **Multi-Column Comparison Matrix**: Inspect matching sections across 20+ regulations simultaneously in a side-by-side grid or grouped list view with overlap rate calculations and distribution bars.
 
 ### 4. High-Value Client-Side Regulatory Tools

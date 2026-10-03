@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     LLM_MODEL_NAME: str = "google/gemma-4-e4b"
     EMBEDDING_MODEL_NAME: str = "text-embedding-kalm-embedding-gemma3-12b-2511"  # or whichever model is loaded in LM Studio
     EMBEDDING_DIMENSIONS: int = 3840  # 3840 for kalm-embedding-gemma3-12b, 768 for nomic-embed-text
+    HYDE_TIMEOUT: int = 90  # Seconds to wait for local LLM cold loading into VRAM
 
     class Config:
         env_prefix = "REG_INGEST_"

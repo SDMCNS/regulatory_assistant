@@ -49,11 +49,14 @@ def get_embeddings_batch(texts: list[str], batch_size: int = 32) -> list[list[fl
     return all_embeddings
 
 
-def generate_hyde_document(query: str, timeout: int = 15) -> str:
+def generate_hyde_document(query: str, timeout: Optional[int] = None) -> str:
     """
     Generates a hypothetical document (HyDE) using the local LLM.
-    Guarantees safe fallback to the original query if generation is empty or truncated.
+    Guarantees safe fallback to the original query if generation is empty, truncated, or timed out.
     """
+    if timeout is None:
+        timeout = getattr(settings, "HYDE_TIMEOUT", 90)
+
     prompt = (
         f"You are an expert on aviation regulations (EASA and EU).\n"
         f"Please write a short, factual passage that directly answers the following query or contains the relevant regulatory information.\n"
@@ -81,13 +84,15 @@ def generate_hyde_document(query: str, timeout: int = 15) -> str:
             data = response.json()
             choice = data["choices"][0]["message"]
             content = (choice.get("content") or "").strip()
-            # If model used internal thinking and content is sparse, fallback to reasoning content or query
+            # If model used internal thinking and content is sparse, fallback to reasoning content
             if not content or len(content) < 25:
                 reasoning = (choice.get("reasoning_content") or "").strip()
                 if reasoning and len(reasoning) >= 25:
                     content = reasoning
             if content and len(content) >= 25:
                 return content
+    except requests.exceptions.Timeout:
+        print(f"[HyDE Warning] LLM generation timed out after {timeout}s (model may be cold loading on GPU). Falling back cleanly to direct query.")
     except Exception as e:
         print(f"HyDE generation failed: {e}")
         

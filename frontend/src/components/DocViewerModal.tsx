@@ -23,7 +23,7 @@ import {
   Eye,
   Database
 } from 'lucide-react';
-import { SearchDocResponse, DocSection } from '../types';
+import { SearchDocResponse, DocSection, RegulationQualifier } from '../types';
 import { marked } from 'marked';
 import { parseDocumentSections, getSectionStyle } from '../utils/sectionParser';
 import { 
@@ -31,7 +31,7 @@ import {
   highlightHtmlContent, 
   SectionSimilarityResult 
 } from '../utils/documentSimilarity';
-import { getDocumentMarkdown } from '../services/apiClient';
+import { getDocumentMarkdown, getRegulationQualifiers } from '../services/apiClient';
 
 interface DocViewerModalProps {
   doc: SearchDocResponse | null;
@@ -98,6 +98,31 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
       setFullDocMarkdown(doc.markdown_doc);
     }
   }, [doc]);
+
+  // Supporting Qualifiers / Decisions State
+  const [qualifiers, setQualifiers] = useState<RegulationQualifier[]>([]);
+  const [showQualifiers, setShowQualifiers] = useState(false);
+  const [loadingQualifiers, setLoadingQualifiers] = useState(false);
+
+  useEffect(() => {
+    if (doc?.document_id) {
+      setLoadingQualifiers(true);
+      getRegulationQualifiers(doc.document_id)
+        .then((res) => {
+          setQualifiers(res.qualifiers || []);
+        })
+        .catch((err) => {
+          console.error("Failed to load qualifiers", err);
+          setQualifiers([]);
+        })
+        .finally(() => {
+          setLoadingQualifiers(false);
+        });
+    } else {
+      setQualifiers([]);
+      setShowQualifiers(false);
+    }
+  }, [doc?.document_id]);
 
   // Container ref for scrolling into view
   const contentContainerRef = useRef<HTMLDivElement>(null);
@@ -409,6 +434,71 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
             </React.Fragment>
           ))}
         </div>
+
+        {/* Supporting Qualifiers / Decisions Banner */}
+        {qualifiers.length > 0 && (
+          <div className="px-5 py-2.5 bg-gradient-to-r from-indigo-950/80 via-slate-900 to-indigo-950/60 border-b border-indigo-800/50 shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="p-1 rounded-md bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <Layers className="w-3.5 h-3.5" />
+                </span>
+                <div className="text-xs">
+                  <span className="font-semibold text-indigo-200">
+                    This regulation has {qualifiers.length} supporting {qualifiers.length === 1 ? 'act' : 'acts'} (Decisions, Corrigenda, Implementing acts) that follow from it.
+                  </span>
+                  <span className="text-indigo-400/80 ml-1.5 hidden sm:inline">
+                    Would you like to explore these too?
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowQualifiers(!showQualifiers)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-indigo-200 bg-indigo-900/60 hover:bg-indigo-800/80 border border-indigo-700/60 rounded-lg transition-colors shrink-0 shadow-sm"
+              >
+                <span>{showQualifiers ? 'Hide Supporting Acts' : `Explore ${qualifiers.length} Supporting Acts`}</span>
+                <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showQualifiers ? 'rotate-180' : ''}`} />
+              </button>
+            </div>
+
+            {showQualifiers && (
+              <div className="mt-2.5 pt-2.5 border-t border-indigo-800/40 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                {qualifiers.map((q) => (
+                  <div
+                    key={q.qualifier_id}
+                    className="p-2.5 rounded-lg bg-slate-900/90 border border-indigo-800/40 hover:border-indigo-600/60 transition-colors flex flex-col justify-between gap-1.5 text-xs group"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {q.qualifier_type}
+                        </span>
+                        {q.date && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {q.date}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-medium text-slate-200 line-clamp-2 text-[11px] leading-snug">
+                        {q.title}
+                      </p>
+                      {q.celex && (
+                        <p className="text-[10px] text-indigo-400/70 font-mono mt-0.5">
+                          CELEX: {q.celex}
+                        </p>
+                      )}
+                    </div>
+                    {q.content_preview && (
+                      <p className="text-[10px] text-slate-400 line-clamp-2 italic bg-slate-950/50 p-1.5 rounded border border-slate-800/60">
+                        "{q.content_preview}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* CLIENT-SIDE SIMILARITY SEARCH & HIGHLIGHTING BAR */}
         <div className="px-5 py-3 bg-slate-950/90 border-b border-slate-800 shrink-0 space-y-2.5">

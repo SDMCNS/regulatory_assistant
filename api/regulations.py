@@ -85,6 +85,36 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 if prefix not in parent_titles:
                     parent_titles[prefix] = title
 
+        # Fetch qualifier counts per parent regulation
+        qualifier_counts = {}
+        try:
+            cursor.execute("""
+                SELECT parent_regulation_id, target_regulation_ref, COUNT(*) 
+                FROM qualifiers 
+                GROUP BY parent_regulation_id, target_regulation_ref
+            """)
+            for p_id, target_ref, q_count in cursor.fetchall():
+                if p_id:
+                    qualifier_counts[p_id] = qualifier_counts.get(p_id, 0) + q_count
+                if target_ref:
+                    clean_ref = target_ref.replace("Regulation", "").strip()
+                    qualifier_counts[clean_ref] = qualifier_counts.get(clean_ref, 0) + q_count
+        except Exception:
+            pass
+
+        # Fetch stakeholder domains per document
+        doc_stakeholders = {}
+        try:
+            cursor.execute("""
+                SELECT document_id, primary_stakeholder 
+                FROM document_stakeholder_scores
+            """)
+            for d_id, p_stk in cursor.fetchall():
+                if d_id:
+                    doc_stakeholders[d_id] = p_stk
+        except Exception:
+            pass
+
         for r in rows:
             doc_id = r["document_id"]
             raw_title = (r["title"] or "").strip()
@@ -116,6 +146,12 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 except Exception:
                     pass
 
+            celex = meta_dict.get("celex")
+            doc_num = meta_dict.get("doc_number")
+            q_cnt = qualifier_counts.get(doc_id, 0) or (qualifier_counts.get(celex, 0) if celex else 0) or (qualifier_counts.get(doc_num, 0) if doc_num else 0)
+
+            stk = doc_stakeholders.get(doc_id, None)
+
             items.append({
                 "document_id": doc_id,
                 "title": clean_title,
@@ -124,6 +160,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 "origin": origin,
                 "source": source,
                 "chunk_count": chunk_count,
+                "qualifier_count": q_cnt,
+                "primary_stakeholder": stk,
                 "metadata": meta_dict
             })
             
@@ -144,6 +182,8 @@ class RegulationItem(BaseModel):
     origin: str
     source: Optional[str] = None
     chunk_count: int
+    qualifier_count: int = 0
+    primary_stakeholder: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 class CatalogResponse(BaseModel):
@@ -221,6 +261,7 @@ class WorkspaceFtsResponse(BaseModel):
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
     origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', or 'easa'"),
+    stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),
     sort_order: Optional[str] = Query("desc", description="Sort order: 'asc' or 'desc'"),
     limit: Optional[int] = Query(500, ge=1, le=2000, description="Max regulations to return"),
@@ -228,11 +269,12 @@ def api_get_regulations_catalog(
 ):
     """
     Returns the comprehensive catalog of European aviation regulations indexed in the database.
-    Supports title-level search, origin filtering (EASA vs EU), and sorting by chunk size or date.
+    Supports title-level search, origin filtering (EASA vs EU), stakeholder domain filtering, and sorting.
     """
     # Safely extract values if called directly outside FastAPI
     q_clean = query.strip() if (isinstance(query, str) and query.strip()) else None
     origin_str = (origin.lower() if isinstance(origin, str) else "all")
+    stk_clean = (stakeholder.lower().strip() if isinstance(stakeholder, str) and stakeholder.strip() else None)
     sort_by_str = (sort_by.lower() if isinstance(sort_by, str) else "chunks")
     sort_order_str = (sort_order.lower() if isinstance(sort_order, str) else "desc")
     limit_val = limit if isinstance(limit, int) else 500
@@ -244,8 +286,12 @@ def api_get_regulations_catalog(
     # 1. Filter by origin
     if origin_str != "all":
         filtered = [item for item in filtered if item["origin"] == origin_str]
+
+    # 2. Filter by stakeholder
+    if stk_clean and stk_clean != "all":
+        filtered = [item for item in filtered if (item.get("primary_stakeholder") or "").lower() == stk_clean]
         
-    # 2. Title-level search
+    # 3. Title-level search
     if q_clean:
         terms = q_clean.lower().split()
         

@@ -64,11 +64,15 @@ app.add_middleware(
 class SearchResponse(BaseModel):
     chunk_id: str
     score: float
+    raw_vector_score: Optional[float] = None
+    act_prior_score: Optional[float] = None
     source: str
     document_id: str
     path: List[str]
     text: str
     metadata: Dict[str, Any]
+    primary_stakeholder: Optional[str] = None
+    stakeholder_scores: Optional[Dict[str, float]] = None
 
 class SearchDocResponse(SearchResponse):
     markdown_doc: str
@@ -104,9 +108,10 @@ def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
-    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)")
+    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
+    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
 ):
-    results = search_semantic(query, top_k, origin, use_hyde=use_hyde)
+    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
     return results
 
 @app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
@@ -114,9 +119,10 @@ def api_search_docs(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
-    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)")
+    use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
+    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
 ):
-    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde)
+    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
     
     enriched_results = []
     for r in results:

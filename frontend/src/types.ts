@@ -10,15 +10,39 @@ export type SearchMethod = 'semantic' | 'docs' | 'keyword' | 'hybrid';
 export interface SearchResponse {
   chunk_id: string;
   score: number;
+  raw_vector_score?: number;
+  act_prior_score?: number;
   source: string;
   document_id: string;
   path: string[];
   text: string;
   metadata: Record<string, any>;
+  primary_stakeholder?: string;
+  stakeholder_scores?: Record<string, number>;
 }
 
 export interface SearchDocResponse extends SearchResponse {
   markdown_doc: string;
+}
+
+export interface RegulationQualifier {
+  qualifier_id: string;
+  parent_regulation_id?: string | null;
+  target_regulation_ref?: string | null;
+  qualifier_type: string;
+  celex?: string | null;
+  title: string;
+  date?: string | null;
+  source_file?: string | null;
+  content_preview?: string | null;
+  metadata?: Record<string, any>;
+}
+
+export interface RegulationQualifiersResponse {
+  document_id: string;
+  count: number;
+  qualifiers: RegulationQualifier[];
+  error?: string;
 }
 
 export interface DocSection {
@@ -168,6 +192,8 @@ export interface RegulationItem {
   origin: 'easa' | 'eu';
   source?: string | null;
   chunk_count: number;
+  qualifier_count?: number;
+  primary_stakeholder?: string | null;
   metadata?: Record<string, any> | null;
 }
 

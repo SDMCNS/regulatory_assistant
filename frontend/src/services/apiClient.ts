@@ -25,6 +25,8 @@ import {
   BatchDownloadResponse,
   DownloadedDocItem,
   WorkspaceFtsResponse,
+  RegulationQualifier,
+  RegulationQualifiersResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -763,6 +765,7 @@ export async function getRegulationsCatalog(
   params: {
     query?: string;
     origin?: 'all' | 'eu' | 'easa';
+    stakeholder?: string;
     sort_by?: 'chunks' | 'title' | 'date';
     sort_order?: 'asc' | 'desc';
     limit?: number;
@@ -774,6 +777,7 @@ export async function getRegulationsCatalog(
   const searchParams = new URLSearchParams();
   if (params.query) searchParams.append('query', params.query);
   if (params.origin) searchParams.append('origin', params.origin);
+  if (params.stakeholder) searchParams.append('stakeholder', params.stakeholder);
   if (params.sort_by) searchParams.append('sort_by', params.sort_by);
   if (params.sort_order) searchParams.append('sort_order', params.sort_order);
   if (params.limit) searchParams.append('limit', String(params.limit));
@@ -790,6 +794,41 @@ export async function getRegulationsCatalog(
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`HTTP ${res.status} from ${targetBase}/regulations/catalog: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * GET /regulations/{document_id}/qualifiers
+ * Retrieve supporting qualifiers (Decisions, Corrigenda, Implementing acts)
+ */
+export async function getRegulationQualifiers(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<RegulationQualifiersResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const encId = encodeURIComponent(documentId);
+    const url = `${targetBase}/regulations/${encId}/qualifiers`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from ${url}: ${errText || res.statusText}`);
     }
     return await res.json();
   };

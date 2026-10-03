@@ -155,6 +155,7 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
   // Filters & Search
   const [titleQuery, setTitleQuery] = useState<string>('');
   const [originFilter, setOriginFilter] = useState<'all' | 'easa' | 'eu'>('all');
+  const [stakeholderFilter, setStakeholderFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'chunks' | 'title' | 'date'>('chunks');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -227,6 +228,7 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
       const res = await getRegulationsCatalog({
         query: titleQuery,
         origin: originFilter,
+        stakeholder: stakeholderFilter !== 'all' ? stakeholderFilter : undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         limit: 1500,
@@ -237,7 +239,7 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
     } finally {
       setIsLoadingCatalog(false);
     }
-  }, [titleQuery, originFilter, sortBy, sortOrder, settings]);
+  }, [titleQuery, originFilter, stakeholderFilter, sortBy, sortOrder, settings]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -789,6 +791,34 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
               </div>
             </div>
 
+            {/* Stakeholder Domain Filter Row */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-800/50">
+              <span className="text-xs text-slate-400 mr-1 flex items-center gap-1">
+                <Tag className="w-3 h-3 text-purple-400" /> Stakeholder Domain:
+              </span>
+              {[
+                { id: 'all', label: 'All Domains' },
+                { id: 'airline', label: 'Airlines / Operators' },
+                { id: 'ansp', label: 'ANSP / ATM' },
+                { id: 'airport', label: 'Airports' },
+                { id: 'economics', label: 'Economics / Charges' },
+                { id: 'maintenance', label: 'Maintenance' },
+                { id: 'flight_crew', label: 'Flight Crew' },
+              ].map((stk) => (
+                <button
+                  key={stk.id}
+                  onClick={() => setStakeholderFilter(stk.id)}
+                  className={`px-2.5 py-1 text-xs rounded-lg transition-colors font-medium border ${
+                    stakeholderFilter === stk.id
+                      ? 'bg-purple-950/80 text-purple-200 border-purple-700 shadow-sm'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  {stk.label}
+                </button>
+              ))}
+            </div>
+
             {/* Selection & Batch Action Controls */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
               <div className="flex items-center gap-2 text-xs">
@@ -932,6 +962,21 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                         <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
                           {item.chunk_count.toLocaleString()} chunks
                         </span>
+
+                        {/* Stakeholder Domain Badge */}
+                        {item.primary_stakeholder && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold bg-purple-950/80 text-purple-300 border border-purple-800/80 uppercase">
+                            {item.primary_stakeholder.replace('_', ' ')}
+                          </span>
+                        )}
+
+                        {/* Supporting Acts Badge */}
+                        {Boolean(item.qualifier_count && item.qualifier_count > 0) && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-700/80 flex items-center gap-1 shadow-sm" title={`${item.qualifier_count} supporting decisions, corrigenda, or implementing acts`}>
+                            <Layers className="w-3 h-3 text-indigo-400" />
+                            {item.qualifier_count} Supporting Acts
+                          </span>
+                        )}
 
                         {/* Date if available */}
                         {item.date && (

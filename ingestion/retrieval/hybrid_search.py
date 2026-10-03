@@ -3,16 +3,23 @@ from typing import List, Dict, Any, Optional
 from ingestion.retrieval.search_chunks import search_semantic
 from ingestion.retrieval.keyword_search import search_keywords
 
-def search_hybrid(query: str, top_k: int = 5, origin: str = "all", rrf_k: int = 60, use_hyde: bool = False) -> List[Dict[str, Any]]:
+def search_hybrid(
+    query: str, 
+    top_k: int = 5, 
+    origin: str = "all", 
+    rrf_k: int = 60, 
+    use_hyde: bool = False,
+    stakeholder: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """
     Performs Reciprocal Rank Fusion (RRF) between semantic vector search
-    and BM25 keyword search.
+    and BM25 keyword search, with optional stakeholder domain prioritization.
     """
     # Run both searches (in a real prod environment we'd use asyncio for this, but synchronous is fine here)
     # We fetch more results than top_k for each to get a good intersection pool
     fetch_k = max(top_k * 2, 20)
     
-    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde)
+    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
     # Disable LLM expansion for hybrid inner search to keep it fast, or keep it if desired
     keyword_results = search_keywords(query, fetch_k, origin, use_llm_expansion=False)
     

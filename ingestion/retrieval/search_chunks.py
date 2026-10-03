@@ -181,7 +181,13 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
             print("Invalid rank.")
 
 
-def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: bool = False) -> list[dict]:
+def search_semantic(
+    query: str, 
+    top_k: int = 5, 
+    origin: str = "all", 
+    use_hyde: bool = False,
+    stakeholder: Optional[str] = None
+) -> list[dict]:
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
         return []
@@ -195,23 +201,46 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
             hyde_doc = query
         query_vector = get_query_embedding(hyde_doc)
     else:
-        query_vector = get_query_embedding(query)
+        # Prepend asymmetric task prefix for query retrieval
+        instruction_query = f"query: Given an EU aviation regulation search query, retrieve the authoritative articles and annexes: {query}"
+        query_vector = get_query_embedding(instruction_query)
+        if not query_vector:
+            # Fallback to raw query
+            query_vector = get_query_embedding(query)
     
     if not query_vector:
         return []
     
-    search_k = top_k * 10 if origin != "all" else top_k
-    vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=search_k)
+    # 2. Hierarchical Document-Level (ACT) Prior Search
+    # Check if the ACT partition has vectors to compute regulation-level relevance
+    act_scores: dict[str, float] = {}
+    try:
+        act_index = vector_index.indices.get(EmbeddingType.ACT.value)
+        if act_index and act_index.ntotal > 0:
+            act_results = vector_index.search(query_vector, EmbeddingType.ACT, top_k=25)
+            for doc_id, a_score in act_results:
+                act_scores[doc_id] = float(a_score)
+    except Exception:
+        pass
+    
+    # 3. Chunk-Level Search
+    search_k = top_k * 15 if origin != "all" or stakeholder else top_k * 4
+    vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=max(search_k, 25))
         
-    final_results = []
+    candidate_records = []
     
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         
-        for chunk_id, score in vector_results:
-            if len(final_results) >= top_k:
-                break
-                
+        # Check if stakeholder scores table exists
+        has_stakeholder_table = False
+        try:
+            cursor.execute("SELECT 1 FROM chunk_stakeholder_scores LIMIT 1")
+            has_stakeholder_table = True
+        except Exception:
+            pass
+
+        for chunk_id, raw_score in vector_results:
             cursor.execute("""
                 SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
                 FROM chunks c
@@ -244,22 +273,65 @@ def search_semantic(query: str, top_k: int = 5, origin: str = "all", use_hyde: b
                         doc_title = p_row[0]
 
                 import json
-                path_list = json.loads(section_path)
+                path_list = json.loads(section_path) if section_path else []
                 meta_dict = json.loads(meta_json) if meta_json else {}
                 if doc_title:
                     meta_dict["document_title"] = doc_title
 
-                final_results.append({
+                # Read stakeholder applicability scores if available
+                stakeholder_data = {}
+                primary_stk = None
+                stk_bonus = 0.0
+
+                if has_stakeholder_table:
+                    cursor.execute("""
+                        SELECT score_airline, score_ansp, score_airport, score_economics, score_maintenance, score_flight_crew, primary_stakeholder
+                        FROM chunk_stakeholder_scores WHERE chunk_id = ?
+                    """, (chunk_id,))
+                    s_row = cursor.fetchone()
+                    if s_row:
+                        stakeholder_data = {
+                            "airline": s_row[0],
+                            "ansp": s_row[1],
+                            "airport": s_row[2],
+                            "economics": s_row[3],
+                            "maintenance": s_row[4],
+                            "flight_crew": s_row[5],
+                        }
+                        primary_stk = s_row[6]
+                        meta_dict["stakeholder_scores"] = stakeholder_data
+                        meta_dict["primary_stakeholder"] = primary_stk
+
+                        if stakeholder and stakeholder.lower() in stakeholder_data:
+                            target_val = stakeholder_data[stakeholder.lower()]
+                            # Apply a 15% additive boost proportional to stakeholder alignment
+                            stk_bonus = float(target_val) * 0.15
+
+                # Compute combined score: Chunk Score + Act Prior Boost + Stakeholder Bonus
+                base_score = float(raw_score)
+                act_prior = act_scores.get(doc_id, 0.0)
+                if act_prior > 0:
+                    combined_score = (0.75 * base_score) + (0.25 * act_prior) + stk_bonus
+                else:
+                    combined_score = base_score + stk_bonus
+
+                candidate_records.append({
                     "chunk_id": chunk_id,
-                    "score": float(score),
+                    "score": round(combined_score, 4),
+                    "raw_vector_score": round(base_score, 4),
+                    "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
                     "source": "EASA" if is_easa else "EU",
                     "document_id": doc_id,
                     "path": path_list,
                     "text": source_text,
-                    "metadata": meta_dict
+                    "metadata": meta_dict,
+                    "primary_stakeholder": primary_stk,
+                    "stakeholder_scores": stakeholder_data
                 })
-                
-    return final_results
+
+    # Re-rank by combined score descending
+    candidate_records.sort(key=lambda x: x["score"], reverse=True)
+    return candidate_records[:top_k]
 
 
 def main():

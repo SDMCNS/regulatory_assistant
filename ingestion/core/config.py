@@ -20,8 +20,7 @@ class Settings(BaseSettings):
     LM_STUDIO_BASE_URL: str = "http://localhost:1234/v1"
     LLM_MODEL_NAME: str = "google/gemma-4-e4b"
     EMBEDDING_MODEL_NAME: str = "text-embedding-kalm-embedding-gemma3-12b-2511"  # or whichever model is loaded in LM Studio
-    EMBEDDING_MODEL_VERSION: str = "v1.0"
-    EMBEDDING_DIMENSIONS: int = 768  # e.g., 768 for nomic-embed-text, 1024 for bge-large
+    EMBEDDING_DIMENSIONS: int = 3840  # 3840 for kalm-embedding-gemma3-12b, 768 for nomic-embed-text
 
     class Config:
         env_prefix = "REG_INGEST_"

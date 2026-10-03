@@ -31,7 +31,7 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         "model": settings.EMBEDDING_MODEL_NAME
     }
     try:
-        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload, timeout=30)
+        response = requests.post(f"{settings.LM_STUDIO_BASE_URL}/embeddings", json=payload, timeout=120)
         response.raise_for_status()
         data = response.json()
         
@@ -63,7 +63,7 @@ def run_embedding_pipeline(db_path: Optional[Path] = None):
     embedded_ids = set(vector_index.id_maps.get(etype_str, []))
     print(f"Found {len(embedded_ids)} already embedded chunks in FAISS index.")
 
-    with sqlite3.connect(db_path) as conn:
+    with sqlite3.connect(target_db) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT chunk_id, embedding_text FROM chunks")
         all_chunks = cursor.fetchall()

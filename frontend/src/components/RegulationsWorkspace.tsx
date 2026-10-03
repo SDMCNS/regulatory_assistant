@@ -52,7 +52,8 @@ import {
   Tag,
   HardDrive,
   Cpu,
-  CheckCircle2
+  CheckCircle2,
+  ArrowUpRight,
 } from 'lucide-react';
 import {
   RegulationItem,
@@ -60,7 +61,8 @@ import {
   WorkspaceChunkMatch,
   WorkspaceFtsResponse,
   SearchDocResponse,
-  AppSettings
+  AppSettings,
+  ChunkContextSummaryResponse,
 } from '../types';
 import {
   getRegulationsCatalog,
@@ -68,7 +70,8 @@ import {
   searchWorkspaceFts,
   saveRegulationsToLocalCache,
   downloadRegulationsAsJsonFile,
-  getCachedRegulationDocIds
+  getCachedRegulationDocIds,
+  getChunkContextSummary,
 } from '../services/apiClient';
 
 interface DossierItem {
@@ -154,10 +157,17 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
 
   // Filters & Search
   const [titleQuery, setTitleQuery] = useState<string>('');
-  const [originFilter, setOriginFilter] = useState<'all' | 'easa' | 'eu'>('all');
+  const [originFilter, setOriginFilter] = useState<'all' | 'easa' | 'eu' | 'faa' | 'manual'>('all');
   const [stakeholderFilter, setStakeholderFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'chunks' | 'title' | 'date'>('chunks');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Surrounding Chunks Context Modal State
+  const [activeContextChunk, setActiveContextChunk] = useState<WorkspaceChunkMatch | null>(null);
+  const [chunkContexts, setChunkContexts] = useState<Record<string, ChunkContextSummaryResponse>>({});
+  const [contextLoadingChunkId, setContextLoadingChunkId] = useState<string | null>(null);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [copiedContextKey, setCopiedContextKey] = useState<string | null>(null);
 
   // Multi-Selection
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
@@ -558,6 +568,27 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
     onSendToAssistant(prompt, chunkIds);
   };
 
+  const handleGetContext = async (chunk: WorkspaceChunkMatch) => {
+    setActiveContextChunk(chunk);
+    setContextError(null);
+
+    if (chunkContexts[chunk.chunk_id]) {
+      return;
+    }
+
+    setContextLoadingChunkId(chunk.chunk_id);
+    try {
+      const activeQ = ftsResults?.query?.trim() || chunk.section_title || 'General regulatory applicability and operational requirements';
+      const res = await getChunkContextSummary(chunk.chunk_id, activeQ, 2, settings);
+      setChunkContexts(prev => ({ ...prev, [chunk.chunk_id]: res }));
+    } catch (err: any) {
+      console.error('Error fetching chunk context summary in workspace:', err);
+      setContextError(err.message || 'LLM context synthesis failed. Check LM Studio / Gemini settings.');
+    } finally {
+      setContextLoadingChunkId(null);
+    }
+  };
+
   // Preset search idea pills
   const presetIdeas = [
     'surveillance radar ADS-B',
@@ -749,8 +780,8 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                 )}
               </div>
 
-              {/* Origin Pills: All, EASA, EU */}
-              <div className="flex items-center p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs shrink-0">
+              {/* Origin Pills: All, EASA, EU, FAA, Manual */}
+              <div className="flex items-center p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs shrink-0 flex-wrap gap-1">
                 <button
                   onClick={() => setOriginFilter('all')}
                   className={`px-3 py-1.5 rounded-lg transition-colors font-medium ${
@@ -774,6 +805,22 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                   }`}
                 >
                   EU Standards
+                </button>
+                <button
+                  onClick={() => setOriginFilter('faa')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors font-medium ${
+                    originFilter === 'faa' ? 'bg-amber-950 text-amber-300 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  FAA CFR
+                </button>
+                <button
+                  onClick={() => setOriginFilter('manual')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors font-medium ${
+                    originFilter === 'manual' ? 'bg-violet-950 text-violet-300 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Manual / Custom
                 </button>
               </div>
 
@@ -943,11 +990,21 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         {/* Origin Pill */}
                         <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
-                          isEasa
+                          item.origin === 'faa'
+                            ? 'bg-amber-950 text-amber-400 border-amber-800/60'
+                            : item.origin === 'manual'
+                            ? 'bg-violet-950 text-violet-400 border-violet-800/60'
+                            : isEasa
                             ? 'bg-emerald-950 text-emerald-400 border-emerald-800/60'
                             : 'bg-sky-950 text-sky-400 border-sky-800/60'
                         }`}>
-                          {isEasa ? 'EASA Easy Access' : 'EU Regulation'}
+                          {item.origin === 'faa'
+                            ? 'FAA Title 14 CFR'
+                            : item.origin === 'manual'
+                            ? 'Manual Document'
+                            : isEasa
+                            ? 'EASA Easy Access'
+                            : 'EU Regulation'}
                         </span>
 
                         {/* Local Cache Badge */}
@@ -1401,7 +1458,11 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                         <div className="p-4 border-b border-slate-800 bg-slate-900/90 flex flex-col gap-1.5 sticky top-0 z-10">
                           <div className="flex items-center justify-between gap-2">
                             <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
-                              origin === 'easa'
+                              origin === 'faa'
+                                ? 'bg-amber-950 text-amber-400 border-amber-800/60'
+                                : origin === 'manual'
+                                ? 'bg-violet-950 text-violet-400 border-violet-800/60'
+                                : origin === 'easa'
                                 ? 'bg-emerald-950 text-emerald-400 border-emerald-800/60'
                                 : 'bg-sky-950 text-sky-400 border-sky-800/60'
                             }`}>
@@ -1482,15 +1543,32 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                                   </p>
 
                                   {/* Action Buttons */}
-                                  <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-[11px]">
-                                    <button
-                                      onClick={() => handleOpenDocViewer(m.document_id, ftsResults.query)}
-                                      className="text-sky-400 hover:text-sky-300 flex items-center gap-1"
-                                      title="Open document scrolled to this section"
-                                    >
-                                      <ExternalLink className="w-3 h-3" />
-                                      <span>Read Section</span>
-                                    </button>
+                                  <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-[11px] gap-1 flex-wrap">
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => handleOpenDocViewer(m.document_id, ftsResults.query)}
+                                        className="text-sky-400 hover:text-sky-300 flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-slate-900"
+                                        title="Open document scrolled to this section"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        <span>Read</span>
+                                      </button>
+
+                                      {/* Get Context Button */}
+                                      <button
+                                        onClick={() => handleGetContext(m)}
+                                        disabled={contextLoadingChunkId === m.chunk_id}
+                                        className="text-purple-400 hover:text-purple-300 flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/50 transition-colors font-medium"
+                                        title="Get surrounding provisions & synthesize regulatory context with LLM"
+                                      >
+                                        {contextLoadingChunkId === m.chunk_id ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin text-purple-400" />
+                                        ) : (
+                                          <Sparkles className="w-3 h-3 text-purple-400" />
+                                        )}
+                                        <span>Context</span>
+                                      </button>
+                                    </div>
 
                                     <div className="flex items-center gap-1.5">
                                       {/* Pin to Dossier Button */}
@@ -1600,14 +1678,30 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                                   <p className="text-xs text-slate-300 leading-relaxed">
                                     {highlightSnippet(m.snippet || m.source_text || m.text, ftsResults.query, isRequirementLensActive)}
                                   </p>
-                                  <div className="flex items-center justify-between pt-1 border-t border-slate-900">
-                                    <button
-                                      onClick={() => handleOpenDocViewer(m.document_id, ftsResults.query)}
-                                      className="text-sky-400 hover:text-sky-300 text-xs flex items-center gap-1"
-                                    >
-                                      <ExternalLink className="w-3 h-3" />
-                                      <span>Read</span>
-                                    </button>
+                                  <div className="flex items-center justify-between pt-1 border-t border-slate-900 text-xs">
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => handleOpenDocViewer(m.document_id, ftsResults.query)}
+                                        className="text-sky-400 hover:text-sky-300 text-xs flex items-center gap-1"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        <span>Read</span>
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleGetContext(m)}
+                                        disabled={contextLoadingChunkId === m.chunk_id}
+                                        className="text-purple-400 hover:text-purple-300 text-xs flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-950/40 hover:bg-purple-900/60 border border-purple-800/50 transition-colors font-medium"
+                                        title="Get surrounding provisions & synthesize regulatory context with LLM"
+                                      >
+                                        {contextLoadingChunkId === m.chunk_id ? (
+                                          <RefreshCw className="w-3 h-3 animate-spin text-purple-400" />
+                                        ) : (
+                                          <Sparkles className="w-3 h-3 text-purple-400" />
+                                        )}
+                                        <span>Context</span>
+                                      </button>
+                                    </div>
                                     <button
                                       onClick={() => togglePinChunk(m, title)}
                                       className={`p-1 rounded text-xs ${isPinned ? 'text-indigo-400 font-bold' : 'text-slate-400'}`}
@@ -1875,6 +1969,236 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* SURROUNDING CHUNKS & LLM REGULATORY CONTEXT MODAL            */}
+      {/* ------------------------------------------------------------- */}
+      {activeContextChunk && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="p-2 rounded-xl bg-purple-950/80 border border-purple-800/80 text-purple-300">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800/80 font-semibold">
+                      SURROUNDING REGULATORY CONTEXT
+                    </span>
+                    <span className="font-mono text-xs text-slate-500">
+                      {activeContextChunk.chunk_id}
+                    </span>
+                  </div>
+                  <h3 className="text-sm sm:text-base font-bold text-white truncate mt-0.5">
+                    {activeContextChunk.section_title}
+                  </h3>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setActiveContextChunk(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                title="Close context modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-5">
+              {/* LLM Synthesis Box */}
+              <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-800/50 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <h4 className="text-xs font-bold text-purple-200 uppercase tracking-wider">
+                      Regulatory Context &amp; Practical Implications
+                    </h4>
+                  </div>
+
+                  {chunkContexts[activeContextChunk.chunk_id] && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const text = chunkContexts[activeContextChunk.chunk_id]?.summary || '';
+                          navigator.clipboard.writeText(text);
+                          setCopiedContextKey(`summary_${activeContextChunk.chunk_id}`);
+                          setTimeout(() => setCopiedContextKey(null), 2000);
+                        }}
+                        className="text-xs text-purple-300 hover:text-white px-2.5 py-1 rounded-lg bg-purple-900/60 border border-purple-700/60 flex items-center gap-1.5 transition-colors"
+                      >
+                        {copiedContextKey === `summary_${activeContextChunk.chunk_id}` ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        <span>{copiedContextKey === `summary_${activeContextChunk.chunk_id}` ? 'Copied' : 'Copy Synthesis'}</span>
+                      </button>
+
+                      {onAskAboutChunk && (
+                        <button
+                          onClick={() => {
+                            const summary = chunkContexts[activeContextChunk.chunk_id]?.summary || '';
+                            onAskAboutChunk(
+                              activeContextChunk.chunk_id,
+                              `Context analysis for ${activeContextChunk.section_title} (${activeContextChunk.document_id}):\n\n${summary}`
+                            );
+                            setActiveContextChunk(null);
+                          }}
+                          className="text-xs text-sky-300 hover:text-white px-2.5 py-1 rounded-lg bg-sky-950/80 border border-sky-800/60 flex items-center gap-1.5 transition-colors"
+                        >
+                          <span>Ask in Assistant</span>
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {contextLoadingChunkId === activeContextChunk.chunk_id ? (
+                  <div className="py-6 flex flex-col items-center justify-center gap-3 text-purple-300">
+                    <RefreshCw className="w-6 h-6 animate-spin text-purple-400" />
+                    <p className="text-xs font-mono">Synthesizing surrounding provisions with local / Gemini LLM...</p>
+                  </div>
+                ) : contextError ? (
+                  <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-lg text-xs text-rose-300 flex items-center justify-between">
+                    <span>{contextError}</span>
+                    <button
+                      onClick={() => handleGetContext(activeContextChunk)}
+                      className="px-2 py-1 bg-rose-900 hover:bg-rose-800 text-white rounded font-medium text-[11px]"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : chunkContexts[activeContextChunk.chunk_id] ? (
+                  <div className="text-xs leading-relaxed text-slate-200 whitespace-pre-wrap font-sans bg-slate-950/60 p-3.5 rounded-lg border border-purple-900/40">
+                    {chunkContexts[activeContextChunk.chunk_id].summary}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">Click context to generate synthesis.</p>
+                )}
+              </div>
+
+              {/* Surrounding Chunks Sequence */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Surrounding Provisions in Regulatory Sequence (Window ±2)</span>
+                  </h4>
+                  {chunkContexts[activeContextChunk.chunk_id]?.surrounding_chunks && (
+                    <span className="text-xs font-mono text-slate-400">
+                      {chunkContexts[activeContextChunk.chunk_id].surrounding_chunks.length} provisions
+                    </span>
+                  )}
+                </div>
+
+                {chunkContexts[activeContextChunk.chunk_id]?.surrounding_chunks && chunkContexts[activeContextChunk.chunk_id].surrounding_chunks.length > 0 ? (
+                  <div className="space-y-3">
+                    {chunkContexts[activeContextChunk.chunk_id].surrounding_chunks.map((sc, idx) => {
+                      const isTarget = sc.is_target;
+                      return (
+                        <div
+                          key={`${sc.chunk_id}_${idx}`}
+                          className={`p-3.5 rounded-xl text-xs transition-all ${
+                            isTarget
+                              ? 'bg-purple-950/60 border-2 border-purple-500/80 shadow-[0_0_12px_rgba(168,85,247,0.15)]'
+                              : 'bg-slate-950 border border-slate-800/80'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-slate-800/60">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
+                                isTarget
+                                  ? 'bg-purple-600 text-white shadow-sm'
+                                  : 'bg-slate-800 text-slate-400'
+                              }`}>
+                                {isTarget ? '★ IMPACTED TARGET PROVISION' : `${sc.position.toUpperCase()} CLAUSE`}
+                              </span>
+                              <span className="font-mono text-slate-400 text-[11px]">
+                                {sc.chunk_id}
+                              </span>
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(sc.text);
+                                setCopiedContextKey(`chunk_${sc.chunk_id}`);
+                                setTimeout(() => setCopiedContextKey(null), 2000);
+                              }}
+                              className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1"
+                            >
+                              {copiedContextKey === `chunk_${sc.chunk_id}` ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              <span>{copiedContextKey === `chunk_${sc.chunk_id}` ? 'Copied' : 'Copy Text'}</span>
+                            </button>
+                          </div>
+
+                          {sc.section_path && sc.section_path.length > 0 && (
+                            <div className="text-[11px] text-sky-400/90 font-medium mb-1.5">
+                              {sc.section_path.join('  ›  ')}
+                            </div>
+                          )}
+
+                          <p className="whitespace-pre-wrap font-sans text-slate-300 leading-relaxed">
+                            {sc.text}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-xs text-slate-500 bg-slate-950/60 rounded-xl border border-slate-800/60">
+                    {contextLoadingChunkId ? 'Loading sequential provisions...' : 'No surrounding provisions loaded.'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3">
+              <button
+                onClick={() => {
+                  const catItem = catalogMap.get(activeContextChunk.document_id);
+                  togglePinChunk(activeContextChunk, catItem?.title || activeContextChunk.document_id);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700/80 hover:bg-indigo-900 transition-colors"
+              >
+                <Bookmark className="w-3.5 h-3.5 text-indigo-400" />
+                <span>
+                  {dossier.some(d => d.chunk_id === activeContextChunk.chunk_id)
+                    ? 'Pinned in Dossier'
+                    : 'Pin to Compliance Dossier'}
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    handleOpenDocViewer(activeContextChunk.document_id, ftsResults?.query);
+                    setActiveContextChunk(null);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-sky-400" />
+                  <span>View in Full Document</span>
+                </button>
+                <button
+                  onClick={() => setActiveContextChunk(null)}
+                  className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

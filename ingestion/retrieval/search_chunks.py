@@ -146,18 +146,22 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                 doc_id, section_path, source_text, meta_json = row
                 
                 # Check origin
-                is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
+                is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
+                is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
                 
-                if origin == "eu" and is_easa:
+                if origin == "eu" and (is_easa or is_faa):
                     continue
                 if origin == "easa" and not is_easa:
+                    continue
+                if origin == "faa" and not is_faa:
                     continue
                 
                 valid_results_count += 1
                 rank = valid_results_count
                 
+                source_label = 'FAA' if is_faa else ('EASA' if is_easa else 'EU')
                 print("="*80)
-                print(f"RANK {rank} | Score: {score:.4f} | Source: {'EASA' if is_easa else 'EU'} | Chunk ID: {chunk_id}")
+                print(f"RANK {rank} | Score: {score:.4f} | Source: {source_label} | Chunk ID: {chunk_id}")
                 results_list.append(doc_id)
                 print(f"Document: {doc_id}")
                 import json
@@ -354,11 +358,14 @@ def search_semantic(
                 if document_id and doc_id != document_id:
                     continue
 
-                is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
+                is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
+                is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
                 
-                if origin == "eu" and is_easa:
+                if origin == "eu" and (is_easa or is_faa):
                     continue
                 if origin == "easa" and not is_easa:
+                    continue
+                if origin == "faa" and not is_faa:
                     continue
                 
                 # Fetch parent title if this is an ANNEX or lacks a good title
@@ -380,6 +387,7 @@ def search_semantic(
                 meta_dict = json.loads(meta_json) if meta_json else {}
                 if doc_title:
                     meta_dict["document_title"] = doc_title
+                meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
 
                 # Read stakeholder applicability scores if available
                 stakeholder_data = {}
@@ -423,7 +431,7 @@ def search_semantic(
                     "score": round(combined_score, 4),
                     "raw_vector_score": round(base_score, 4),
                     "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
-                    "source": "EASA" if is_easa else "EU",
+                    "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
                     "document_id": doc_id,
                     "path": path_list,
                     "text": source_text,
@@ -441,7 +449,7 @@ def main():
     parser = argparse.ArgumentParser(description="Search indexed chunks using FAISS and LM Studio")
     parser.add_argument("query", type=str, help="Search query")
     parser.add_argument("-k", "--top-k", type=int, default=5, help="Number of top results to return")
-    parser.add_argument("--origin", type=str, choices=["all", "eu", "easa"], default="all", help="Filter by document origin (all, eu, easa)")
+    parser.add_argument("--origin", type=str, choices=["all", "eu", "easa", "faa"], default="all", help="Filter by document origin (all, eu, easa, faa)")
     
     args = parser.parse_args()
     search(args.query, args.top_k, args.origin)

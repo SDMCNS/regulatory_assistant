@@ -3,7 +3,7 @@
  * Fully aligned with OpenAPI 3.1 schema (SEARCH & LLM operations)
  */
 
-export type RegulationOrigin = 'all' | 'eu' | 'easa';
+export type RegulationOrigin = 'all' | 'eu' | 'easa' | 'faa' | 'manual';
 
 export type SearchMethod = 'semantic' | 'docs' | 'keyword' | 'hybrid';
 
@@ -227,6 +227,8 @@ export interface WorkspaceChunkMatch {
   snippet: string;
   rank: number;
   score: number;
+  previous_chunk_id?: string;
+  next_chunk_id?: string;
 }
 
 export interface DocumentOverlapSummary {
@@ -285,6 +287,33 @@ export interface ChunkContextSummaryResponse {
   query: string;
   surrounding_chunks: SurroundingChunk[];
   summary: string;
+}
+
+export interface ManualSectionInput {
+  section_number: string;
+  title: string;
+  subpart?: string;
+  subject_group?: string;
+  text: string;
+}
+
+export interface ManualDocumentRequest {
+  title: string;
+  document_id?: string;
+  source?: string;
+  date?: string;
+  language?: string;
+  stakeholder?: string;
+  description?: string;
+  sections: ManualSectionInput[];
+}
+
+export interface ManualDocumentResponse {
+  success: boolean;
+  document_id: string;
+  title: string;
+  chunk_count: number;
+  message: string;
 }
 
 

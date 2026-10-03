@@ -253,10 +253,13 @@ def search_keywords(
                 break
             chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score = row
             
-            is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
-            if origin == "eu" and is_easa:
+            is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
+            is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
+            if origin == "eu" and (is_easa or is_faa):
                 continue
             if origin == "easa" and not is_easa:
+                continue
+            if origin == "faa" and not is_faa:
                 continue
                 
             count += 1
@@ -283,6 +286,7 @@ def search_keywords(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
+            meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
 
             results.append({
                 "rank": count,
@@ -293,7 +297,7 @@ def search_keywords(
                 "section_path": path_list,
                 "text": source_text,
                 "source_text": source_text,
-                "source": "EASA" if is_easa else "EU",
+                "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
                 "metadata": meta_dict,
                 "expanded_terms": expanded_terms
             })
@@ -304,7 +308,7 @@ def main():
     parser = argparse.ArgumentParser(description="SQLite Keyword Search for Aviation Regulations (FTS5 + BM25 + LLM Expansion)")
     parser.add_argument("query", type=str, help="Search terms or keywords")
     parser.add_argument("--top_k", "-k", type=int, default=5, help="Number of results to return")
-    parser.add_argument("--origin", choices=["all", "eu", "easa"], default="all", help="Filter by regulation source")
+    parser.add_argument("--origin", choices=["all", "eu", "easa", "faa"], default="all", help="Filter by regulation source")
     parser.add_argument("--no_llm", action="store_true", help="Disable LLM keyword expansion")
     args = parser.parse_args()
 

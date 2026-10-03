@@ -102,19 +102,19 @@ class ContextSummaryRequest(BaseModel):
 def get_markdown_for_doc(document_id: str) -> str:
     json_path = find_json_file(document_id)
     if not json_path:
-        return ""
+        return regulations.get_document_markdown_content(document_id)
     try:
         return render_document(json_path)
     except Exception as e:
         print(f"Failed to render document {document_id}: {e}")
-        return ""
+        return regulations.get_document_markdown_content(document_id)
 
 
 @app.get("/search", response_model=List[SearchResponse], tags=["SEARCH"])
 def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
@@ -126,7 +126,7 @@ def api_search(
 def api_search_docs(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
@@ -151,9 +151,12 @@ def api_get_doc_markdown(
     Retrieve full markdown document and optionally semantic scores for its sections.
     """
     json_path = find_json_file(document_id)
-    if not json_path:
-        raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
-    md_text = render_document(json_path)
+    if json_path:
+        md_text = render_document(json_path)
+    else:
+        md_text = regulations.get_document_markdown_content(document_id)
+        if not md_text:
+            raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
     
     section_scores = []
     if query:
@@ -203,7 +206,7 @@ def api_get_doc_sections(document_id: str):
 def api_search_keyword(
     query: str = Query(..., description="Keywords, acronyms, or search terms to match"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
     use_llm: bool = Query(True, description="Enable LLM keyword expansion (synonyms, acronyms)"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
@@ -219,7 +222,7 @@ def api_search_keyword(
 def api_search_hybrid(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
     use_hyde: bool = Query(False, description="Use HyDE for the semantic component"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):

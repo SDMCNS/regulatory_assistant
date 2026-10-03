@@ -33,13 +33,21 @@ AeroLex EU enables aerospace engineers, flight operations compliance auditors, s
 - **Direct Workspace Integration**: Easily transition from a research report directly into the dedicated workspace by clicking **"Open All in Workspace"** to load all consulted regulatory sources into a cross-document overlap analysis.
 
 ### 3. Dedicated Multi-Regulation Workspace & Cross-Document Overlap
-- **Title-Level Catalog & Multi-Select**: Browse and search over 1,400+ EU aviation acts, comprehensive EASA Easy Access Rules, and FAA 14 CFR regulations with instant origin filtering (`all`, `eu`, `easa`, `faa`) and sorting.
+- **Title-Level Catalog & Multi-Select**: Browse and search over 1,400+ EU aviation acts, comprehensive EASA Easy Access Rules, and FAA 14 CFR regulations with instant origin filtering (`all`, `eu`, `easa`, `faa`, `manual`) and sorting.
+- **FAA Regulations Ingestion (Title 14 CFR)**: Streaming XML parser for US Federal Aviation Administration regulations, splitting multi-part CFR volumes into discrete part-level documents (e.g. Part 21, Part 25, Part 91, Part 121, Part 145) with structured subparts, section-level chunking, definitions, and GPOTABLE conversion.
+- **Surrounding Chunks & Impact Analysis ("Get Context")**: On any matched provision in the dedicated workspace, inspect immediate surrounding provisions in regulatory sequence and synthesize the regulatory context and practical operational implications with local or Gemini LLMs.
 - **Supporting Regulations & Qualifiers**: Tracks hierarchical relationships between primary acts and supporting decisions, corrigenda, and amendments, with dedicated qualifier exploration drawers.
 - **In-App Local Caching**: Download and persist multiple regulations into client-side browser storage via **IndexedDB** (`idb-keyval`) for offline viewing, or export full JSON bundles.
 - **Cross-Regulation Overlap Analysis (SQLite FTS5)**: Execute high-speed search across selected documents to visualize how safety concepts and technical specifications overlap across regulations.
 - **Multi-Column Comparison Matrix**: Inspect matching sections across 20+ regulations simultaneously in a side-by-side grid or grouped list view with overlap rate calculations and distribution bars.
 
-### 4. High-Value Client-Side Regulatory Tools
+### 4. Manual Regulatory Document Builder & Schema Publisher
+- **Author & Publish Custom Manuals**: Dedicated frontend studio (`DocumentBuilder.tsx`) for authoring company standard operating procedures (SOPs), flight operations manuals (OM Part A/B/C/D), or SMS policies.
+- **Enforced Regulatory Hierarchy & Chunking**: Automatically enforces the exact same schema as official EASA and FAA regulations (`chunk_id`, `section_path`, `embedding_text`, `previous_chunk_id`, `next_chunk_id`).
+- **Live Chunking & Hierarchy Simulation**: Real-time simulation of how provisions will be chunked, linked, and indexed into dense vector and SQLite FTS5 representations before publishing.
+- **Instant FTS5 Indexing**: Automatically commits documents to SQLite, rebuilds the BM25 full-text index, flushes the catalog cache, and generates JSON representations for seamless viewing.
+
+### 5. High-Value Client-Side Regulatory Tools
 - **"Requirement Lens"**: Real-time normative modal verb analyzer that parses and highlights legal obligations:
   - 🟢 **Mandates (`SHALL` / `MUST` / `IS REQUIRED TO`)**
   - 🔴 **Prohibitions (`SHALL NOT` / `MUST NOT` / `PROHIBITED`)**
@@ -50,7 +58,7 @@ AeroLex EU enables aerospace engineers, flight operations compliance auditors, s
 - **Word-by-Word Diff Drawer**: Side-by-side dual chunk comparison featuring a word-level diff algorithm and percentage similarity metric.
 - **Compliance Working Dossier**: Pin critical regulatory clauses, annotate them with reviewer compliance rationales and audit notes, export formatted Markdown tables, or send all pinned clauses directly to the AI Assistant for synthesis.
 
-### 5. Document Viewer & Cache Explorer
+### 6. Document Viewer & Cache Explorer
 - **Interactive Document Viewer**: Inspect complete regulations with collapsible sections (Subparts, CS, AMC/GM, Annexes, Articles), in-browser text search, match jumping, and citation links.
 - **Cache Explorer**: Audit locally cached documents, inspect storage footprint, and view cached texts offline.
 

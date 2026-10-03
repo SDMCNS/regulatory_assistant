@@ -30,6 +30,8 @@ import {
   SurroundingChunk,
   ChunkContextResponse,
   ChunkContextSummaryResponse,
+  ManualDocumentRequest,
+  ManualDocumentResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -1091,5 +1093,46 @@ export async function getCachedRegulationDocIds(): Promise<Set<string>> {
     return new Set();
   }
 }
+
+/**
+ * POST /regulations/manual-document
+ * Manually build, structure, chunk, and index an aviation regulation or policy document.
+ */
+export async function createManualDocument(
+  data: ManualDocumentRequest,
+  settings: AppSettings = loadSettings()
+): Promise<ManualDocumentResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/manual-document`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from /regulations/manual-document: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
 
 

@@ -14,6 +14,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { DocViewerModal } from './components/DocViewerModal';
 import { ResearchTab } from './components/ResearchTab';
 import { RegulationsWorkspace } from './components/RegulationsWorkspace';
+import { DocumentBuilder } from './components/DocumentBuilder';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
 import { getQueryMemory, initMemory } from './services/memoryService';
@@ -218,6 +219,20 @@ export default function App() {
             onClearInitialContext={() => {
               setWorkspaceInitialDocs([]);
               setWorkspaceInitialQuery('');
+            }}
+          />
+        )}
+
+        {activeTab === 'builder' && (
+          <DocumentBuilder
+            settings={settings}
+            onViewDoc={(doc) => setSelectedDoc(doc)}
+            onOpenWorkspaceWithDocs={handleOpenWorkspaceWithDocs}
+            onSendToAssistant={(prompt, chunkIds) => {
+              if (chunkIds && chunkIds.length > 0) {
+                setTargetedChunks(chunkIds);
+              }
+              setActiveTab('assistant');
             }}
           />
         )}

@@ -134,7 +134,11 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                     
             # Determine origin
             doc_low = (doc_id + " " + clean_title).lower()
-            if "easy access" in doc_low or "cs-" in doc_low or "amc" in doc_low:
+            if source == "FAA XML" or doc_id.startswith("FAA_") or "14 cfr" in doc_low:
+                origin = "faa"
+            elif source in ("Manual", "Custom") or doc_id.startswith("MANUAL_"):
+                origin = "manual"
+            elif "easy access" in doc_low or "cs-" in doc_low or "amc" in doc_low:
                 origin = "easa"
             else:
                 origin = "eu"
@@ -222,6 +226,8 @@ class ChunkMatch(BaseModel):
     snippet: str
     rank: float
     score: float
+    previous_chunk_id: Optional[str] = None
+    next_chunk_id: Optional[str] = None
 
 class DocumentOverlapDetail(BaseModel):
     document_id: str
@@ -260,7 +266,7 @@ class WorkspaceFtsResponse(BaseModel):
 @router.get("/catalog", response_model=CatalogResponse, tags=["REGULATIONS"])
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
-    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', or 'easa'"),
+    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', or 'manual'"),
     stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),
     sort_order: Optional[str] = Query("desc", description="Sort order: 'asc' or 'desc'"),
@@ -472,6 +478,8 @@ def api_search_workspace_fts(req: WorkspaceFtsRequest):
             c.section_path,
             c.source_text,
             c.metadata_json,
+            c.previous_chunk_id,
+            c.next_chunk_id,
             bm25(chunks_fts) as rank
         FROM chunks_fts f
         JOIN chunks c ON f.rowid = c.rowid
@@ -519,7 +527,9 @@ def api_search_workspace_fts(req: WorkspaceFtsRequest):
                     "text": raw_text,
                     "snippet": snippet,
                     "rank": rank_val,
-                    "score": score
+                    "score": score,
+                    "previous_chunk_id": r["previous_chunk_id"],
+                    "next_chunk_id": r["next_chunk_id"]
                 }
                 
                 if len(results_by_doc[d_id]) < req.top_k_per_doc:
@@ -583,3 +593,240 @@ def api_search_workspace_fts(req: WorkspaceFtsRequest):
         "results_by_document": results_by_doc,
         "all_results": all_results
     }
+
+
+# -------------------------------------------------------------
+# Manual Document Builder Endpoint & Models
+# -------------------------------------------------------------
+
+class ManualSectionInput(BaseModel):
+    section_number: str = Field(..., description="e.g. '1.1' or '21.A.1'")
+    title: str = Field(..., description="Section title or clause heading")
+    subpart: Optional[str] = Field(None, description="e.g. 'Subpart A - General'")
+    subject_group: Optional[str] = Field(None, description="e.g. 'AIRWORTHINESS'")
+    text: str = Field(..., min_length=1, description="Clause text or markdown formatted content")
+
+class ManualDocumentRequest(BaseModel):
+    title: str = Field(..., min_length=3, description="Full title of the regulation or policy document")
+    document_id: Optional[str] = Field(None, description="Custom identifier, or auto-generated if omitted")
+    source: Optional[str] = Field(default="Manual", description="Issuing agency, company or authority")
+    date: Optional[str] = Field(default="", description="Effective date (YYYY-MM-DD)")
+    language: Optional[str] = Field(default="eng", description="Language code")
+    stakeholder: Optional[str] = Field(default="general", description="Primary stakeholder domain")
+    description: Optional[str] = Field(default="", description="Optional summary or description")
+    sections: List[ManualSectionInput] = Field(..., min_items=1, description="Structured sections of the document")
+
+class ManualDocumentResponse(BaseModel):
+    success: bool
+    document_id: str
+    title: str
+    chunk_count: int
+    message: str
+
+@router.post("/manual-document", response_model=ManualDocumentResponse, tags=["REGULATIONS"])
+def api_create_manual_document(req: ManualDocumentRequest):
+    """
+    Manually build, structure, chunk, and index an aviation regulation or policy document.
+    Enforces the exact same chunk schema and hierarchy as EASA / FAA documents,
+    linking sequential chunks and indexing them in SQLite FTS5.
+    """
+    if not req.sections:
+        raise HTTPException(status_code=400, detail="Document must contain at least one section.")
+
+    # Determine document ID
+    if req.document_id and req.document_id.strip():
+        clean_doc_id = re.sub(r'[^A-Za-z0-9_.-]+', '_', req.document_id.strip()).strip('_')
+    else:
+        title_slug = re.sub(r'[^A-Za-z0-9_]+', '_', req.title.strip())[:35].strip('_')
+        clean_doc_id = f"MANUAL_{title_slug}_{int(time.time())}"
+
+    source = req.source.strip() if (req.source and req.source.strip()) else "Manual"
+    date_str = req.date.strip() if req.date else time.strftime("%Y-%m-%d")
+    lang = req.language.strip() if req.language else "eng"
+    stakeholder = req.stakeholder.strip().lower() if req.stakeholder else "general"
+
+    doc_metadata = {
+        "title": req.title.strip(),
+        "source": source,
+        "date": date_str,
+        "language": lang,
+        "stakeholder": stakeholder,
+        "description": (req.description or "").strip(),
+        "type": "ManualDocument",
+        "origin": "manual",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
+
+    # Prepare chunks and sequential links
+    chunks_to_insert = []
+    easa_style_json = []
+    seen_chunk_ids = set()
+
+    # Add preface item to json representation
+    if req.description:
+        easa_style_json.append({
+            "meta": {
+                "title": "Scope & Description",
+                "type": "preface",
+                "subject": req.title,
+                "id": f"{clean_doc_id}_preface"
+            },
+            "text": f"{req.title}\n\n{req.description}"
+        })
+
+    for idx, sec in enumerate(req.sections):
+        sec_num = sec.section_number.strip()
+        sec_title = sec.title.strip()
+        sec_subpart = sec.subpart.strip() if sec.subpart else ""
+        sec_group = sec.subject_group.strip() if sec.subject_group else ""
+        sec_text = sec.text.strip()
+
+        # Sanitize section number for ID
+        safe_num = re.sub(r'[^A-Za-z0-9_]+', '_', sec_num).strip('_')
+        base_chunk_id = f"{clean_doc_id}:sec_{safe_num}" if safe_num else f"{clean_doc_id}:sec_{idx+1}"
+        chunk_id = base_chunk_id
+        c_suffix = 1
+        while chunk_id in seen_chunk_ids:
+            chunk_id = f"{base_chunk_id}_{c_suffix}"
+            c_suffix += 1
+        seen_chunk_ids.add(chunk_id)
+
+        # Build section path hierarchy
+        path = [req.title.strip()]
+        if sec_subpart:
+            path.append(sec_subpart)
+        if sec_group:
+            path.append(sec_group)
+        full_clause_title = f"{sec_num} {sec_title}".strip() if sec_num else sec_title
+        path.append(full_clause_title)
+
+        # Source text
+        source_text = f"{full_clause_title}\n\n{sec_text}"
+
+        # Embedding text enriched with hierarchical context
+        emb_parts = [f"Document: {req.title.strip()}"]
+        if sec_subpart:
+            emb_parts.append(f"Subpart: {sec_subpart}")
+        if sec_group:
+            emb_parts.append(f"Subject Group: {sec_group}")
+        emb_parts.append(f"Section: {full_clause_title}\n\n{sec_text}")
+        embedding_text = "\n".join(emb_parts)
+
+        chunk_meta = {
+            "document_id": clean_doc_id,
+            "section_number": sec_num,
+            "section_title": sec_title,
+            "subpart": sec_subpart,
+            "subject_group": sec_group,
+            "origin": "manual",
+            "source": source,
+            "stakeholder": stakeholder
+        }
+
+        chunks_to_insert.append({
+            "chunk_id": chunk_id,
+            "document_id": clean_doc_id,
+            "section_path": path,
+            "source_text": source_text,
+            "embedding_text": embedding_text,
+            "metadata_json": json.dumps(chunk_meta),
+            "previous_chunk_id": None,
+            "next_chunk_id": None
+        })
+
+        # Add to structured JSON representation
+        easa_style_json.append({
+            "meta": {
+                "title": full_clause_title,
+                "type": "section",
+                "subject": sec_subpart or sec_group or req.title,
+                "id": chunk_id
+            },
+            "text": source_text
+        })
+
+    # Link sequential chunks
+    for i in range(len(chunks_to_insert)):
+        if i > 0:
+            chunks_to_insert[i]["previous_chunk_id"] = chunks_to_insert[i-1]["chunk_id"]
+        if i < len(chunks_to_insert) - 1:
+            chunks_to_insert[i]["next_chunk_id"] = chunks_to_insert[i+1]["chunk_id"]
+
+    # Write to SQLite database
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Insert document
+            cursor.execute("""
+                INSERT OR REPLACE INTO documents (document_id, title, date, language, source, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (clean_doc_id, req.title.strip(), date_str, lang, source, json.dumps(doc_metadata)))
+
+            # Delete any existing chunks for this document_id if updating
+            cursor.execute("DELETE FROM chunks WHERE document_id = ?", (clean_doc_id,))
+
+            # Insert chunks
+            for c in chunks_to_insert:
+                cursor.execute("""
+                    INSERT INTO chunks (
+                        chunk_id, document_id, section_path, source_text, embedding_text,
+                        previous_chunk_id, next_chunk_id, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    c["chunk_id"],
+                    c["document_id"],
+                    json.dumps(c["section_path"]),
+                    c["source_text"],
+                    c["embedding_text"],
+                    c["previous_chunk_id"],
+                    c["next_chunk_id"],
+                    c["metadata_json"]
+                ))
+
+            # Insert primary stakeholder score if table exists
+            try:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO document_stakeholder_scores (document_id, primary_stakeholder, score)
+                    VALUES (?, ?, 1.0)
+                """, (clean_doc_id, stakeholder))
+            except Exception:
+                pass
+
+            conn.commit()
+
+            # Rebuild FTS5 index to immediately index new chunks
+            try:
+                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
+                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize');")
+                conn.commit()
+            except Exception as fts_err:
+                print(f"Warning: FTS rebuild for manual doc: {fts_err}")
+
+        # Also save JSON file to data/regulations for find_json_file
+        try:
+            reg_dir = settings.DATA_DIR / "regulations"
+            reg_dir.mkdir(parents=True, exist_ok=True)
+            json_file = reg_dir / f"{clean_doc_id}.json"
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(easa_style_json, f, indent=2, ensure_ascii=False)
+        except Exception as file_err:
+            print(f"Warning: could not save JSON representation: {file_err}")
+
+        # Flush in-memory catalog cache
+        global _CATALOG_CACHE
+        _CATALOG_CACHE["timestamp"] = 0
+        _CATALOG_CACHE["items"] = []
+
+        return {
+            "success": True,
+            "document_id": clean_doc_id,
+            "title": req.title.strip(),
+            "chunk_count": len(chunks_to_insert),
+            "message": f"Successfully created and indexed '{req.title.strip()}' with {len(chunks_to_insert)} chunks."
+        }
+
+    except Exception as e:
+        print(f"Error creating manual document: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create manual document: {str(e)}")
+

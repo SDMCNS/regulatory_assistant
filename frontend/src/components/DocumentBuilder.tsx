@@ -260,29 +260,33 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
 
   // Simulated chunk calculation
   const simulatedChunks = useMemo(() => {
-    const cleanDocId = docId.trim() || `MANUAL_${title.replace(/[^A-Za-z0-9_]+/g, '_').slice(0, 30) || 'UNTITLED'}`;
-    return sections.map((sec, idx) => {
-      const safeNum = sec.section_number.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || `${idx + 1}`;
+    const cleanDocId = (docId || '').trim() || `MANUAL_${(title || '').replace(/[^A-Za-z0-9_]+/g, '_').slice(0, 30) || 'UNTITLED'}`;
+    return (sections || []).map((sec, idx) => {
+      const secNum = sec.section_number || `${idx + 1}`;
+      const safeNum = secNum.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || `${idx + 1}`;
       const chunkId = `${cleanDocId}:sec_${safeNum}`;
-      const path = [title.trim() || 'Untitled Document'];
+      const path = [(title || '').trim() || 'Untitled Document'];
       if (sec.subpart?.trim()) path.push(sec.subpart.trim());
       if (sec.subject_group?.trim()) path.push(sec.subject_group.trim());
-      path.push(`${sec.section_number.trim()} ${sec.title.trim()}`.trim());
+      path.push(`${(sec.section_number || '').trim()} ${(sec.title || '').trim()}`.trim());
 
-      const prevChunkId = idx > 0 ? `${cleanDocId}:sec_${sections[idx - 1].section_number.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || idx}` : null;
-      const nextChunkId = idx < sections.length - 1 ? `${cleanDocId}:sec_${sections[idx + 1].section_number.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || idx + 2}` : null;
+      const prevSecNum = idx > 0 ? (sections[idx - 1]?.section_number || `${idx}`) : null;
+      const prevChunkId = prevSecNum ? `${cleanDocId}:sec_${prevSecNum.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || idx}` : null;
+      
+      const nextSecNum = idx < (sections.length - 1) ? (sections[idx + 1]?.section_number || `${idx + 2}`) : null;
+      const nextChunkId = nextSecNum ? `${cleanDocId}:sec_${nextSecNum.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || idx + 2}` : null;
 
-      const embText = `Document: ${title.trim()}\n${sec.subpart ? `Subpart: ${sec.subpart}\n` : ''}${sec.subject_group ? `Subject Group: ${sec.subject_group}\n` : ''}Section: ${sec.section_number} - ${sec.title}\n\n${sec.text}`;
+      const embText = `Document: ${(title || '').trim()}\n${sec.subpart ? `Subpart: ${sec.subpart}\n` : ''}${sec.subject_group ? `Subject Group: ${sec.subject_group}\n` : ''}Section: ${sec.section_number || ''} - ${sec.title || ''}\n\n${sec.text || ''}`;
 
       return {
         chunk_id: chunkId,
-        section_number: sec.section_number,
-        section_title: sec.title,
+        section_number: sec.section_number || `${idx + 1}`,
+        section_title: sec.title || 'Untitled Section',
         section_path: path,
         previous_chunk_id: prevChunkId,
         next_chunk_id: nextChunkId,
         embedding_text: embText,
-        word_count: sec.text.split(/\s+/).filter(Boolean).length
+        word_count: (sec.text || '').split(/\s+/).filter(Boolean).length
       };
     });
   }, [title, docId, sections]);
@@ -290,20 +294,20 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   // Validation
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
-    if (!title.trim() || title.trim().length < 3) {
+    if (!(title || '').trim() || (title || '').trim().length < 3) {
       errors.push('Document title must be at least 3 characters.');
     }
-    if (sections.length === 0) {
+    if (!sections || sections.length === 0) {
       errors.push('Document must have at least one section.');
     }
-    sections.forEach((s, idx) => {
-      if (!s.section_number.trim()) {
+    (sections || []).forEach((s, idx) => {
+      if (!(s.section_number || '').trim()) {
         errors.push(`Section #${idx + 1} is missing a section number (e.g. '1.1').`);
       }
-      if (!s.title.trim()) {
+      if (!(s.title || '').trim()) {
         errors.push(`Section #${idx + 1} is missing a section title.`);
       }
-      if (!s.text.trim()) {
+      if (!(s.text || '').trim()) {
         errors.push(`Section #${idx + 1} has empty clause text.`);
       }
     });
@@ -351,7 +355,7 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-61px)] bg-slate-950 overflow-y-auto">
+    <div className="flex flex-col flex-1 w-full min-h-[500px] h-[calc(100vh-61px)] bg-slate-950 overflow-y-auto">
       {/* Top Header & Preset Starter Bar */}
       <div className="p-6 bg-slate-900/60 border-b border-slate-800/80 shrink-0">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -633,9 +637,9 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
 
             {/* Sections List */}
             <div className="space-y-3">
-              {sections.map((sec, idx) => {
+              {(sections || []).map((sec, idx) => {
                 const isExpanded = expandedSectionIdx === idx;
-                const wordCount = sec.text.split(/\s+/).filter(Boolean).length;
+                const wordCount = (sec.text || '').split(/\s+/).filter(Boolean).length;
 
                 return (
                   <div

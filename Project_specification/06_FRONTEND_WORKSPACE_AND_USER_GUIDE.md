@@ -54,3 +54,25 @@ Once regulations are pinned into the Dedicated Workspace:
    - **Guidance**: `may`, `can`, `acceptable means` (Emerald highlight)
 5. **Dual-Chunk Word Diff Comparator**: Select any two clauses to view word-by-word insertions, deletions, and phrasing differences.
 6. **Compliance Working Dossier**: Pin specific clauses, write auditor compliance notes, and export a ready-to-share Markdown audit report.
+7. **Surrounding Provision Sequence ("Get Context")**: On any matched clause, click **Get Context** to inspect preceding and subsequent provisions and synthesize practical operational implications using the LLM.
+
+---
+
+### 2.4. Manual Regulatory Document Builder
+Located under the **Document Builder** tab (`DocumentBuilder.tsx`):
+1. **Custom Manual Authoring**: Author internal flight operations manuals (OM Part A/B/C/D), company SOPs, or compliance procedures.
+2. **Structural Hierarchy Enforcement**: Enforces regulatory metadata (Title, Document ID, Source, Date) and ordered sections with Subpart and Subject Group categorization.
+3. **Live Chunking Simulation**: Real-time interactive preview simulating how the backend will segment the text into chunks with breadcrumb paths and sequence identifiers.
+4. **Instant Ingestion & Indexing**: One-click publishing creates the document, assigns `previous_chunk_id`/`next_chunk_id` linkages, updates SQLite FTS5, flushes the catalog cache, and makes the manual immediately searchable and accessible across the workspace.
+
+---
+
+### 2.5. Autonomous Deep Research Studio & Dual-Tab Inspector
+Located under the **Deep Research** tab (`ResearchTab.tsx`):
+1. **Multi-Turn Recursive Investigation**: Explores complex compliance questions across depth levels 1 to 3 with automated query generation and gap analysis.
+2. **Scientific Adversarial Falsification Gate**: Evaluates candidate chunks against query boundaries, explicitly rejecting out-of-scope provisions (e.g. VTOL/rotorcraft rules for fixed-wing inquiries).
+3. **Surrounding Provision Sequence Expansion**: Validated chunks are automatically paired with preceding and subsequent provisions (`window=1`) during fact extraction so definitions, prerequisites, and operational exceptions are integrated into findings.
+4. **Dual-Tab Chunk Inspector Modal**:
+   - **Focal Provision**: Full text of the cited provision with copy capabilities.
+   - **Surrounding Sequence & LLM Context**: AI synthesis of operational implications alongside the chronological sequence of preceding, focal, and subsequent provisions.
+5. **Evidence & Negation Audit Ledger**: Transparent accounting of validated vs. negated provisions with one-click access to surrounding provision sequences.

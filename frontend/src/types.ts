@@ -189,7 +189,7 @@ export interface RegulationItem {
   title: string;
   raw_title?: string | null;
   date?: string | null;
-  origin: 'easa' | 'eu';
+  origin: 'easa' | 'eu' | 'faa' | 'manual' | string;
   source?: string | null;
   chunk_count: number;
   qualifier_count?: number;

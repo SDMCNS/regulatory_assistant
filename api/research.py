@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ingestion.core.config import settings
 from ingestion.retrieval.hybrid_search import search_hybrid
+from ingestion.retrieval.search_chunks import get_chunk_surrounding_context
 from api.utils import (
     call_lm_studio_chat,
     call_gemini_api,
@@ -587,31 +588,51 @@ Return ONLY a JSON array of 1-2 search strings: ["query 1", "query 2"]
                 break
 
             # -------------------------------------------------------------
-            # FACT EXTRACTION (strictly from validated chunks)
+            # FACT EXTRACTION (strictly from validated chunks + surrounding sequence)
             # -------------------------------------------------------------
             update_job_status(
                 job_id,
                 "RUNNING",
-                progress=f"Level {level_num}/{recursion_level}: Extracting authoritative facts from {len(validated_chunks_this_level)} validated chunks ({len(negated_chunks_log)} negated)..."
+                progress=f"Level {level_num}/{recursion_level}: Expanding surrounding regulatory sequence & extracting facts from {len(validated_chunks_this_level)} validated chunks..."
             )
 
-            validated_context = "\n\n".join([
-                f"=== CHUNK ID: {c['chunk_id']} | DOC: {c['document_id']} ===\n{c['text']}"
-                for c in validated_chunks_this_level
-            ])
+            validated_context_blocks = []
+            for c in validated_chunks_this_level:
+                cid = c["chunk_id"]
+                try:
+                    ctx = get_chunk_surrounding_context(cid, window=1)
+                    surrounding_list = ctx.get("chunks", [])
+                    block_parts = [f"=== FOCAL PROVISION: {cid} | DOC: {c['document_id']} ==="]
+                    for sc in surrounding_list:
+                        sc_id = sc["chunk_id"]
+                        referenced_chunks_dict[sc_id] = sc["text"]
+                        if sc.get("is_target"):
+                            block_parts.append(f"--- [FOCAL REQUIREMENT: {sc_id}] ---\n{sc['text']}")
+                        elif sc.get("position") == "before":
+                            block_parts.append(f"--- [PRECEDING PROVISION: {sc_id}] ---\n{sc['text']}")
+                        else:
+                            block_parts.append(f"--- [SUBSEQUENT PROVISION: {sc_id}] ---\n{sc['text']}")
+                    validated_context_blocks.append("\n".join(block_parts))
+                except Exception as ctx_err:
+                    validated_context_blocks.append(f"=== CHUNK ID: {cid} | DOC: {c['document_id']} ===\n{c['text']}")
+
+            validated_context = "\n\n".join(validated_context_blocks)
 
             fact_extract_prompt = f"""You are an expert aviation regulatory compliance analyst.
 
 Original User Query: {query}
 Governing Target Domains: {json.dumps(target_domains)}
 
-Review the following VALIDATED regulatory chunks (which have passed scientific applicability review). Extract the concrete requirements, definitions, scope, standards, and rules relevant to the query.
+Review the following VALIDATED regulatory provisions along with their immediate surrounding sequential document context (preceding and subsequent provisions).
+Analyze how each focal provision fits into its surrounding regulatory framework (definitions, prerequisites, operational conditions, exceptions, and parent rules).
+Extract concrete requirements, definitions, scope, standards, operational caveats, and rules relevant to the query.
 
 STRICT CITATION REQUIREMENT:
 For EVERY fact, obligation, or requirement you extract, cite its source Chunk ID using this exact angle-bracket syntax: [Citation](<chunk:CHUNK_ID>)
+Cite the specific Chunk ID where the requirement, condition, or exception is defined.
 Do NOT cite any negated or external chunks.
 
-Validated Regulatory Chunks:
+Validated Regulatory Provisions with Sequential Surrounding Context:
 {validated_context}
 """
             facts_text = chat([
@@ -732,6 +753,7 @@ INSTRUCTIONS FOR THE REPORT:
             "negated_count": len(negated_chunks_log),
             "target_domains": target_domains,
             "excluded_domains": excluded_domains,
+            "surrounding_context_expanded": True,
             "provider": active_provider,
             "model": active_model,
             "negated_chunks": {

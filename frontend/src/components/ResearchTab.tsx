@@ -32,14 +32,15 @@ import {
   Columns
 } from 'lucide-react';
 import { marked } from 'marked';
-import { AppSettings, SearchDocResponse, ResearchJobSummary, ResearchJobDetail, DocSection } from '../types';
+import { AppSettings, SearchDocResponse, ResearchJobSummary, ResearchJobDetail, DocSection, ChunkContextSummaryResponse } from '../types';
 import { parseReportSections, getSectionStyle, countCitations, normalizeChunkCitations, findChunkExcerpt } from '../utils/sectionParser';
 import { 
   createResearchJob, 
   listResearchJobs, 
   getResearchJob, 
   deleteResearchJob, 
-  getDocumentMarkdown 
+  getDocumentMarkdown,
+  getChunkContextSummary
 } from '../services/apiClient';
 
 interface ResearchTabProps {
@@ -73,9 +74,38 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
-  const [activeChunkModal, setActiveChunkModal] = useState<{ id: string; text: string } | null>(null);
+  const [activeChunkModal, setActiveChunkModal] = useState<{ id: string; text: string; initialTab?: 'focal' | 'context' } | null>(null);
+  const [modalTab, setModalTab] = useState<'focal' | 'context'>('focal');
+  const [chunkContexts, setChunkContexts] = useState<Record<string, ChunkContextSummaryResponse>>({});
+  const [loadingContextId, setLoadingContextId] = useState<string | null>(null);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [copiedContextKey, setCopiedContextKey] = useState<string | null>(null);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
   const [cacheNotification, setCacheNotification] = useState<string | null>(null);
+
+  const handleFetchChunkContext = async (chunkId: string) => {
+    if (chunkContexts[chunkId]) return;
+    setLoadingContextId(chunkId);
+    setContextError(null);
+    try {
+      const activeQ = selectedJobDetail?.query || 'General aviation regulatory requirements and compliance';
+      const res = await getChunkContextSummary(chunkId, activeQ, 2, settings);
+      setChunkContexts(prev => ({ ...prev, [chunkId]: res }));
+    } catch (err: any) {
+      console.error('Failed to fetch surrounding chunk context in research:', err);
+      setContextError(err.message || 'Failed to synthesize surrounding context');
+    } finally {
+      setLoadingContextId(null);
+    }
+  };
+
+  const handleOpenChunkModal = (id: string, text: string, initialTab: 'focal' | 'context' = 'focal') => {
+    setActiveChunkModal({ id, text, initialTab });
+    setModalTab(initialTab);
+    if (initialTab === 'context') {
+      handleFetchChunkContext(id);
+    }
+  };
 
   // Fetch jobs list from SQLite backend
   const fetchJobs = useCallback(async (autoSelectFirst = false) => {
@@ -487,7 +517,7 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
             ) : selectedJobDetail ? (
               <ResearchReportViewer
                 job={selectedJobDetail}
-                onOpenChunkModal={(id, text) => setActiveChunkModal({ id, text })}
+                onOpenChunkModal={(id, text, initialTab) => handleOpenChunkModal(id, text, initialTab)}
                 onOpenDoc={handleOpenDoc}
                 loadingDocId={loadingDocId}
                 onRetry={() => handleRetryJob(selectedJobDetail)}
@@ -525,45 +555,270 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
 
       {/* Full Chunk Inspector Modal */}
       {activeChunkModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[85vh]">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-              <div className="flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/90 rounded-2xl max-w-3xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[88vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+              <div className="flex items-center gap-2.5">
                 <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400">
                   <FileText className="w-4 h-4" />
                 </span>
                 <div>
-                  <h3 className="text-sm font-semibold text-white">Cited Regulatory Chunk</h3>
+                  <h3 className="text-sm font-semibold text-white">Cited Regulatory Chunk Inspector</h3>
                   <p className="text-[11px] font-mono text-indigo-400 truncate max-w-md">{activeChunkModal.id}</p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setActiveChunkModal(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap selection:bg-indigo-600">
-              {activeChunkModal.text}
+            {/* View Mode Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalTab('focal')}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                    modalTab === 'focal'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Focal Provision Text
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModalTab('context');
+                    handleFetchChunkContext(activeChunkModal.id);
+                  }}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium flex items-center gap-1.5 transition-colors ${
+                    modalTab === 'context'
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'text-purple-300 hover:text-purple-100 hover:bg-purple-950/40'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Surrounding Sequence &amp; Context</span>
+                  {chunkContexts[activeChunkModal.id] && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-purple-900/80 text-purple-200 ml-1">
+                      {chunkContexts[activeChunkModal.id].surrounding_chunks?.length || 0}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {modalTab === 'context' && !chunkContexts[activeChunkModal.id] && loadingContextId !== activeChunkModal.id && (
+                <button
+                  type="button"
+                  onClick={() => handleFetchChunkContext(activeChunkModal.id)}
+                  className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Fetch Sequence</span>
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-800">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(activeChunkModal.text);
-                  alert('Chunk text copied to clipboard!');
-                }}
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Copy Text
-              </button>
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {modalTab === 'focal' ? (
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap selection:bg-indigo-600 h-full">
+                  {activeChunkModal.text}
+                </div>
+              ) : (
+                /* Context & Sequence View */
+                <div className="space-y-4">
+                  {loadingContextId === activeChunkModal.id ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center bg-slate-950/60 rounded-xl border border-purple-900/30">
+                      <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mb-3" />
+                      <span className="text-sm font-semibold text-purple-200">Retrieving surrounding regulatory provisions...</span>
+                      <p className="text-xs text-slate-400 max-w-sm mt-1">
+                        Expanding chunk sequence (window ±2) and synthesizing context &amp; practical implications with LLM.
+                      </p>
+                    </div>
+                  ) : contextError && !chunkContexts[activeChunkModal.id] ? (
+                    <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-xs text-rose-300 space-y-2">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Could not fetch surrounding context</span>
+                      </div>
+                      <p className="text-slate-400">{contextError}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleFetchChunkContext(activeChunkModal.id)}
+                        className="px-3 py-1 bg-rose-900/60 hover:bg-rose-800 text-rose-200 rounded text-xs transition-colors"
+                      >
+                        Retry Analysis
+                      </button>
+                    </div>
+                  ) : chunkContexts[activeChunkModal.id] ? (
+                    <>
+                      {/* LLM Synthesis Summary */}
+                      <div className="p-4 rounded-xl bg-gradient-to-br from-purple-950/40 via-indigo-950/20 to-slate-950 border border-purple-800/40 shadow-md space-y-2.5">
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-purple-800/30">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1 rounded-md bg-purple-500/10 text-purple-400">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </span>
+                            <h4 className="text-xs font-semibold text-purple-200 uppercase tracking-wider">
+                              Surrounding Context &amp; Practical Implications
+                            </h4>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(chunkContexts[activeChunkModal.id].summary);
+                              setCopiedContextKey(`summary_${activeChunkModal.id}`);
+                              setTimeout(() => setCopiedContextKey(null), 2000);
+                            }}
+                            className="text-[11px] text-purple-300 hover:text-white px-2 py-0.5 rounded bg-purple-950/60 border border-purple-800/40 hover:bg-purple-900/60 flex items-center gap-1 transition-colors"
+                          >
+                            {copiedContextKey === `summary_${activeChunkModal.id}` ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                            <span>{copiedContextKey === `summary_${activeChunkModal.id}` ? 'Copied' : 'Copy Synthesis'}</span>
+                          </button>
+                        </div>
+                        <div className="text-slate-200 leading-relaxed font-sans text-xs whitespace-pre-wrap bg-slate-950/60 p-3 rounded-lg border border-purple-900/30">
+                          {chunkContexts[activeChunkModal.id].summary}
+                        </div>
+                      </div>
+
+                      {/* Surrounding Provision Sequence */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-semibold text-slate-300 px-1">
+                          <span className="flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                            Chronological Provision Sequence ({chunkContexts[activeChunkModal.id].surrounding_chunks?.length || 0})
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-mono">
+                            Doc: {chunkContexts[activeChunkModal.id].document_id}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2.5">
+                          {chunkContexts[activeChunkModal.id].surrounding_chunks?.map((sc) => {
+                            const isTarget = sc.is_target || sc.position === 'target';
+                            return (
+                              <div
+                                key={sc.chunk_id}
+                                className={`p-3 rounded-xl border transition-colors ${
+                                  isTarget
+                                    ? 'bg-indigo-950/30 border-indigo-500/70 shadow-md ring-1 ring-indigo-500/30'
+                                    : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
+                                        isTarget
+                                          ? 'bg-indigo-600 text-white'
+                                          : 'bg-slate-800 text-slate-300'
+                                      }`}
+                                    >
+                                      {isTarget
+                                        ? 'Focal Provision (Current Chunk)'
+                                        : sc.position === 'before'
+                                        ? 'Preceding Provision'
+                                        : 'Subsequent Provision'}
+                                    </span>
+                                    <span className="text-xs font-mono text-slate-300 font-medium">
+                                      {sc.chunk_id}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(sc.text);
+                                      setCopiedContextKey(`chunk_${sc.chunk_id}`);
+                                      setTimeout(() => setCopiedContextKey(null), 2000);
+                                    }}
+                                    className="text-[11px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-900 border border-slate-800 hover:bg-slate-800 flex items-center gap-1 transition-colors"
+                                  >
+                                    {copiedContextKey === `chunk_${sc.chunk_id}` ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                    <span>{copiedContextKey === `chunk_${sc.chunk_id}` ? 'Copied' : 'Copy'}</span>
+                                  </button>
+                                </div>
+                                {sc.section_path && sc.section_path.length > 0 && (
+                                  <div className="text-[10px] text-slate-500 mb-2 truncate">
+                                    {sc.section_path.join(' > ')}
+                                  </div>
+                                )}
+                                <div className="text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap bg-slate-950 p-2.5 rounded-lg border border-slate-850">
+                                  {sc.text}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-800">
+              <div className="flex items-center gap-2">
+                {modalTab === 'focal' ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(activeChunkModal.text);
+                        setCopiedContextKey('focal_main');
+                        setTimeout(() => setCopiedContextKey(null), 2000);
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-slate-300 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+                    >
+                      {copiedContextKey === 'focal_main' ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedContextKey === 'focal_main' ? 'Copied to Clipboard' : 'Copy Provision'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalTab('context');
+                        handleFetchChunkContext(activeChunkModal.id);
+                      }}
+                      className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white px-3 py-1.5 rounded-lg bg-purple-950/60 border border-purple-800/60 hover:bg-purple-900/60 transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Get Surrounding Context</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setModalTab('focal')}
+                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+                  >
+                    <span>View Focal Provision</span>
+                  </button>
+                )}
+              </div>
 
               <button
+                type="button"
                 onClick={() => setActiveChunkModal(null)}
-                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors"
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
               >
                 Close
               </button>
@@ -609,7 +864,7 @@ function renderMarkdownWithCitations(markdown: string): string {
 
 interface ResearchReportViewerProps {
   job: ResearchJobDetail;
-  onOpenChunkModal: (id: string, text: string) => void;
+  onOpenChunkModal: (id: string, text: string, initialTab?: 'focal' | 'context') => void;
   onOpenDoc: (documentId: string) => void;
   loadingDocId: string | null;
   onRetry: () => void;
@@ -1153,6 +1408,12 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
                     {job.evaluation_summary.validated_count} Validated · {job.evaluation_summary.negated_count} Negated
                   </span>
                 )}
+                {job.evaluation_summary?.surrounding_context_expanded && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 font-medium flex items-center gap-1 shadow-sm">
+                    <Sparkles className="w-3 h-3 text-purple-400" />
+                    Surrounding Sequence Context Active
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
                 Critique, falsification, and boundary verification of retrieved chunks (excluding out-of-scope rules like VTOL)
@@ -1303,7 +1564,7 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
                               type="button"
                               onClick={() => {
                                 const text = findChunkExcerpt(cid, job.referenced_chunks, job.evaluation_summary);
-                                onOpenChunkModal(cid, text);
+                                onOpenChunkModal(cid, text, 'focal');
                               }}
                               className="text-xs font-mono text-slate-300 font-semibold hover:text-indigo-400 hover:underline text-left"
                               title="Click to inspect chunk text"
@@ -1311,9 +1572,23 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
                               {cid}
                             </button>
                           </div>
-                          <span className="text-[10px] font-mono text-emerald-400/80">
-                            Retained for Synthesis
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = findChunkExcerpt(cid, job.referenced_chunks, job.evaluation_summary);
+                                onOpenChunkModal(cid, text, 'context');
+                              }}
+                              className="text-[11px] font-medium text-purple-300 hover:text-white px-2 py-0.5 rounded bg-purple-950/70 border border-purple-800/70 hover:bg-purple-900/80 flex items-center gap-1 transition-colors shadow-sm"
+                              title="Inspect surrounding sequence and LLM context synthesis"
+                            >
+                              <Sparkles className="w-3 h-3 text-purple-400" />
+                              <span>Surrounding Context</span>
+                            </button>
+                            <span className="text-[10px] font-mono text-emerald-400/80">
+                              Retained for Synthesis
+                            </span>
+                          </div>
                         </div>
                         <p className="text-xs text-slate-300 leading-relaxed pl-1 border-l-2 border-emerald-800/80">
                           <strong className="text-emerald-300">Genuine Regulatory Value:</strong> {valueSummary}

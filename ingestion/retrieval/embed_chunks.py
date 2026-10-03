@@ -75,8 +75,10 @@ def is_lm_studio_available() -> bool:
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
     if not texts:
         return []
+    # Truncate individual texts to 8000 chars to avoid exceeding model context/payload limits
+    safe_texts = [t[:8000] if len(t) > 8000 else t for t in texts]
     payload = {
-        "input": texts,
+        "input": safe_texts,
         "model": settings.EMBEDDING_MODEL_NAME
     }
     try:
@@ -88,24 +90,45 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         embeddings_data = sorted(data["data"], key=lambda x: x["index"])
         return [item["embedding"] for item in embeddings_data]
     except Exception as e:
-        print(f"Failed to generate embeddings: {e}")
+        print(f"Failed to generate embeddings for batch of {len(texts)}: {e}")
+        # Sub-batch fallback if batch was large
+        if len(texts) > 1:
+            print(f"Retrying batch of {len(texts)} in smaller sub-batches of 10...")
+            results = []
+            for i in range(0, len(texts), 10):
+                sub_texts = texts[i:i+10]
+                sub_embs = generate_embeddings(sub_texts)
+                if sub_embs and len(sub_embs) == len(sub_texts):
+                    results.extend(sub_embs)
+                else:
+                    # Fallback single item embedding with 4000 char cap
+                    for single in sub_texts:
+                        single_emb = generate_embeddings([single[:4000]])
+                        if single_emb:
+                            results.extend(single_emb)
+                        else:
+                            results.append([0.0] * settings.EMBEDDING_DIMENSIONS)
+            return results
         return []
 
 
-def embed_chunks_partition(target_db: Path, vector_index: LocalVectorIndex, batch_size: int = 50) -> int:
-    """Embeds all unindexed chunks into the CHUNK partition in FAISS."""
+def embed_chunks_partition(target_db: Path, vector_index: LocalVectorIndex, batch_size: int = 100, prefix: Optional[str] = None) -> int:
+    """Embeds unindexed chunks into the CHUNK partition in FAISS, optionally filtered by prefix."""
     etype_str = EmbeddingType.CHUNK.value
     embedded_ids = set(vector_index.id_maps.get(etype_str, []))
     print(f"[Chunks] Found {len(embedded_ids)} already embedded chunks in FAISS index.")
 
     with sqlite3.connect(target_db) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT chunk_id, embedding_text FROM chunks")
+        if prefix:
+            cursor.execute("SELECT chunk_id, embedding_text FROM chunks WHERE chunk_id LIKE ?", (f"{prefix}%",))
+        else:
+            cursor.execute("SELECT chunk_id, embedding_text FROM chunks")
         all_chunks = cursor.fetchall()
 
     chunks_to_embed = [(c_id, text) for c_id, text in all_chunks if c_id not in embedded_ids]
     if not chunks_to_embed:
-        print("[Chunks] All chunks have already been embedded.")
+        print("[Chunks] All targeted chunks have already been embedded.")
         return 0
 
     print(f"[Chunks] Total chunks to embed: {len(chunks_to_embed)}")
@@ -146,7 +169,7 @@ def embed_chunks_partition(target_db: Path, vector_index: LocalVectorIndex, batc
     return embedded_count
 
 
-def embed_documents_partition(target_db: Path, vector_index: LocalVectorIndex, batch_size: int = 50) -> int:
+def embed_documents_partition(target_db: Path, vector_index: LocalVectorIndex, batch_size: int = 100, prefix: Optional[str] = None) -> int:
     """
     Embeds each authoritative regulation (ACT level) using its title and scope snippet.
     This enables hierarchical 2-stage retrieval (Act-level scoping + Chunk-level precision).
@@ -157,12 +180,15 @@ def embed_documents_partition(target_db: Path, vector_index: LocalVectorIndex, b
 
     with sqlite3.connect(target_db) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT document_id, title, metadata_json FROM documents")
+        if prefix:
+            cursor.execute("SELECT document_id, title, metadata_json FROM documents WHERE document_id LIKE ?", (f"{prefix}%",))
+        else:
+            cursor.execute("SELECT document_id, title, metadata_json FROM documents")
         all_docs = cursor.fetchall()
 
     docs_to_embed = [d for d in all_docs if d[0] not in embedded_ids]
     if not docs_to_embed:
-        print("[Acts] All documents have already been embedded in ACT index.")
+        print("[Acts] All targeted documents have already been embedded in ACT index.")
         return 0
 
     print(f"[Acts] Embedding {len(docs_to_embed)} documents into ACT partition...")
@@ -356,7 +382,7 @@ def compute_stakeholder_scores(target_db: Path, vector_index: LocalVectorIndex) 
         print(f"[Stakeholders] Aggregated and indexed domain profiles for {len(doc_updates)} regulations.")
 
 
-def run_embedding_pipeline(db_path: Optional[Path] = None):
+def run_embedding_pipeline(db_path: Optional[Path] = None, prefix: Optional[str] = None, batch_size: int = 100):
     if db_path is None:
         target_db = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     else:
@@ -373,10 +399,10 @@ def run_embedding_pipeline(db_path: Optional[Path] = None):
     vector_index = LocalVectorIndex()
 
     # Step 1: Embed remaining chunks into CHUNK partition
-    embed_chunks_partition(target_db, vector_index)
+    embed_chunks_partition(target_db, vector_index, batch_size=batch_size, prefix=prefix)
 
     # Step 2: Embed regulations into ACT partition (Hierarchical Retrieval)
-    embed_documents_partition(target_db, vector_index)
+    embed_documents_partition(target_db, vector_index, batch_size=batch_size, prefix=prefix)
 
     # Step 3: Compute Concept Anchor Stakeholder Scores
     compute_stakeholder_scores(target_db, vector_index)
@@ -385,4 +411,17 @@ def run_embedding_pipeline(db_path: Optional[Path] = None):
 
 
 if __name__ == "__main__":
-    run_embedding_pipeline()
+    import argparse
+    parser = argparse.ArgumentParser(description="Embed chunks and regulations into FAISS vector index.")
+    parser.add_argument("--prefix", type=str, default=None, help="Filter chunk_id prefix (e.g. 'FAA_' for FAA regulations)")
+    parser.add_argument("--origin", type=str, default=None, help="Filter origin: 'faa', 'easa', 'eu', 'manual'")
+    parser.add_argument("--batch-size", type=int, default=100, help="Batch size for embeddings API")
+    args = parser.parse_args()
+
+    filter_prefix = args.prefix
+    if args.origin == "faa":
+        filter_prefix = "FAA_"
+    elif args.origin == "manual":
+        filter_prefix = "MANUAL_"
+
+    run_embedding_pipeline(prefix=filter_prefix, batch_size=args.batch_size)

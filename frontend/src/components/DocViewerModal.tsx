@@ -77,27 +77,61 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
   const [backendScores, setBackendScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    if (doc && !doc.markdown_doc && !fullDocMarkdown && !loadingDoc) {
-      setLoadingDoc(true);
-      getDocumentMarkdown(doc.document_id, undefined, initialSearchQuery)
-        .then((res) => {
-          setFullDocMarkdown(res.markdown_doc);
-          if (res.section_scores) {
-            const scores: Record<string, number> = {};
-            res.section_scores.forEach((s: any) => scores[s.sectionId] = s.score);
-            setBackendScores(scores);
-          }
-        })
-        .catch(err => {
-          console.error("Failed to load document markdown", err);
-        })
-        .finally(() => {
-          setLoadingDoc(false);
-        });
-    } else if (doc && doc.markdown_doc) {
-      setFullDocMarkdown(doc.markdown_doc);
+    if (!doc) {
+      setFullDocMarkdown(null);
+      setOpenSectionIds({});
+      setBackendScores({});
+      setLoadingDoc(false);
+      return;
     }
-  }, [doc]);
+
+    const targetDocId = doc.document_id;
+    setOpenSectionIds({});
+    if (initialSearchQuery) {
+      setSimilarityQuery(initialSearchQuery);
+    }
+
+    // If doc object already contains full markdown
+    if (doc.markdown_doc && doc.markdown_doc.trim()) {
+      setFullDocMarkdown(doc.markdown_doc);
+      setLoadingDoc(false);
+      return;
+    }
+
+    // Otherwise, clear previous document content immediately and fetch new
+    setFullDocMarkdown(null);
+    setLoadingDoc(true);
+
+    let isCancelled = false;
+    getDocumentMarkdown(targetDocId, undefined, initialSearchQuery)
+      .then((res) => {
+        if (isCancelled) return;
+        setFullDocMarkdown(res.markdown_doc || '');
+        if (res.section_scores) {
+          const scores: Record<string, number> = {};
+          res.section_scores.forEach((s: any) => scores[s.sectionId] = s.score);
+          setBackendScores(scores);
+        }
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error("Failed to load document markdown", err);
+        setFullDocMarkdown(
+          doc.text
+            ? `# ${doc.path[doc.path.length - 1] || targetDocId}\n\n${doc.text}`
+            : `# ${doc.path[doc.path.length - 1] || targetDocId}\n\n*Unable to load document content.*`
+        );
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoadingDoc(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [doc?.document_id, doc?.markdown_doc, initialSearchQuery]);
 
   // Supporting Qualifiers / Decisions State
   const [qualifiers, setQualifiers] = useState<RegulationQualifier[]>([]);
@@ -143,6 +177,14 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
     });
     return Array.from(types);
   }, [sections]);
+
+  // Dynamic friendly regulatory authority label
+  const sourceLabel = useMemo(() => {
+    if (doc?.document_id?.startsWith('FAA_') || doc?.source?.toLowerCase().includes('faa')) return 'FAA Regulations';
+    if (doc?.document_id?.startsWith('MANUAL_') || doc?.source?.toLowerCase().includes('internal')) return 'Internal Document';
+    if (doc?.source?.toLowerCase().includes('easa')) return 'EASA Easy Access Rules';
+    return doc?.source || 'EU Formex';
+  }, [doc?.document_id, doc?.source]);
 
   // Compute similarity scores for all sections
   const similarityResults = useMemo<Map<string, SectionSimilarityResult>>(() => {
@@ -339,7 +381,7 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
-                <span className="font-mono text-sky-400 uppercase tracking-wider">{doc.source}</span>
+                <span className="font-mono text-sky-400 uppercase tracking-wider">{sourceLabel}</span>
                 <span aria-hidden="true">·</span>
                 <span className="font-mono">{doc.document_id}</span>
                 <span aria-hidden="true">·</span>
@@ -685,20 +727,31 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
         {/* Modal Scrollable Content Container */}
         <div ref={contentContainerRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
           {/* Matched Search Chunk Preview Box from Search query */}
-          <div className="p-4 bg-sky-950/20 border border-sky-800/40 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                Original Query Chunk ({doc.chunk_id})
-              </span>
+          {Boolean(doc.chunk_id && doc.text) && (
+            <div className="p-4 bg-sky-950/20 border border-sky-800/40 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Original Query Chunk ({doc.chunk_id})
+                </span>
+              </div>
+              <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">
+                {doc.text}
+              </p>
             </div>
-            <p className="text-sm text-slate-200 whitespace-pre-wrap leading-relaxed font-sans">
-              {doc.text}
-            </p>
-          </div>
+          )}
+
+          {/* Loading document state */}
+          {loadingDoc && (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mb-3" />
+              <p className="text-sm font-medium text-slate-300">Loading document structure and content...</p>
+              <p className="text-xs text-slate-500 mt-1 font-mono">{doc.document_id}</p>
+            </div>
+          )}
 
           {/* Render Sections View or Continuous View */}
-          {hasMultipleSections && viewMode === 'sections' ? (
+          {!loadingDoc && (hasMultipleSections && viewMode === 'sections' ? (
             <div className="space-y-3">
               {displayedSections.length === 0 ? (
                 <div className="py-12 text-center text-slate-500 text-sm border border-dashed border-slate-800 rounded-xl">
@@ -927,7 +980,7 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
                 />
               )}
             </div>
-          )}
+          ))}
 
           {/* Document Metadata Block */}
           {doc.metadata && Object.keys(doc.metadata).length > 0 && (

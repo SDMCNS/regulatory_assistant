@@ -147,3 +147,67 @@ High-speed cross-document SQLite FTS5 search restricted specifically to the user
   "total_top_k": 50
 }
 ```
+
+---
+
+### 2.7. `GET /chunks/{chunk_id}/context`
+Fetches the sequential regulatory flow around a specific chunk (window ±N provisions from the same document) and returns an AI synthesis of the legal context and practical operational implications relative to a query.
+
+#### Parameters:
+- `chunk_id` (string, path parameter): The identifier of the focal chunk.
+- `query` (string, query parameter, required): The user's inquiry or operational question.
+- `window` (integer, query parameter, default: 2): Number of preceding and subsequent provisions to retrieve.
+
+#### Response:
+```json
+{
+  "chunk_id": "FAA:14CFR_PART_121:121.311",
+  "document_id": "FAA_14CFR_PART_121",
+  "document_title": "PART 121—OPERATING REQUIREMENTS: DOMESTIC, FLAG, AND SUPPLEMENTAL OPERATIONS",
+  "query": "child restraint systems and seat belt requirements",
+  "surrounding_chunks": [
+    {
+      "chunk_id": "FAA:14CFR_PART_121:121.310",
+      "section_path": ["Part 121", "Subpart K", "§ 121.310 Additional emergency equipment."],
+      "text": "...",
+      "is_target": false,
+      "position": "before"
+    },
+    {
+      "chunk_id": "FAA:14CFR_PART_121:121.311",
+      "section_path": ["Part 121", "Subpart K", "§ 121.311 Seats, safety belts, and shoulder harnesses."],
+      "text": "...",
+      "is_target": true,
+      "position": "target"
+    }
+  ],
+  "summary": "This section operates within the cabin emergency safety framework..."
+}
+```
+
+---
+
+### 2.8. `POST /regulations/manual-document`
+Authors, chunks, and ingests a custom regulation, standard operating procedure (SOP), or flight manual into the system with full SQLite FTS5 full-text indexing.
+
+#### Request Body:
+```json
+{
+  "title": "Flight Operations Manual Part A - General Policy",
+  "source": "AeroLex Internal Manuals",
+  "date": "2026-10-01",
+  "sections": [
+    {
+      "section_number": "OM-A 1.1",
+      "title": "Corporate Safety Management System",
+      "subpart": "Subpart A - General",
+      "text": "All flight crew members shall comply with company SMS reporting guidelines..."
+    }
+  ]
+}
+```
+
+---
+
+### 2.9. `GET /search/origin-options`
+Returns the list of supported regulatory origins (`all`, `eu`, `easa`, `faa`, `manual`).

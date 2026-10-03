@@ -38,14 +38,58 @@ def get_document_markdown_content(document_id: str) -> str:
         except Exception as e:
             print(f"Error rendering JSON for {document_id}: {e}")
             
-    # Fallback to assembling chunks from sqlite
+    # Fallback to assembling structured chunks from sqlite
     try:
         with get_db_connection() as conn:
             c = conn.cursor()
-            c.execute("SELECT source_text FROM chunks WHERE document_id = ? ORDER BY rowid", (document_id,))
+            c.execute("SELECT title FROM documents WHERE document_id = ?", (document_id,))
+            doc_row = c.fetchone()
+            doc_title = doc_row["title"] if (doc_row and doc_row["title"]) else document_id
+            
+            c.execute("""
+                SELECT chunk_id, chunk_type, section_path, section_numbers, source_text, metadata_json 
+                FROM chunks 
+                WHERE document_id = ? 
+                ORDER BY rowid
+            """, (document_id,))
             rows = c.fetchall()
-            if rows:
-                return "\n\n---\n\n".join([r[0] for r in rows if r[0]])
+            if not rows:
+                return ""
+
+            md_parts = [f"# {doc_title}\n\n*Regulatory Instrument ID: {document_id}*"]
+            for r in rows:
+                chunk_id = r["chunk_id"]
+                chunk_type = r["chunk_type"] or "section"
+                source_text = (r["source_text"] or "").strip()
+                
+                sec_path = []
+                if r["section_path"]:
+                    try:
+                        sec_path = json.loads(r["section_path"])
+                    except Exception:
+                        pass
+                        
+                sec_numbers = []
+                if r["section_numbers"]:
+                    try:
+                        sec_numbers = json.loads(r["section_numbers"])
+                    except Exception:
+                        pass
+                        
+                sec_title = sec_path[-1] if sec_path else (sec_numbers[0] if sec_numbers else chunk_id)
+                chunk_meta = {
+                    "id": chunk_id,
+                    "title": sec_title,
+                    "type": chunk_type,
+                    "section_numbers": sec_numbers,
+                    "section_path": sec_path
+                }
+                meta_json = json.dumps(chunk_meta, ensure_ascii=False)
+                break_token = f"\n\n---\n<!-- SECTION_BREAK {meta_json} -->\n\n"
+                sec_body = f"### {sec_title}\n\n{source_text}" if not source_text.startswith("#") else source_text
+                md_parts.append(break_token + sec_body)
+                
+            return "".join(md_parts)
     except Exception as e:
         print(f"Error assembling chunks from sqlite for {document_id}: {e}")
         

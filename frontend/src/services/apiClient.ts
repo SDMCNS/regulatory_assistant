@@ -871,7 +871,7 @@ export async function testGeminiApiKey(
 export async function getRegulationsCatalog(
   params: {
     query?: string;
-    origin?: 'all' | 'eu' | 'easa';
+    origin?: RegulationOrigin;
     stakeholder?: string;
     sort_by?: 'chunks' | 'title' | 'date';
     sort_order?: 'asc' | 'desc';

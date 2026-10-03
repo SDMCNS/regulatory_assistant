@@ -365,6 +365,28 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                 >
                   EU
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigin('faa')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    origin === 'faa'
+                      ? 'bg-slate-800 text-sky-400 shadow-sm border border-slate-700/60'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  FAA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigin('manual')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    origin === 'manual'
+                      ? 'bg-slate-800 text-sky-400 shadow-sm border border-slate-700/60'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Internal
+                </button>
               </div>
 
               {/* Top K Dropdown */}

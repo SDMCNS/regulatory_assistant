@@ -56,11 +56,38 @@ The chunking engine (`ingestion/pipelines/chunking_pipeline.py`) segments the do
 
 ### Stage 6: Vector & FTS5 Indexing
 1. **SQLite FTS5 Rebuild**: Automatically rebuilds the `chunks_fts` virtual table using SQLite FTS5 for sub-millisecond BM25 keyword matching.
-2. **Dense Vector Generation**: Checks `http://localhost:1234/v1`. If LM Studio is available, generates 3,840-dimensional vectors for new chunks into `chunk.index`, document scopes into `act.index`, and calculates stakeholder domain profiles.
+2. **Dense Vector Generation**: Checks `http://localhost:1234/v1`. If LM Studio is available, generates vectors for new chunks into `chunk.index`, document scopes into `act.index`, and calculates stakeholder domain profiles.
 
 ---
 
-## 3. Pipeline Execution Commands
+## 3. FAA Title 14 CFR Ingestion Pipeline
+
+The FAA ingestion pipeline (`ingestion/parsers/faa_parser.py` and `ingestion/parsers/faa_chunker.py`) processes US Federal Aviation Regulations published as Government Publishing Office (GPO) Title 14 CFR XML volumes:
+
+1. **Volume Decomposition**: FAA XML files bundle dozens of distinct regulations into massive multi-megabyte volumes (e.g. `CFR-2025-title14-vol1.xml`). The parser splits these into individual Part-level documents (`PART 21`, `PART 25`, `PART 91`, `PART 121`, `PART 135`, `PART 145`), each with its own authoritative `document_id`.
+2. **Hierarchical Extraction**:
+   - Subparts (`SUBPART A`, `SUBPART B`), Subject Groups, and Sections (`SECTION`, `<SECTNO>§ 121.311</SECTNO>`).
+   - GPOTABLE conversion: Converts XML tabular data into structured, readable ASCII/Markdown tables.
+   - Authority and Source citations parsed and mapped to document metadata.
+3. **Aligned Chunking Strategy**: The FAA chunker mirrors the EASA chunking model:
+   - Chunk IDs: `FAA:14CFR_PART_{PART}:{SECTION}` (e.g., `FAA:14CFR_PART_121:121.311`).
+   - Breadcrumb navigation: `Title 14 CFR > Chapter I > Subchapter G > Part 121 > Subpart K > § 121.311`.
+   - Sequential linking: Each chunk records its `previous_chunk_id` and `next_chunk_id` to enable surrounding context navigation.
+   - Automatic insertion into SQLite `documents`, `chunks`, and `chunks_fts`.
+
+---
+
+## 4. Manual Regulatory Document Publishing Pipeline
+
+The manual document ingestion pipeline (`api/regulations.py` via `POST /regulations/manual-document`):
+1. **Schema Validation**: Validates client-provided `ManualDocumentRequest` containing document metadata and ordered `ManualSectionInput` sections.
+2. **Hierarchical Normalization**: Derives document IDs (`MANUAL_{HASH}` or slug) and section chunk identifiers (`MANUAL_{DOC_ID}_S{IDX}`).
+3. **Sequential Provision Chaining**: Assigns `previous_chunk_id` and `next_chunk_id` across sections to maintain provision adjacency.
+4. **Instant Database Commit**: Writes to SQLite `documents` and `chunks`, triggers FTS5 index update, invalidates the catalog cache, and generates full markdown views for the document viewer.
+
+---
+
+## 5. Pipeline Execution Commands
 
 ### Full Ingestion with Auto-Reset:
 ```powershell
@@ -70,6 +97,12 @@ python -m ingestion.pipelines.ingest_formex "ingestion/data/regulation_xml" --re
 ### Ingest with a Maximum Package Limit (for Testing):
 ```powershell
 python -m ingestion.pipelines.ingest_formex "ingestion/data/regulation_xml" --limit 50
+```
+
+### Ingest and Chunk FAA 14 CFR XML Volume:
+```powershell
+python -m ingestion.parsers.faa_parser ingestion/data/regulations_xml/CFR-2025-title14-vol1.xml
+python -m ingestion.parsers.faa_chunker
 ```
 
 ### Standalone Embedding Generation & Stakeholder Scoring:

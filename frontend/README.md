@@ -1,30 +1,41 @@
-# AeroLex EU — Aviation Regulation Assistant (Frontend)
+# AeroLex — Aviation Regulation Assistant (Frontend)
 
-A modern, high-performance web interface for querying a local LLM and semantic search knowledge base over **EU Aviation Regulations** (EASA Easy Access Rules and EU Formex standards), featuring persistent query memory and structured data extraction.
+A modern, high-performance web interface for querying local and cloud LLMs and semantic search knowledge bases over **Global Aviation Regulations** (EASA Easy Access Rules, EU Formex standards, FAA Title 14 CFR regulations, and custom user-authored flight manuals), featuring deep research workflows, persistent query memory, and structured data extraction.
 
 ---
 
 ## Features
 
-- **Keyword & Acronym Search (`GET /search/keyword`)**:
-  - High-speed SQLite FTS5 BM25 search with Porter stemming.
-  - Tailored for regulatory acronyms (e.g., `ATSEP`, `AMC-20`, `FTL`), part numbers, and clause codes (`CAT.OP.MPA`).
+- **Multi-Origin Hybrid Search (`GET /search`, `GET /search/keyword`)**:
+  - High-speed SQLite FTS5 BM25 search with Porter stemming and FAISS dense vector retrieval.
+  - Multi-origin filtering: `ALL`, `EASA`, `EU`, `FAA` (Title 14 CFR), and `MANUAL` (custom manuals/SOPs).
+  - Tailored for aviation acronyms (e.g., `ATSEP`, `AMC-20`, `FTL`, `SMS`, `FAR`), part numbers, and clause codes (`CAT.OP.MPA`, `§ 25.1309`, `§ 121.311`).
   - Optional local LLM query expansion (`use_llm=true`) generating synonyms and domain terms.
-- **Semantic Vector Search (`GET /search` & `GET /search/docs`)**:
-  - Dense embedding search across EASA Easy Access Rules and EU Formex regulations.
-  - View relevance scores, document hierarchy paths, and complete original Markdown documents.
+- **Context Expansion & Implications ("Get Context")**:
+  - Fetch immediate preceding and subsequent provisions (window ±2) from the same regulation.
+  - AI-powered synthesis explains legal prerequisites, scope boundaries, and operational compliance implications.
+- **Document-Scoped Search ("Focus Document")**:
+  - Click to isolate any regulation and re-query exclusively within that specific act.
+- **Autonomous Deep Research Studio (`/research/*`)**:
+  - Multi-turn recursive exploration with depth levels 1 to 3.
+  - Scientific Adversarial Falsification Gate rejecting out-of-scope provisions.
+  - Surrounding sequence fact extraction incorporating preceding and subsequent provisions into LLM reasoning.
+  - Dual-Tab Chunk Inspector Modal (Focal Provision vs. Surrounding Sequence & AI Implications).
+  - Scientific Evidence & Negation Audit Ledger with one-click surrounding context access.
+- **Dedicated Multi-Regulation Workspace (`RegulationsWorkspace.tsx`)**:
+  - Title-level catalog supporting 1,400+ EU acts, EASA Easy Access Rules, and FAA 14 CFR regulations.
+  - Multi-regulation selection and cross-document overlap analysis with multi-column comparison matrix.
+  - Requirement Lens (normative modal verb analysis: SHALL, MUST, SHOULD, MAY).
+  - Word-by-word diff drawer and compliance working dossier.
+- **Manual Document Builder (`DocumentBuilder.tsx`)**:
+  - Interactive authoring studio for custom company manuals, SOPs, and flight ops procedures.
+  - Real-time hierarchy simulation and automated regulatory chunking matching EASA/FAA standards.
+  - Instant SQLite FTS5 indexing and catalog cache synchronization.
 - **Local LLM Regulatory Assistant (`POST /llm/ask`)**:
-  - Context-aware natural language Q&A.
-  - Supports automated semantic search or targeted chunk inspection.
-- **Persistent Query Memory**:
-  - Remembers user queries, answers, and referenced regulatory chunks across sessions.
-  - Injects relevant historical context into new LLM prompts for seamless conversational memory.
-  - Pin, search, re-run, or export query logs as Markdown.
-- **Schema Extractor (`POST /llm/extract`)**:
-  - Extracts schema-validated JSON from regulatory text with user-defined JSON schemas.
+  - Context-aware natural language Q&A with targeted chunks or automated retrieval.
 - **Settings & Connection Manager**:
-  - Easily point the frontend to your local FastAPI backend (`/api` Vite Proxy, `http://localhost:8000`, `127.0.0.1:8000`, or a remote tunnel).
-  - Built-in latency ping, connection diagnostics, and CORS validation.
+  - Configure local LM Studio (`/v1`) or Google Gemini Cloud API keys and models.
+  - Configurable LM Studio timeout settings with safe fallback against GPU cold-starts.
 
 ---
 

@@ -526,9 +526,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={(e) => setForm({ ...form, defaultOrigin: e.target.value as any })}
                 className="w-full px-3 py-2 text-sm bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-sky-500"
               >
-                <option value="all">All Sources (EU + EASA)</option>
+                <option value="all">All Sources (EASA + EU + FAA)</option>
                 <option value="easa">EASA Easy Access Rules</option>
                 <option value="eu">EU Formex Standards</option>
+                <option value="faa">FAA Federal Regulations (14 CFR)</option>
+                <option value="manual">Internal Documents</option>
               </select>
             </div>
 

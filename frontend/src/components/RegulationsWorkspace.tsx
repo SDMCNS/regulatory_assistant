@@ -397,10 +397,15 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
   // -------------------------------------------------------------
   const handleOpenDocViewer = (documentId: string, queryForViewer?: string) => {
     const cat = catalogMap.get(documentId);
+    let sourceLabel = 'EU Formex';
+    if (cat?.origin === 'easa') sourceLabel = 'EASA Easy Access Rules';
+    else if (cat?.origin === 'faa' || documentId.startsWith('FAA_')) sourceLabel = 'FAA Regulations';
+    else if (cat?.origin === 'manual' || documentId.startsWith('MANUAL_')) sourceLabel = 'Internal Document';
+
     const docResponse: SearchDocResponse = {
       chunk_id: '',
       score: 1.0,
-      source: cat?.origin === 'easa' ? 'EASA Easy Access Rules' : 'EU Formex',
+      source: sourceLabel,
       document_id: documentId,
       path: [cat?.title || documentId],
       text: '',

@@ -15,6 +15,7 @@ import { DocViewerModal } from './components/DocViewerModal';
 import { ResearchTab } from './components/ResearchTab';
 import { RegulationsWorkspace } from './components/RegulationsWorkspace';
 import { DocumentBuilder } from './components/DocumentBuilder';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
 import { getQueryMemory, initMemory } from './services/memoryService';
@@ -156,7 +157,7 @@ export default function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col w-full min-h-0">
         {activeTab === 'assistant' && (
           <AskAssistant
             settings={settings}
@@ -224,17 +225,19 @@ export default function App() {
         )}
 
         {activeTab === 'builder' && (
-          <DocumentBuilder
-            settings={settings}
-            onViewDoc={(doc) => setSelectedDoc(doc)}
-            onOpenWorkspaceWithDocs={handleOpenWorkspaceWithDocs}
-            onSendToAssistant={(prompt, chunkIds) => {
-              if (chunkIds && chunkIds.length > 0) {
-                setTargetedChunks(chunkIds);
-              }
-              setActiveTab('assistant');
-            }}
-          />
+          <ErrorBoundary fallbackTitle="Regulatory Document Builder Error">
+            <DocumentBuilder
+              settings={settings}
+              onViewDoc={(doc) => setSelectedDoc(doc)}
+              onOpenWorkspaceWithDocs={handleOpenWorkspaceWithDocs}
+              onSendToAssistant={(prompt, chunkIds) => {
+                if (chunkIds && chunkIds.length > 0) {
+                  setTargetedChunks(chunkIds);
+                }
+                setActiveTab('assistant');
+              }}
+            />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'memory' && (

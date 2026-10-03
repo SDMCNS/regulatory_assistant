@@ -10,14 +10,14 @@ if str(_project_root) not in sys.path:
 from ingestion.core.config import settings
 from ingestion.retrieval.keyword_search import ensure_fts_index
 
-def rebuild_fts():
-    db_path = settings.SQLITE_PATH
-    if not db_path.exists():
-        print(f"Error: Database not found at {db_path}")
+def rebuild_fts(db_path: Optional[Path] = None):
+    target_db = Path(db_path) if db_path else settings.SQLITE_PATH
+    if not target_db.exists():
+        print(f"Error: Database not found at {target_db}")
         return
 
-    print("Connecting to SQLite database...")
-    with sqlite3.connect(db_path) as conn:
+    print(f"Connecting to SQLite database at {target_db}...")
+    with sqlite3.connect(target_db) as conn:
         cursor = conn.cursor()
         
         # Ensure the table exists first (if not, it creates it)

@@ -41,6 +41,7 @@ from ingestion.euroform.parser import parse_formex
 from ingestion.euroform.render import render_block
 from ingestion.pipelines.chunking_pipeline import ChunkerPipeline
 from ingestion.retrieval.embed_chunks import run_embedding_pipeline
+from ingestion.retrieval.rebuild_fts import rebuild_fts
 from ingestion.core.config import settings
 from ingestion.core.formex_package import (
     FormexPackage,
@@ -759,6 +760,13 @@ def run_pipeline(
         except Exception as e:
             failed_docs += 1
             logger.error(f"Error processing package {pkg.folder_path.name}: {e}", exc_info=True)
+
+    # Rebuild SQLite FTS5 full-text search index
+    logger.info("Rebuilding SQLite FTS5 index on new chunks...")
+    try:
+        rebuild_fts(db_path=Path(db_path))
+    except Exception as e:
+        logger.warning(f"FTS5 rebuild step skipped / error: {e}")
 
     # Generate Embeddings for new chunks
     logger.info("Running embedding pipeline for new chunks...")

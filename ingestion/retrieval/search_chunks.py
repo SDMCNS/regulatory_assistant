@@ -186,12 +186,98 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
             print("Invalid rank.")
 
 
+def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
+    """
+    Retrieves the target chunk and its immediate preceding and following chunks
+    from the same document in strict sequential order.
+    """
+    import json
+    db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
+    if not db_path.exists():
+        raise FileNotFoundError(f"Database not found at {db_path}")
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+
+        # 1. Fetch target chunk
+        cursor.execute("""
+            SELECT c.rowid, c.document_id, c.section_path, c.source_text, d.title, d.metadata_json
+            FROM chunks c
+            LEFT JOIN documents d ON c.document_id = d.document_id
+            WHERE c.chunk_id = ?
+        """, (chunk_id,))
+        target_row = cursor.fetchone()
+        if not target_row:
+            raise ValueError(f"Chunk '{chunk_id}' not found in database.")
+
+        t_rowid, doc_id, t_path_json, t_text, doc_title, meta_json = target_row
+        t_path = json.loads(t_path_json) if t_path_json else []
+        meta_dict = json.loads(meta_json) if meta_json else {}
+
+        # 2. Fetch preceding chunks in same document
+        cursor.execute("""
+            SELECT rowid, chunk_id, section_path, source_text
+            FROM chunks
+            WHERE document_id = ? AND rowid < ?
+            ORDER BY rowid DESC
+            LIMIT ?
+        """, (doc_id, t_rowid, window))
+        before_rows = cursor.fetchall()[::-1]  # Reverse to chronological order
+
+        # 3. Fetch subsequent chunks in same document
+        cursor.execute("""
+            SELECT rowid, chunk_id, section_path, source_text
+            FROM chunks
+            WHERE document_id = ? AND rowid > ?
+            ORDER BY rowid ASC
+            LIMIT ?
+        """, (doc_id, t_rowid, window))
+        after_rows = cursor.fetchall()
+
+        all_chunks = []
+        for r in before_rows:
+            all_chunks.append({
+                "chunk_id": r[1],
+                "section_path": json.loads(r[2]) if r[2] else [],
+                "text": r[3],
+                "is_target": False,
+                "position": "before"
+            })
+
+        all_chunks.append({
+            "chunk_id": chunk_id,
+            "section_path": t_path,
+            "text": t_text,
+            "is_target": True,
+            "position": "target"
+        })
+
+        for r in after_rows:
+            all_chunks.append({
+                "chunk_id": r[1],
+                "section_path": json.loads(r[2]) if r[2] else [],
+                "text": r[3],
+                "is_target": False,
+                "position": "after"
+            })
+
+        return {
+            "target_chunk_id": chunk_id,
+            "document_id": doc_id,
+            "document_title": doc_title or meta_dict.get("title") or doc_id,
+            "window": window,
+            "total_chunks": len(all_chunks),
+            "chunks": all_chunks
+        }
+
+
 def search_semantic(
     query: str, 
     top_k: int = 5, 
     origin: str = "all", 
     use_hyde: bool = False,
-    stakeholder: Optional[str] = None
+    stakeholder: Optional[str] = None,
+    document_id: Optional[str] = None
 ) -> list[dict]:
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
@@ -229,7 +315,14 @@ def search_semantic(
         pass
     
     # 3. Chunk-Level Search
-    search_k = top_k * 15 if origin != "all" or stakeholder else top_k * 4
+    chunk_index = vector_index.indices.get(EmbeddingType.CHUNK.value)
+    total_chunks = chunk_index.ntotal if chunk_index else 50000
+    if document_id:
+        # Scan entire chunk index to exhaustively rank all chunks belonging to this document
+        search_k = min(total_chunks, 48000)
+    else:
+        search_k = top_k * 15 if origin != "all" or stakeholder else top_k * 4
+
     vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=max(search_k, 25))
         
     candidate_records = []
@@ -256,6 +349,11 @@ def search_semantic(
             
             if row:
                 doc_id, section_path, source_text, meta_json, doc_title = row
+
+                # Document ID filter
+                if document_id and doc_id != document_id:
+                    continue
+
                 is_easa = '"source": "EASA XML"' in meta_json if meta_json else False
                 
                 if origin == "eu" and is_easa:

@@ -9,15 +9,17 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Search, FileText, Layers, Check, Copy, ArrowUpRight, 
-  BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash, Database, ChevronDown, ChevronRight
+  BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash, Database, ChevronDown, ChevronRight,
+  Target, X
 } from 'lucide-react';
 import { 
   AppSettings, KeywordSearchResponse, RegulationOrigin, 
-  SearchDocResponse, SearchMethod, SearchResponse 
+  SearchDocResponse, SearchMethod, SearchResponse,
+  ChunkContextSummaryResponse
 } from '../types';
 import { 
   searchDocsRegulations, searchKeywordRegulations, searchRegulations, searchHybridRegulations,
-  getDocumentMarkdown
+  getDocumentMarkdown, getChunkContextSummary
 } from '../services/apiClient';
 import { recordQuery } from '../services/memoryService';
 
@@ -58,6 +60,16 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
   const [collapsedChunks, setCollapsedChunks] = useState<Set<string>>(new Set());
 
+  // Focus on Document state
+  const [focusedDocId, setFocusedDocId] = useState<string | null>(null);
+  const [focusedDocTitle, setFocusedDocTitle] = useState<string | null>(null);
+
+  // Chunk Context state
+  const [contextLoadingChunkId, setContextLoadingChunkId] = useState<string | null>(null);
+  const [chunkContexts, setChunkContexts] = useState<Record<string, ChunkContextSummaryResponse>>({});
+  const [openContextChunkIds, setOpenContextChunkIds] = useState<Set<string>>(new Set());
+  const [showSurroundingRaw, setShowSurroundingRaw] = useState<Record<string, boolean>>({});
+
   const toggleCollapse = (chunkId: string) => {
     setCollapsedChunks(prev => {
       const next = new Set(prev);
@@ -74,9 +86,11 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
     }
   }, [initialQuery]);
 
-  const executeSearch = async (searchTerm?: string) => {
+  const executeSearch = async (searchTerm?: string, docIdOverride?: string | null) => {
     const q = (searchTerm !== undefined ? searchTerm : query).trim();
     if (!q) return;
+
+    const activeDocId = docIdOverride !== undefined ? docIdOverride : focusedDocId;
 
     setLoading(true);
     setError(null);
@@ -84,10 +98,10 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
     setExpandedTerms(null);
 
     try {
+      let data: (SearchResponse | KeywordSearchResponse | SearchDocResponse)[] = [];
       if (searchMethod === 'keyword') {
-        const keywordData = await searchKeywordRegulations(q, topK, origin, useLLMExpansion, settings);
-        setResults(keywordData);
-        // Extract any expanded terms from the response items
+        const keywordData = await searchKeywordRegulations(q, topK, origin, useLLMExpansion, settings, activeDocId || undefined);
+        data = keywordData;
         const allExpanded = Array.from(
           new Set(keywordData.flatMap(r => r.expanded_terms || []).filter(Boolean))
         );
@@ -95,15 +109,14 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
           setExpandedTerms(allExpanded);
         }
       } else if (searchMethod === 'hybrid') {
-        const hybridData = await searchHybridRegulations(q, topK, origin, useHyde, settings);
-        setResults(hybridData);
+        data = await searchHybridRegulations(q, topK, origin, useHyde, settings, activeDocId || undefined);
       } else if (searchMethod === 'docs') {
-        const docsData = await searchDocsRegulations(q, topK, origin, useHyde, settings);
-        setResults(docsData);
+        data = await searchDocsRegulations(q, topK, origin, useHyde, settings, activeDocId || undefined);
       } else {
-        const semanticData = await searchRegulations(q, topK, origin, useHyde, settings);
-        setResults(semanticData);
+        data = await searchRegulations(q, topK, origin, useHyde, settings, activeDocId || undefined);
       }
+
+      setResults(data);
 
       // Record in Query Memory
       recordQuery({
@@ -112,9 +125,9 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
         searchMethod,
         origin,
         top_k: topK,
-        resultsCount: results.length,
-        answerSnippet: `Retrieved results via /search/${searchMethod === 'keyword' ? 'keyword' : searchMethod === 'docs' ? 'docs' : ''}`,
-        retrievedChunks: results.map(r => ({
+        resultsCount: data.length,
+        answerSnippet: `Retrieved results via /search/${searchMethod === 'keyword' ? 'keyword' : searchMethod === 'docs' ? 'docs' : ''}${activeDocId ? ` (Focused: ${activeDocId})` : ''}`,
+        retrievedChunks: data.map(r => ({
           chunk_id: r.chunk_id,
           document_id: r.document_id,
           source: r.source,
@@ -129,6 +142,66 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
       setResults([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFocusDocument = (docId: string, title?: string) => {
+    if (focusedDocId === docId) {
+      setFocusedDocId(null);
+      setFocusedDocTitle(null);
+      executeSearch(undefined, null);
+    } else {
+      setFocusedDocId(docId);
+      setFocusedDocTitle(title || docId);
+      executeSearch(undefined, docId);
+    }
+  };
+
+  const handleClearFocus = () => {
+    setFocusedDocId(null);
+    setFocusedDocTitle(null);
+    executeSearch(undefined, null);
+  };
+
+  const handleGetContext = async (chunkId: string) => {
+    // If open and loaded, toggle close
+    if (openContextChunkIds.has(chunkId)) {
+      setOpenContextChunkIds(prev => {
+        const next = new Set(prev);
+        next.delete(chunkId);
+        return next;
+      });
+      return;
+    }
+
+    // Open panel
+    setOpenContextChunkIds(prev => new Set(prev).add(chunkId));
+
+    // If already fetched, don't re-fetch
+    if (chunkContexts[chunkId]) {
+      return;
+    }
+
+    setContextLoadingChunkId(chunkId);
+    try {
+      const activeQ = query.trim() || 'General regulatory applicability and operational requirements';
+      const summaryRes = await getChunkContextSummary(chunkId, activeQ, 2, settings);
+      setChunkContexts(prev => ({ ...prev, [chunkId]: summaryRes }));
+    } catch (err: any) {
+      console.error('Error fetching context summary:', err);
+      setChunkContexts(prev => ({
+        ...prev,
+        [chunkId]: {
+          chunk_id: chunkId,
+          document_id: '',
+          document_title: '',
+          query: query.trim(),
+          surrounding_chunks: [],
+          summary: `Could not synthesize context summary: ${err.message || 'LLM service unavailable'}. Please verify LM Studio or Gemini settings.`
+        }
+      }));
+    } finally {
+      setContextLoadingChunkId(null);
     }
   };
 
@@ -430,6 +503,35 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
           </div>
         )}
 
+        {/* Focused Document Filter Banner */}
+        {focusedDocId && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200 shadow-sm animate-fadeIn">
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <Target className="w-4 h-4 text-amber-400 shrink-0" />
+              <div className="flex items-center gap-1.5 flex-wrap truncate">
+                <span className="font-semibold text-amber-300">Focused on Regulation:</span>
+                <span className="font-mono text-amber-100 font-bold bg-amber-900/40 px-2 py-0.5 rounded border border-amber-700/50">
+                  {focusedDocId}
+                </span>
+                {focusedDocTitle && focusedDocTitle !== focusedDocId && (
+                  <span className="text-amber-300/80 truncate max-w-md hidden sm:inline">
+                    — {focusedDocTitle}
+                  </span>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleClearFocus}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-900/50 hover:bg-amber-800/80 text-amber-200 hover:text-white transition-colors border border-amber-600/50 shrink-0 text-[11px] font-medium"
+              title="Clear focus and search entire regulation database"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Clear Focus</span>
+            </button>
+          </div>
+        )}
+
         {/* Results List */}
         {results.length > 0 && (
           <div className="space-y-3">
@@ -526,6 +628,122 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                       <p className="text-xs sm:text-sm text-slate-300 leading-relaxed font-sans bg-slate-950/30 p-3 rounded-lg border border-slate-800/60 mb-3 whitespace-pre-wrap ml-6">
                         {doc.text}
                       </p>
+
+                      {/* Context & Implications Panel */}
+                      {openContextChunkIds.has(doc.chunk_id) && (
+                        <div className="mb-3 p-4 rounded-xl bg-purple-950/20 border border-purple-800/40 text-xs ml-6 animate-fadeIn shadow-md">
+                          {contextLoadingChunkId === doc.chunk_id ? (
+                            <div className="flex items-center gap-3 py-3 text-purple-300">
+                              <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-purple-200">Retrieving surrounding regulatory provisions...</span>
+                                <span className="text-[11px] text-slate-400">Synthesizing context and operational implications with LLM</span>
+                              </div>
+                            </div>
+                          ) : chunkContexts[doc.chunk_id] ? (
+                            <div className="space-y-3">
+                              {/* Header */}
+                              <div className="flex items-center justify-between gap-2 pb-2 border-b border-purple-800/30">
+                                <div className="flex items-center gap-2">
+                                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                                  <h4 className="font-semibold text-purple-200 text-xs uppercase tracking-wider">
+                                    Regulatory Context &amp; Practical Implications
+                                  </h4>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(chunkContexts[doc.chunk_id]?.summary || '');
+                                      setCopiedId(`summary_${doc.chunk_id}`);
+                                      setTimeout(() => setCopiedId(null), 2000);
+                                    }}
+                                    className="text-[11px] text-purple-300 hover:text-white px-2 py-0.5 rounded bg-purple-950/60 border border-purple-800/40 hover:bg-purple-900/60 flex items-center gap-1"
+                                  >
+                                    {copiedId === `summary_${doc.chunk_id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                    <span>{copiedId === `summary_${doc.chunk_id}` ? 'Copied' : 'Copy'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const summary = chunkContexts[doc.chunk_id]?.summary || '';
+                                      onAskAboutChunk(doc.chunk_id, `Context analysis for ${doc.metadata?.title || doc.document_id}:\n\n${summary}`);
+                                    }}
+                                    className="text-[11px] text-sky-300 hover:text-white px-2 py-0.5 rounded bg-sky-950/60 border border-sky-800/40 hover:bg-sky-900/60 flex items-center gap-1"
+                                    title="Open full conversation with this context analysis"
+                                  >
+                                    <span>Ask in Chat</span>
+                                    <ArrowUpRight className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* LLM Summary */}
+                              <div className="text-slate-200 leading-relaxed font-sans text-xs whitespace-pre-wrap bg-slate-950/50 p-3 rounded-lg border border-purple-900/30">
+                                {chunkContexts[doc.chunk_id]?.summary}
+                              </div>
+
+                              {/* Surrounding Provisions Drawer */}
+                              {chunkContexts[doc.chunk_id]?.surrounding_chunks && chunkContexts[doc.chunk_id].surrounding_chunks.length > 0 && (
+                                <div className="pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowSurroundingRaw(prev => ({
+                                        ...prev,
+                                        [doc.chunk_id]: !prev[doc.chunk_id]
+                                      }));
+                                    }}
+                                    className="flex items-center gap-1.5 text-[11px] text-purple-400 hover:text-purple-300 transition-colors font-medium"
+                                  >
+                                    {showSurroundingRaw[doc.chunk_id] ? (
+                                      <ChevronDown className="w-3 h-3" />
+                                    ) : (
+                                      <ChevronRight className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {showSurroundingRaw[doc.chunk_id] ? 'Hide' : 'Inspect'}{' '}
+                                      {chunkContexts[doc.chunk_id].surrounding_chunks.length} Surrounding Provisions in Document Sequence
+                                    </span>
+                                  </button>
+
+                                  {showSurroundingRaw[doc.chunk_id] && (
+                                    <div className="mt-2 space-y-2 pl-2 border-l-2 border-purple-800/40 max-h-80 overflow-y-auto pr-1">
+                                      {chunkContexts[doc.chunk_id].surrounding_chunks.map((sc, idx) => (
+                                        <div
+                                          key={`${sc.chunk_id}_${idx}`}
+                                          className={`p-2.5 rounded-lg text-[11px] ${
+                                            sc.is_target
+                                              ? 'bg-purple-950/60 border border-purple-500/50 text-purple-100 shadow-sm'
+                                              : 'bg-slate-950/60 border border-slate-800/60 text-slate-300'
+                                          }`}
+                                        >
+                                          <div className="flex items-center justify-between gap-2 mb-1">
+                                            <div className="flex items-center gap-1.5">
+                                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium ${
+                                                sc.is_target ? 'bg-purple-700 text-white' : 'bg-slate-800 text-slate-400'
+                                              }`}>
+                                                {sc.is_target ? '★ TARGET CHUNK' : sc.position.toUpperCase()}
+                                              </span>
+                                              <span className="font-mono text-slate-400 text-[10px]">{sc.chunk_id}</span>
+                                            </div>
+                                            {sc.section_path.length > 0 && (
+                                              <span className="text-slate-400 text-[10px] truncate max-w-[200px]">
+                                                {sc.section_path[sc.section_path.length - 1]}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <p className="whitespace-pre-wrap font-sans leading-relaxed">{sc.text}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
                     </>
                   )}
 
@@ -540,7 +758,42 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                       <span>{copiedId === doc.chunk_id ? 'Copied ID' : 'Copy ID'}</span>
                     </button>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Focus on Document Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleFocusDocument(doc.document_id, doc.metadata?.title || doc.metadata?.document_title)}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                          focusedDocId === doc.document_id
+                            ? 'text-amber-300 bg-amber-950/60 border border-amber-600/70 shadow-sm font-medium'
+                            : 'text-amber-400 hover:text-amber-300 bg-amber-950/30 hover:bg-amber-900/40 border border-amber-800/40'
+                        }`}
+                        title={`Filter search exclusively to regulation ${doc.document_id}`}
+                      >
+                        <Target className="w-3 h-3 text-amber-400" />
+                        <span>{focusedDocId === doc.document_id ? 'Focused' : 'Focus Doc'}</span>
+                      </button>
+
+                      {/* Get Context Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleGetContext(doc.chunk_id)}
+                        disabled={contextLoadingChunkId === doc.chunk_id}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors ${
+                          openContextChunkIds.has(doc.chunk_id)
+                            ? 'text-purple-300 bg-purple-950/60 border border-purple-600/70 shadow-sm font-medium'
+                            : 'text-purple-400 hover:text-purple-300 bg-purple-950/30 hover:bg-purple-900/40 border border-purple-800/40'
+                        }`}
+                        title="Retrieve surrounding document chunks and summarize regulatory context & practical implications with LLM"
+                      >
+                        {contextLoadingChunkId === doc.chunk_id ? (
+                          <div className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Layers className="w-3 h-3 text-purple-400" />
+                        )}
+                        <span>{openContextChunkIds.has(doc.chunk_id) ? 'Hide Context' : 'Get Context'}</span>
+                      </button>
+
                       {onBookmarkChunk && (
                         <button
                           type="button"

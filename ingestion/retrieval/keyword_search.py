@@ -178,10 +178,12 @@ def search_keywords(
     query: str,
     top_k: int = 5,
     origin: str = "all",
-    use_llm_expansion: bool = True
+    use_llm_expansion: bool = True,
+    document_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Performs full-text keyword search in SQLite with BM25 ranking.
+    Optionally filters by document_id.
     """
     db_path = settings.SQLITE_PATH
     if not db_path.exists():
@@ -201,7 +203,8 @@ def search_keywords(
         # Column weights for BM25:
         # source_text: 1.0, section_path: 3.0, document_id: 2.0
         # In FTS5 bm25(table, weight1, weight2, ...)
-        sql = """
+        where_extra = " AND c.document_id = ?" if document_id else ""
+        sql = f"""
             SELECT 
                 c.chunk_id,
                 c.document_id,
@@ -213,14 +216,19 @@ def search_keywords(
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
             JOIN documents d ON c.document_id = d.document_id
-            WHERE chunks_fts MATCH ?
+            WHERE chunks_fts MATCH ?{where_extra}
             ORDER BY bm25_score ASC
             LIMIT ?;
         """
         
-        fetch_limit = top_k * 5 if origin != "all" else top_k
+        fetch_limit = top_k * 5 if (origin != "all" or document_id) else top_k
+        sql_params = [fts_query]
+        if document_id:
+            sql_params.append(document_id)
+        sql_params.append(fetch_limit)
+
         try:
-            cursor.execute(sql, (fts_query, fetch_limit))
+            cursor.execute(sql, sql_params)
             rows = cursor.fetchall()
         except sqlite3.OperationalError as e:
             # Fallback for simple literal search if complex query fails
@@ -230,7 +238,11 @@ def search_keywords(
             if not simple_q:
                 return []
             try:
-                cursor.execute(sql, (simple_q, fetch_limit))
+                fallback_params = [simple_q]
+                if document_id:
+                    fallback_params.append(document_id)
+                fallback_params.append(fetch_limit)
+                cursor.execute(sql, fallback_params)
                 rows = cursor.fetchall()
             except sqlite3.OperationalError:
                 return []

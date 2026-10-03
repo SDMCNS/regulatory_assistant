@@ -16,14 +16,14 @@ from typing import List, Dict, Any, Optional
 import time
 
 # Import ingestion logic
-from ingestion.retrieval.search_chunks import search_semantic, get_query_embedding, get_embeddings_batch
+from ingestion.retrieval.search_chunks import search_semantic, get_query_embedding, get_embeddings_batch, get_chunk_surrounding_context
 from ingestion.retrieval.keyword_search import search_keywords
 from ingestion.retrieval.hybrid_search import search_hybrid
 from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
 from ingestion.core.config import settings
 
 # Shared API utilities
-from api.utils import log_debug_info, call_lm_studio_chat, cosine_similarity, get_document_metadata
+from api.utils import log_debug_info, call_lm_studio_chat, call_unified_chat, cosine_similarity, get_document_metadata
 from api import research
 from api import regulations
 
@@ -92,6 +92,13 @@ class LLMExtractRequest(BaseModel):
     text: str
     json_schema: Dict[str, Any]
 
+class ContextSummaryRequest(BaseModel):
+    query: str = Field(..., description="User query or legal topic being investigated")
+    window: int = Field(2, ge=1, le=8, description="Number of surrounding chunks before and after")
+    provider: Optional[str] = Field("local", description="LLM provider: 'local' or 'gemini'")
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
+
 def get_markdown_for_doc(document_id: str) -> str:
     json_path = find_json_file(document_id)
     if not json_path:
@@ -109,9 +116,10 @@ def api_search(
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
-    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
+    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
-    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
+    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
     return results
 
 @app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
@@ -120,9 +128,10 @@ def api_search_docs(
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
-    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
+    stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
-    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
+    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
     
     enriched_results = []
     for r in results:
@@ -195,14 +204,15 @@ def api_search_keyword(
     query: str = Query(..., description="Keywords, acronyms, or search terms to match"),
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
-    use_llm: bool = Query(True, description="Enable LLM keyword expansion (synonyms, acronyms)")
+    use_llm: bool = Query(True, description="Enable LLM keyword expansion (synonyms, acronyms)"),
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
     """
     Perform high-speed keyword search using SQLite FTS5 with BM25 ranking and Porter stemming.
     Ideal for short queries, acronyms (e.g. ATSEP, AMC-20), and specific regulatory terms.
     Optionally uses local LLM to expand queries with synonyms and domain terms.
     """
-    results = search_keywords(query=query, top_k=top_k, origin=origin, use_llm_expansion=use_llm)
+    results = search_keywords(query=query, top_k=top_k, origin=origin, use_llm_expansion=use_llm, document_id=document_id)
     return results
 
 @app.get("/search/hybrid", response_model=List[KeywordSearchResponse], tags=["SEARCH"])
@@ -210,13 +220,107 @@ def api_search_hybrid(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
     origin: str = Query("all", description="Filter by 'all', 'eu', or 'easa'"),
-    use_hyde: bool = Query(False, description="Use HyDE for the semantic component")
+    use_hyde: bool = Query(False, description="Use HyDE for the semantic component"),
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
     """
     Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.
     """
-    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde)
+    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde, document_id=document_id)
     return results
+
+@app.get("/search/chunks/{chunk_id:path}/context", tags=["SEARCH"])
+def api_get_chunk_context(
+    chunk_id: str,
+    window: int = Query(2, ge=1, le=8, description="Number of chunks before and after")
+):
+    """
+    Retrieve immediate surrounding chunks from the same document in strict sequence.
+    """
+    try:
+        data = get_chunk_surrounding_context(chunk_id, window=window)
+        return data
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch chunk context: {str(e)}")
+
+@app.post("/search/chunks/{chunk_id:path}/context-summary", tags=["SEARCH"])
+def api_summarize_chunk_context(
+    chunk_id: str,
+    req: ContextSummaryRequest
+):
+    """
+    Grabs surrounding chunks from the same regulation in SQLite and asks the LLM
+    to summarize the surrounding context and its practical implications for the user's query.
+    """
+    try:
+        ctx = get_chunk_surrounding_context(chunk_id, window=req.window)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch chunk context: {str(e)}")
+
+    doc_id = ctx["document_id"]
+    doc_title = ctx["document_title"]
+    all_chunks = ctx["chunks"]
+
+    # Assemble context text with clear markers
+    formatted_context_parts = []
+    for c in all_chunks:
+        header = f"[{'FOCAL TARGET CHUNK' if c['is_target'] else c['position'].upper() + ' CONTEXT'} - {c['chunk_id']}]"
+        path_str = " > ".join(c.get("section_path", []))
+        if path_str:
+            header += f" (Section: {path_str})"
+        formatted_context_parts.append(f"{header}\n{c['text']}")
+
+    context_body = "\n\n---\n\n".join(formatted_context_parts)
+
+    system_prompt = (
+        "You are a specialized legal compliance and safety officer for European and EASA civil aviation regulations.\n"
+        "Your task is to analyze a focal regulatory provision within its immediate surrounding document context, "
+        "and explain its specific relevance and implications for an operational query."
+    )
+
+    user_prompt = (
+        f"USER INVESTIGATION QUERY:\n"
+        f"\"{req.query}\"\n\n"
+        f"DOCUMENT: {doc_title} (ID: {doc_id})\n\n"
+        f"SURROUNDING REGULATORY TEXT (in document sequence):\n"
+        f"================================================\n"
+        f"{context_body}\n"
+        f"================================================\n\n"
+        f"Please provide a structured, insightful analysis with two clear sections:\n"
+        f"1. **Regulatory Context**: How does this focal provision fit into the surrounding provisions (e.g., overarching principles, definitions, prerequisites, operational conditions, or cross-references)?\n"
+        f"2. **Implications for the Query**: What does this surrounding context specifically mean for the user's query \"{req.query}\"? Highlight any compliance obligations, exceptions, or operational caveats revealed by the wider context."
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        summary_text = call_unified_chat(
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.2,
+            provider=req.provider or "local",
+            gemini_api_key=req.gemini_api_key,
+            gemini_model=req.gemini_model
+        )
+    except Exception as e:
+        log_debug_info("CONTEXT_SUMMARY_LLM_FAILED", str(e))
+        summary_text = f"LLM analysis temporarily unavailable ({str(e)}). Please review the surrounding provisions directly."
+
+    return {
+        "chunk_id": chunk_id,
+        "document_id": doc_id,
+        "document_title": doc_title,
+        "query": req.query,
+        "surrounding_chunks": all_chunks,
+        "summary": summary_text
+    }
 
 @app.post("/llm/ask", tags=["LLM"])
 def api_llm_ask(request: LLMAskRequest):

@@ -27,6 +27,9 @@ import {
   WorkspaceFtsResponse,
   RegulationQualifier,
   RegulationQualifiersResponse,
+  SurroundingChunk,
+  ChunkContextResponse,
+  ChunkContextSummaryResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -177,7 +180,8 @@ export async function searchRegulations(
   topK: number = 5,
   origin: RegulationOrigin = 'all',
   useHyde: boolean = false,
-  settings: AppSettings = loadSettings()
+  settings: AppSettings = loadSettings(),
+  documentId?: string
 ): Promise<SearchResponse[]> {
   const clean = cleanUrl(settings.apiUrl);
   const params = new URLSearchParams({
@@ -186,6 +190,9 @@ export async function searchRegulations(
     origin: origin,
     use_hyde: String(useHyde)
   });
+  if (documentId) {
+    params.append('document_id', documentId);
+  }
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
   if (settings.apiAuthToken) {
@@ -225,9 +232,10 @@ export async function searchKeywordRegulations(
   topK: number = 5,
   origin: RegulationOrigin = 'all',
   useLLM: boolean = true,
-  settings: AppSettings = loadSettings()
+  settings: AppSettings = loadSettings(),
+  documentId?: string
 ): Promise<KeywordSearchResponse[]> {
-  const cacheKey = `aerolex_search_cache_kw_${query}_${topK}_${origin}_${useLLM}`;
+  const cacheKey = `aerolex_search_cache_kw_${query}_${topK}_${origin}_${useLLM}_${documentId || ''}`;
   try {
     const cached = await get<KeywordSearchResponse[]>(cacheKey);
     if (cached) return cached;
@@ -242,6 +250,9 @@ export async function searchKeywordRegulations(
     origin: origin,
     use_llm: String(useLLM)
   });
+  if (documentId) {
+    params.append('document_id', documentId);
+  }
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
   if (settings.apiAuthToken) {
@@ -283,9 +294,10 @@ export async function searchHybridRegulations(
   topK: number = 5,
   origin: RegulationOrigin = 'all',
   useHyde: boolean = false,
-  settings: AppSettings = loadSettings()
+  settings: AppSettings = loadSettings(),
+  documentId?: string
 ): Promise<KeywordSearchResponse[]> {
-  const cacheKey = `aerolex_search_cache_hybrid_${query}_${topK}_${origin}_${useHyde}`;
+  const cacheKey = `aerolex_search_cache_hybrid_${query}_${topK}_${origin}_${useHyde}_${documentId || ''}`;
   try {
     const cached = await get<KeywordSearchResponse[]>(cacheKey);
     if (cached) return cached;
@@ -300,6 +312,9 @@ export async function searchHybridRegulations(
     origin: origin,
     use_hyde: String(useHyde)
   });
+  if (documentId) {
+    params.append('document_id', documentId);
+  }
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
   if (settings.apiAuthToken) {
@@ -341,9 +356,10 @@ export async function searchDocsRegulations(
   topK: number = 5,
   origin: RegulationOrigin = 'all',
   useHyde: boolean = false,
-  settings: AppSettings = loadSettings()
+  settings: AppSettings = loadSettings(),
+  documentId?: string
 ): Promise<SearchDocResponse[]> {
-  const cacheKey = `aerolex_search_cache_docs_${query}_${topK}_${origin}_${useHyde}`;
+  const cacheKey = `aerolex_search_cache_docs_${query}_${topK}_${origin}_${useHyde}_${documentId || ''}`;
   try {
     const cached = await get<SearchDocResponse[]>(cacheKey);
     if (cached) return cached;
@@ -358,6 +374,9 @@ export async function searchDocsRegulations(
     origin: origin,
     use_hyde: String(useHyde)
   });
+  if (documentId) {
+    params.append('document_id', documentId);
+  }
 
   const headers: Record<string, string> = { 'Accept': 'application/json' };
   if (settings.apiAuthToken) {
@@ -378,6 +397,92 @@ export async function searchDocsRegulations(
       return data;
     }
     throw new Error('Invalid response from /search/docs: expected an array');
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * GET /search/chunks/{chunk_id}/context
+ * Retrieve immediate surrounding chunks from the same document in strict sequence
+ */
+export async function getChunkContext(
+  chunkId: string,
+  window: number = 2,
+  settings: AppSettings = loadSettings()
+): Promise<ChunkContextResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/search/chunks/${encodeURIComponent(chunkId)}/context?window=${window}`, {
+      method: 'GET',
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} from /search/chunks/context: ${res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /search/chunks/{chunk_id}/context-summary
+ * Grabs surrounding chunks and asks LLM to summarize context & practical implications
+ */
+export async function getChunkContextSummary(
+  chunkId: string,
+  query: string,
+  window: number = 2,
+  settings: AppSettings = loadSettings()
+): Promise<ChunkContextSummaryResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const body = JSON.stringify({
+    query: query.trim(),
+    window: window,
+    provider: settings.researchProvider || 'local',
+    gemini_api_key: settings.geminiApiKey || undefined,
+    gemini_model: settings.geminiModel || undefined,
+  });
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/search/chunks/${encodeURIComponent(chunkId)}/context-summary`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from /search/chunks/context-summary: ${errText || res.statusText}`);
+    }
+    return await res.json();
   };
 
   try {

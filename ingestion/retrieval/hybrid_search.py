@@ -9,19 +9,21 @@ def search_hybrid(
     origin: str = "all", 
     rrf_k: int = 60, 
     use_hyde: bool = False,
-    stakeholder: Optional[str] = None
+    stakeholder: Optional[str] = None,
+    document_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Performs Reciprocal Rank Fusion (RRF) between semantic vector search
-    and BM25 keyword search, with optional stakeholder domain prioritization.
+    and BM25 keyword search, with optional stakeholder domain prioritization
+    and optional document_id restriction.
     """
     # Run both searches (in a real prod environment we'd use asyncio for this, but synchronous is fine here)
     # We fetch more results than top_k for each to get a good intersection pool
     fetch_k = max(top_k * 2, 20)
     
-    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder)
+    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
     # Disable LLM expansion for hybrid inner search to keep it fast, or keep it if desired
-    keyword_results = search_keywords(query, fetch_k, origin, use_llm_expansion=False)
+    keyword_results = search_keywords(query, fetch_k, origin, use_llm_expansion=False, document_id=document_id)
     
     # RRF Scoring Map: chunk_id -> { "score": float, "doc": dict }
     rrf_map: Dict[str, Dict[str, Any]] = {}

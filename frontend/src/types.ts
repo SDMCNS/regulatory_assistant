@@ -261,5 +261,31 @@ export interface WorkspaceFtsResponse {
   all_results: WorkspaceChunkMatch[];
 }
 
+export interface SurroundingChunk {
+  chunk_id: string;
+  section_path: string[];
+  text: string;
+  is_target: boolean;
+  position: 'before' | 'target' | 'after';
+}
+
+export interface ChunkContextResponse {
+  target_chunk_id: string;
+  document_id: string;
+  document_title: string;
+  window: number;
+  total_chunks: number;
+  chunks: SurroundingChunk[];
+}
+
+export interface ChunkContextSummaryResponse {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  query: string;
+  surrounding_chunks: SurroundingChunk[];
+  summary: string;
+}
+
 
 

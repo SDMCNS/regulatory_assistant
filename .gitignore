@@ -18,12 +18,16 @@ ingestion/data/
 *.db
 *.sqlite3
 
+# Skybrary & PDFs
+ingestion/skybrary_bookshelf/text/
+pdf_test/output/
+*.pdf
+
 # Logs & Generated Summaries
 *.log
 ingestion/logs/
 ingested_regulations_summary.txt
 *report*.txt
-
 
 # Env Variables
 .env

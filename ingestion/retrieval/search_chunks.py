@@ -281,7 +281,8 @@ def search_semantic(
     origin: str = "all", 
     use_hyde: bool = False,
     stakeholder: Optional[str] = None,
-    document_id: Optional[str] = None
+    document_id: Optional[str] = None,
+    deep_research: bool = False
 ) -> list[dict]:
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
@@ -374,15 +375,21 @@ def search_semantic(
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
             is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
+            is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
+            is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
             
             if not doc_chunks:
-                if origin == "eu" and (is_easa or is_faa or is_manual):
+                if origin == "eu" and (is_easa or is_faa or is_manual or is_skybrary or is_note):
                     continue
                 if origin == "easa" and not is_easa:
                     continue
                 if origin == "faa" and not is_faa:
                     continue
                 if origin == "manual" and not is_manual:
+                    continue
+                if origin in ("skybrary", "bookshelf") and not is_skybrary:
+                    continue
+                if origin in ("note", "notes") and not is_note:
                     continue
             
             # Fetch parent title if this is an ANNEX or lacks a good title
@@ -404,7 +411,7 @@ def search_semantic(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
-            meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
+            meta_dict["origin"] = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
 
             # Read stakeholder applicability scores if available
             stakeholder_data = {}
@@ -443,12 +450,15 @@ def search_semantic(
             else:
                 combined_score = base_score + stk_bonus
 
+            if deep_research and is_note:
+                combined_score *= 2.5
+
             candidate_records.append({
                 "chunk_id": chunk_id,
                 "score": round(combined_score, 4),
                 "raw_vector_score": round(base_score, 4),
                 "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
-                "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
+                "source": "NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))),
                 "document_id": doc_id,
                 "path": path_list,
                 "text": source_text,

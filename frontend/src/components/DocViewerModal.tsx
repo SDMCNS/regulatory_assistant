@@ -21,7 +21,8 @@ import {
   ArrowDownUp,
   SlidersHorizontal,
   Eye,
-  Database
+  Database,
+  Target
 } from 'lucide-react';
 import { SearchDocResponse, DocSection, RegulationQualifier } from '../types';
 import { marked } from 'marked';
@@ -225,14 +226,85 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
     return lexicalResults;
   }, [similarityQuery, sections, minThreshold, backendScores]);
 
-  // Sections that have a similarity match
+  // Check if a section is a match from search results, citations, or client similarity
+  const isSectionMatched = (sec: DocSection): boolean => {
+    // 1. Matches by client similarity search (if active)
+    const simResult = similarityResults.get(sec.id);
+    if (simResult && simResult.isMatch) return true;
+
+    // 2. Explicit chunk ID match
+    if (doc?.chunk_id && sec.id === doc.chunk_id) return true;
+    if (doc?.matched_chunk_ids && doc.matched_chunk_ids.includes(sec.id)) return true;
+
+    // 3. Matched chunk text snippet match
+    if (doc?.text && doc.text.trim().length > 20) {
+      const snippet = doc.text.slice(0, 60).toLowerCase();
+      if (sec.markdown.toLowerCase().includes(snippet)) return true;
+    }
+    if (doc?.matched_chunks && doc.matched_chunks.length > 0) {
+      for (const mc of doc.matched_chunks) {
+        if (mc.chunk_id === sec.id) return true;
+        if (mc.text && mc.text.trim().length > 20) {
+          const s = mc.text.slice(0, 60).toLowerCase();
+          if (sec.markdown.toLowerCase().includes(s)) return true;
+        }
+      }
+    }
+
+    // 4. Similarity query substring in title or text
+    if (similarityQuery.trim().length >= 3) {
+      const q = similarityQuery.toLowerCase().trim();
+      if (sec.title.toLowerCase().includes(q)) return true;
+    }
+
+    return false;
+  };
+
+  // All sections in this document that have matched results
   const matchingSections = useMemo(() => {
-    if (!similarityQuery.trim()) return [];
-    return sections.filter(sec => {
-      const res = similarityResults.get(sec.id);
-      return res && res.isMatch;
-    });
-  }, [sections, similarityResults, similarityQuery]);
+    return sections.filter(sec => isSectionMatched(sec));
+  }, [sections, similarityResults, similarityQuery, doc]);
+
+  // Identify the exact referenced section (the primary clause clicked or cited)
+  const referencedSectionId = useMemo(() => {
+    if (!doc || sections.length === 0) return null;
+    
+    // 1. Direct chunk ID match
+    if (doc.chunk_id) {
+      const match = sections.find(s => s.id === doc.chunk_id);
+      if (match) return match.id;
+    }
+
+    // 2. Exact snippet match from clicked text
+    if (doc.text && doc.text.trim().length > 20) {
+      const snippet = doc.text.slice(0, 60).toLowerCase();
+      const match = sections.find(s => s.markdown.toLowerCase().includes(snippet));
+      if (match) return match.id;
+    }
+
+    // 3. First matched chunk if specified
+    if (doc.matched_chunks && doc.matched_chunks.length > 0) {
+      const firstId = doc.matched_chunks[0]?.chunk_id;
+      if (firstId) {
+        const match = sections.find(s => s.id === firstId);
+        if (match) return match.id;
+      }
+    }
+
+    // Fallback: first match if matchingSections has items
+    return matchingSections[0]?.id || null;
+  }, [doc, sections, matchingSections]);
+
+  // Index of the referenced match in matchingSections
+  const referencedMatchIndex = useMemo(() => {
+    if (!referencedSectionId || matchingSections.length === 0) return -1;
+    return matchingSections.findIndex(s => s.id === referencedSectionId);
+  }, [referencedSectionId, matchingSections]);
+
+  const incidentalMatchCount = useMemo(() => {
+    if (!referencedSectionId) return matchingSections.length;
+    return matchingSections.filter(s => s.id !== referencedSectionId).length;
+  }, [referencedSectionId, matchingSections]);
 
   // Total occurrences of query terms in the document
   const totalOccurrences = useMemo(() => {
@@ -243,9 +315,9 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
     return total;
   }, [similarityResults]);
 
-  // Auto-expand matching sections when similarity query changes
+  // Auto-expand matching sections when matches or autoExpandMatches changes
   useEffect(() => {
-    if (similarityQuery.trim() && autoExpandMatches && matchingSections.length > 0) {
+    if (autoExpandMatches && matchingSections.length > 0) {
       setOpenSectionIds(prev => {
         const next = { ...prev };
         matchingSections.forEach(s => {
@@ -254,12 +326,51 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
         return next;
       });
     }
-  }, [similarityQuery, autoExpandMatches, matchingSections]);
+  }, [autoExpandMatches, matchingSections]);
 
-  // Reset match navigation when query changes
+  // Initial scroll to the clicked target chunk when sections are loaded
   useEffect(() => {
-    setCurrentMatchIndex(0);
-  }, [similarityQuery]);
+    if (sections.length > 0 && matchingSections.length > 0) {
+      const targetIdx = referencedMatchIndex !== -1 ? referencedMatchIndex : 0;
+      setCurrentMatchIndex(targetIdx);
+
+      const targetSec = matchingSections[targetIdx];
+      if (targetSec) {
+        setOpenSectionIds(prev => ({ ...prev, [targetSec.id]: true }));
+        const timer = setTimeout(() => {
+          const el = document.getElementById(`sec-card-${targetSec.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [sections.length, referencedMatchIndex]);
+
+  // Keyboard navigation for skipping between matches (Next: Down/j/n, Prev: Up/k/p, Referenced: r)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+      if (matchingSections.length === 0) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'n') {
+        e.preventDefault();
+        scrollToMatch(currentMatchIndex + 1);
+      } else if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'p') {
+        e.preventDefault();
+        scrollToMatch(currentMatchIndex - 1);
+      } else if ((e.key === 'r' || e.key === 'R') && referencedMatchIndex !== -1) {
+        e.preventDefault();
+        scrollToMatch(referencedMatchIndex);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [matchingSections, currentMatchIndex, referencedMatchIndex]);
 
   // Filtered & Sorted sections for display
   const displayedSections = useMemo(() => {
@@ -564,39 +675,95 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
-            </div>
-
-            {/* Similarity Match Navigation & Controls */}
-            {isSimilarityActive && (
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Match Counter Badge */}
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-lg font-medium">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                  <span>
-                    {matchingSections.length} sections ({totalOccurrences} hits)
-                  </span>
-                </div>
-
-                {/* Match Stepper Buttons */}
-                {matchingSections.length > 0 && viewMode === 'sections' && (
-                  <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+            </div>            {/* Matched Provisions Navigation & Controls */}
+            {matchingSections.length > 0 && (
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {/* Stepper Buttons (Prev / Next) */}
+                {viewMode === 'sections' && (
+                  <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5 shadow-sm">
                     <button
                       onClick={() => scrollToMatch(currentMatchIndex - 1)}
-                      className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
-                      title="Previous matching section"
+                      className="p-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center gap-1 text-xs px-2"
+                      title="Previous match (shortcut: ↑ or k or p)"
                     >
-                      <ArrowUp className="w-3.5 h-3.5" />
+                      <ArrowUp className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="hidden md:inline text-[11px]">Prev</span>
                     </button>
-                    <span className="text-[11px] font-mono text-slate-400 px-1.5">
-                      {currentMatchIndex + 1}/{matchingSections.length}
+                    <span className="text-xs font-mono font-semibold text-slate-200 px-2 py-0.5 bg-slate-950 rounded border border-slate-800">
+                      {currentMatchIndex + 1} / {matchingSections.length}
                     </span>
                     <button
                       onClick={() => scrollToMatch(currentMatchIndex + 1)}
-                      className="p-1 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
-                      title="Next matching section"
+                      className="p-1 text-slate-300 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center gap-1 text-xs px-2"
+                      title="Next match (shortcut: ↓ or j or n)"
                     >
-                      <ArrowDown className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline text-[11px]">Next</span>
+                      <ArrowDown className="w-3.5 h-3.5 text-amber-400" />
                     </button>
+                  </div>
+                )}
+
+                {/* Direct Jump to Referenced Match Button */}
+                {referencedMatchIndex !== -1 && (
+                  <button
+                    onClick={() => scrollToMatch(referencedMatchIndex)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-medium transition-all border shadow-sm ${
+                      currentMatchIndex === referencedMatchIndex
+                        ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/60 ring-1 ring-emerald-400/40'
+                        : 'bg-slate-900 text-slate-300 hover:text-emerald-300 hover:bg-slate-800 border-slate-700/80 hover:border-emerald-500/50'
+                    }`}
+                    title="Jump directly to the exact match referenced (Shortcut: r)"
+                  >
+                    <Target className={`w-3.5 h-3.5 ${currentMatchIndex === referencedMatchIndex ? 'text-emerald-400 animate-pulse' : 'text-emerald-400'}`} />
+                    <span>Referenced Match</span>
+                    {currentMatchIndex === referencedMatchIndex && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    )}
+                  </button>
+                )}
+
+                {/* Match Counter / Status Badge */}
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-medium border bg-slate-900/90 border-slate-800 shadow-sm">
+                  {currentMatchIndex === referencedMatchIndex ? (
+                    <span className="inline-flex items-center gap-1.5 text-emerald-300">
+                      <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Referenced Match ({currentMatchIndex + 1} of {matchingSections.length})</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-amber-300">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>Incidental Match ({currentMatchIndex + 1} of {matchingSections.length})</span>
+                    </span>
+                  )}
+                  {incidentalMatchCount > 0 && (
+                    <span className="text-[10px] text-slate-400 hidden xl:inline">
+                      · {incidentalMatchCount} incidental
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick-Jump to matched section dropdown */}
+                {viewMode === 'sections' && matchingSections.length > 1 && (
+                  <div className="hidden lg:flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
+                    <span className="text-[11px] text-slate-500">Jump:</span>
+                    <select
+                      value={matchingSections[currentMatchIndex]?.id || ''}
+                      onChange={(e) => {
+                        const idx = matchingSections.findIndex(s => s.id === e.target.value);
+                        if (idx !== -1) scrollToMatch(idx);
+                      }}
+                      className="bg-transparent text-xs text-slate-200 border-none focus:outline-none max-w-[210px] truncate cursor-pointer"
+                      title="Jump directly to a matched provision in this document"
+                    >
+                      {matchingSections.map((s, idx) => {
+                        const isRef = s.id === referencedSectionId;
+                        return (
+                          <option key={s.id} value={s.id} className="bg-slate-900 text-slate-200">
+                            {isRef ? `🎯 [REFERENCED] #${idx + 1}: ${s.title}` : `[Incidental] #${idx + 1}: ${s.title}`}
+                          </option>
+                        );
+                      })}
+                    </select>
                   </div>
                 )}
               </div>
@@ -771,21 +938,39 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
                   // Highlighting border and styling priority:
                   // 1. High similarity match (score >= 60) -> Amber glowing border & ring
                   // 2. Medium similarity match (score >= 25) -> Sky border & ring
-                  // 3. Matched search chunk from API -> Sky cyan border
-                  // 4. Default -> Slate card
+                  const matchIdx = matchingSections.findIndex(m => m.id === sec.id);
+                  const isMatch = matchIdx !== -1;
+                  const isCurrentActiveMatch = isMatch && matchIdx === currentMatchIndex;
+                  const isRefMatch = sec.id === referencedSectionId;
+
+                  // Highlighting border and styling priority:
+                  // 1. Currently active match in stepper:
+                  //    - If Referenced match -> Emerald ring & border
+                  //    - If Incidental match -> Amber ring & border
+                  // 2. Exact Referenced match (not currently active) -> Emerald border & subtle ring
+                  // 3. High similarity match (score >= 60) -> Amber glowing border & ring
+                  // 4. Incidental match -> Amber border & ring
+                  // 5. Similarity match -> Sky border & ring
+                  // 6. Default -> Slate card
                   let borderClass = 'border-slate-800 bg-slate-900/60 hover:border-slate-700/80';
                   let containerExtraClass = '';
 
-                  if (isSimilarityActive) {
-                    if (simScore >= 60) {
-                      borderClass = 'border-amber-500/80 bg-amber-950/20 ring-2 ring-amber-500/40 shadow-lg shadow-amber-950/40';
-                    } else if (isSimMatch) {
-                      borderClass = 'border-sky-500/70 bg-sky-950/20 ring-1 ring-sky-500/30';
+                  if (isCurrentActiveMatch) {
+                    if (isRefMatch) {
+                      borderClass = 'border-emerald-400 bg-emerald-950/30 ring-2 ring-emerald-400/90 shadow-xl shadow-emerald-950/50';
                     } else {
-                      containerExtraClass = 'opacity-65 hover:opacity-100 transition-opacity';
+                      borderClass = 'border-amber-400 bg-amber-950/25 ring-2 ring-amber-400/80 shadow-lg shadow-amber-950/40';
                     }
-                  } else if (isChunkMatched) {
-                    borderClass = 'bg-slate-900/90 border-sky-500/60 ring-1 ring-sky-500/30';
+                  } else if (isRefMatch) {
+                    borderClass = 'border-emerald-500/70 bg-emerald-950/20 ring-1 ring-emerald-500/40 shadow-md shadow-emerald-950/30';
+                  } else if (isSimilarityActive && simScore >= 60) {
+                    borderClass = 'border-amber-500/80 bg-amber-950/20 ring-2 ring-amber-500/40 shadow-lg shadow-amber-950/40';
+                  } else if (isMatch) {
+                    borderClass = 'border-amber-500/40 bg-amber-950/10 ring-1 ring-amber-500/20';
+                  } else if (isSimMatch) {
+                    borderClass = 'border-sky-500/70 bg-sky-950/20 ring-1 ring-sky-500/30';
+                  } else if (isSimilarityActive) {
+                    containerExtraClass = 'opacity-65 hover:opacity-100 transition-opacity';
                   }
 
                   // Render individual section markdown with in-text highlighting
@@ -827,26 +1012,46 @@ export const DocViewerModal: React.FC<DocViewerModalProps> = ({
                             {style.label}
                           </span>
 
+                          {/* MATCH BADGE: SEPARATE EXACT REFERENCED VS INCIDENTAL */}
+                          {isRefMatch && (
+                            <span 
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[11px] font-mono font-bold rounded-md border shrink-0 transition-all ${
+                                isCurrentActiveMatch
+                                  ? 'bg-emerald-400 text-slate-950 border-emerald-300 shadow-md ring-2 ring-emerald-300/50'
+                                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/60'
+                              }`}
+                              title="This is the exact clause referenced in your search result or assistant citation"
+                            >
+                              <Target className={`w-3.5 h-3.5 ${isCurrentActiveMatch ? 'text-slate-950' : 'text-emerald-400'}`} />
+                              <span>REFERENCED MATCH</span>
+                            </span>
+                          )}
+
+                          {isMatch && !isRefMatch && (
+                            <span 
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-mono font-medium rounded-md border shrink-0 transition-all ${
+                                isCurrentActiveMatch
+                                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
+                                  : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                              }`}
+                              title={`Incidental match #${matchIdx + 1} of ${matchingSections.length} in this document`}
+                            >
+                              <Sparkles className={`w-3 h-3 ${isCurrentActiveMatch ? 'text-slate-950' : 'text-amber-400'}`} />
+                              <span>INCIDENTAL MATCH #{matchIdx + 1}</span>
+                            </span>
+                          )}
+
                           {/* SIMILARITY SCORE BADGE */}
                           {isSimilarityActive && isSimMatch && (
                             <span 
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-mono font-semibold rounded-md border shrink-0 ${
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono font-semibold rounded-md border shrink-0 ${
                                 simScore >= 60
                                   ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm'
                                   : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
                               }`}
                               title={`Similarity score: ${simScore}% based on query '${similarityQuery}'`}
                             >
-                              <Sparkles className="w-3 h-3 text-amber-400" />
-                              <span>{simScore}% Match</span>
-                            </span>
-                          )}
-
-                          {/* Matched Search Result Chunk from API */}
-                          {!isSimilarityActive && isChunkMatched && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold tracking-wider uppercase bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded-md shrink-0">
-                              <Eye className="w-3 h-3" />
-                              Matched Result
+                              <span>{simScore}% score</span>
                             </span>
                           )}
 

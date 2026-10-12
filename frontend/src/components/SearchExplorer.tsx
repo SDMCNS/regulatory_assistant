@@ -10,7 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, FileText, Layers, Check, Copy, ArrowUpRight, 
   BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash, Database, ChevronDown, ChevronRight,
-  Target, X
+  Target, X, ExternalLink
 } from 'lucide-react';
 import { 
   AppSettings, KeywordSearchResponse, RegulationOrigin, 
@@ -212,9 +212,29 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
   };
 
   const handleOpenDoc = async (item: SearchResponse | KeywordSearchResponse | SearchDocResponse) => {
+    // Find all results from the current search that belong to this document
+    const relatedResults = results
+      .filter(r => r.document_id === item.document_id)
+      .map(r => ({
+        chunk_id: r.chunk_id,
+        text: r.text,
+        path: r.path,
+        score: r.score,
+        title: r.metadata?.title || r.path[r.path.length - 1] || r.chunk_id
+      }));
+    const matchedChunkIds = relatedResults.map(r => r.chunk_id);
+    if (!matchedChunkIds.includes(item.chunk_id)) {
+      matchedChunkIds.push(item.chunk_id);
+    }
+
     // If it already has markdown_doc, open directly
     if ('markdown_doc' in item && item.markdown_doc) {
-      onViewDoc(item as SearchDocResponse);
+      onViewDoc({
+        ...(item as SearchDocResponse),
+        matched_chunks: relatedResults,
+        matched_chunk_ids: matchedChunkIds,
+        search_query: query
+      });
       return;
     }
 
@@ -224,12 +244,18 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
       const docResult = await getDocumentMarkdown(item.document_id, settings);
       onViewDoc({
         ...item,
-        markdown_doc: docResult.markdown_doc
+        markdown_doc: docResult.markdown_doc,
+        matched_chunks: relatedResults,
+        matched_chunk_ids: matchedChunkIds,
+        search_query: query
       });
     } catch (e: any) {
       onViewDoc({
         ...item,
-        markdown_doc: `# ${item.metadata?.title || item.metadata?.document_title || item.document_id}\n\n${item.path.join(' > ')}\n\n---\n\n${item.text}`
+        markdown_doc: `# ${item.metadata?.title || item.metadata?.document_title || item.document_id}\n\n${item.path.join(' > ')}\n\n---\n\n${item.text}`,
+        matched_chunks: relatedResults,
+        matched_chunk_ids: matchedChunkIds,
+        search_query: query
       });
     } finally {
       setLoadingDocId(null);
@@ -386,6 +412,30 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                   }`}
                 >
                   Internal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigin('skybrary')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    origin === 'skybrary'
+                      ? 'bg-slate-800 text-indigo-400 shadow-sm border border-indigo-700/60'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Search 4,800+ SKYbrary Bookshelf safety publications & accident reports"
+                >
+                  Bookshelf
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigin('note')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    origin === 'note'
+                      ? 'bg-slate-800 text-amber-400 shadow-sm border border-amber-700/60'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Search user-generated documentation, meeting minutes, and project logs"
+                >
+                  Notes
                 </button>
               </div>
 
@@ -585,9 +635,34 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         >
                           {collapsedChunks.has(doc.chunk_id) ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
-                        <span className="font-mono text-sky-400 uppercase tracking-wider font-semibold">
-                          {doc.source}
-                        </span>
+                        {doc.document_id.startsWith('NOTE_') || doc.metadata?.origin === 'note' || doc.source === 'Note' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-amber-950/80 border border-amber-500/50 text-amber-300">
+                            NOTE · {doc.metadata?.note_type ? String(doc.metadata.note_type).replace('_', ' ') : 'USER DOC'}
+                          </span>
+                        ) : doc.source === 'SKYBRARY' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-indigo-950/80 border border-indigo-500/50 text-indigo-300">
+                            SKYBRARY
+                          </span>
+                        ) : (
+                          <span className="font-mono text-sky-400 uppercase tracking-wider font-semibold">
+                            {doc.source}
+                          </span>
+                        )}
+                        {doc.metadata?.project && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-amber-950/50 text-amber-200 border border-amber-800/40 truncate max-w-[150px]">
+                            {doc.metadata.project}
+                          </span>
+                        )}
+                        {doc.metadata?.category && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-sans font-medium bg-slate-800 text-cyan-300 border border-cyan-800/40 truncate max-w-[150px]">
+                            {doc.metadata.category}
+                          </span>
+                        )}
+                        {doc.metadata?.author && (
+                          <span className="text-[10px] text-slate-400 font-sans hidden sm:inline">
+                            by {doc.metadata.author}
+                          </span>
+                        )}
                         <span aria-hidden="true" className="text-slate-600">·</span>
                         <span className="font-mono text-slate-400">{doc.document_id}</span>
                         <span aria-hidden="true" className="text-slate-600">·</span>
@@ -844,6 +919,33 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         <span>Ask LLM</span>
                         <ArrowUpRight className="w-3 h-3" />
                       </button>
+
+                      {doc.metadata?.pdf_url && (
+                        <a
+                          href={doc.metadata.pdf_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors text-indigo-300 hover:text-white bg-indigo-950/50 hover:bg-indigo-900/60 border border-indigo-700/50 font-medium"
+                          title="Open official PDF document on SKYbrary"
+                        >
+                          <FileText className="w-3 h-3 text-indigo-400" />
+                          <span>PDF</span>
+                          <ExternalLink className="w-2.5 h-2.5 text-indigo-400" />
+                        </a>
+                      )}
+
+                      {doc.metadata?.summary_url && (
+                        <a
+                          href={doc.metadata.summary_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs rounded transition-colors text-sky-300 hover:text-white bg-sky-950/50 hover:bg-sky-900/60 border border-sky-700/50 font-medium"
+                          title="Open publication page on SKYbrary.aero"
+                        >
+                          <ExternalLink className="w-3 h-3 text-sky-400" />
+                          <span>SKYbrary</span>
+                        </a>
+                      )}
 
                       <button
                         type="button"

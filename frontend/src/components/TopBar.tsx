@@ -7,7 +7,7 @@ import React from 'react';
 import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap } from 'lucide-react';
 import { ConnectionStatus } from '../types';
 
-export type ActiveTab = 'assistant' | 'search' | 'research' | 'workspace' | 'builder' | 'memory' | 'extract' | 'cache';
+export type ActiveTab = 'assistant' | 'search' | 'research' | 'workspace' | 'builder' | 'notes' | 'memory' | 'extract' | 'cache';
 
 interface TopBarProps {
   activeTab: ActiveTab;
@@ -100,6 +100,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           Document Builder
+        </button>
+
+        <button
+          onClick={() => onSelectTab('notes')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+            activeTab === 'notes'
+              ? 'bg-slate-800 text-amber-400 shadow-sm border border-slate-700/60'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          Notes & Journals
         </button>
 
         <button

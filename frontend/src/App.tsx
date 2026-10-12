@@ -15,6 +15,7 @@ import { DocViewerModal } from './components/DocViewerModal';
 import { ResearchTab } from './components/ResearchTab';
 import { RegulationsWorkspace } from './components/RegulationsWorkspace';
 import { DocumentBuilder } from './components/DocumentBuilder';
+import { NotesTab } from './components/NotesTab';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
@@ -238,6 +239,10 @@ export default function App() {
               }}
             />
           </ErrorBoundary>
+        )}
+
+        {activeTab === 'notes' && (
+          <NotesTab settings={settings} />
         )}
 
         {activeTab === 'memory' && (

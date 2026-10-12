@@ -179,7 +179,8 @@ def search_keywords(
     top_k: int = 5,
     origin: str = "all",
     use_llm_expansion: bool = True,
-    document_id: Optional[str] = None
+    document_id: Optional[str] = None,
+    deep_research: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Performs full-text keyword search in SQLite with BM25 ranking.
@@ -249,21 +250,27 @@ def search_keywords(
             
         count = 0
         for row in rows:
-            if count >= top_k:
+            if count >= fetch_limit:
                 break
             chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score = row
             
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
             is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
+            is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
+            is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
             if not document_id:
-                if origin == "eu" and (is_easa or is_faa or is_manual):
+                if origin == "eu" and (is_easa or is_faa or is_manual or is_skybrary or is_note):
                     continue
                 if origin == "easa" and not is_easa:
                     continue
                 if origin == "faa" and not is_faa:
                     continue
                 if origin == "manual" and not is_manual:
+                    continue
+                if origin in ("skybrary", "bookshelf") and not is_skybrary:
+                    continue
+                if origin in ("note", "notes") and not is_note:
                     continue
                 
             count += 1
@@ -290,22 +297,38 @@ def search_keywords(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
-            meta_dict["origin"] = "faa" if is_faa else ("easa" if is_easa else "eu")
+            meta_dict["origin"] = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
+
+            custom_score = float(score)
+            if deep_research and is_note:
+                # FTS5 bm25 returns negative numbers. More negative is better.
+                custom_score *= 2.5
 
             results.append({
                 "rank": count,
-                "score": float(score),
+                "score": custom_score,
+                "raw_bm25_score": float(score),
                 "chunk_id": chunk_id,
                 "document_id": doc_id,
                 "path": path_list,
                 "section_path": path_list,
                 "text": source_text,
                 "source_text": source_text,
-                "source": "FAA" if is_faa else ("EASA" if is_easa else "EU"),
+                "source": "NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))),
                 "metadata": meta_dict,
                 "expanded_terms": expanded_terms
             })
             
+    # Re-sort if deep_research modified the scores
+    if deep_research:
+        results.sort(key=lambda x: x["score"], reverse=False) # more negative is better
+        # update rank
+        for i, r in enumerate(results):
+            r["rank"] = i + 1
+
+    # Apply top_k cut here because we fetched up to fetch_limit valid items
+    results = results[:top_k]
+
     return results
 
 def main():

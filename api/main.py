@@ -83,10 +83,36 @@ class KeywordSearchResponse(SearchResponse):
         description="Keywords and acronyms suggested by the LLM for query expansion, if enabled"
     )
 
+class ChatMessageInput(BaseModel):
+    role: str = Field(..., description="Message role: 'user', 'assistant', or 'system'")
+    content: str = Field(..., description="Message text content")
+
 class LLMAskRequest(BaseModel):
-    prompt: str
-    chunk_ids: Optional[List[str]] = None
-    context_sections: Optional[List[Dict[str, Any]]] = None
+    prompt: Optional[str] = Field(None, description="Current user prompt (single-turn or latest inquiry)")
+    messages: Optional[List[ChatMessageInput]] = Field(None, description="Full conversation history for multi-turn chat")
+    chunk_ids: Optional[List[str]] = Field(None, description="Explicitly targeted chunk IDs to focus context on")
+    context_sections: Optional[List[Dict[str, Any]]] = Field(None, description="User bookmarked sections or manual notes")
+    deep_research: bool = Field(False, description="Whether to prioritize internal project notes and operational logs")
+    
+    # Advanced search & scoping parameters
+    origin: Optional[str] = Field("all", description="Regulatory origin filter: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note'")
+    stakeholder: Optional[str] = Field(None, description="Stakeholder domain persona: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
+    document_ids: Optional[List[str]] = Field(None, description="Optional list of document IDs to restrict search to")
+    top_k: int = Field(5, ge=1, le=15, description="Number of candidate regulatory clauses to retrieve")
+    use_hyde: bool = Field(False, description="Enable Hypothetical Document Embeddings for query expansion")
+    context_window: int = Field(1, ge=0, le=4, description="Sequential surrounding context window (±N provisions)")
+    
+    # Provider & model parameters
+    provider: Optional[str] = Field("local", description="LLM provider: 'local' (LM Studio) or 'gemini'")
+    gemini_api_key: Optional[str] = Field(None, description="Google Gemini API key if provider is 'gemini'")
+    gemini_model: Optional[str] = Field(None, description="Gemini model name (e.g. 'gemini-3.5-flash')")
+    temperature: float = Field(0.2, ge=0.0, le=1.0, description="Model generation temperature")
+
+class LLMAskResponse(BaseModel):
+    answer: str
+    referenced_chunks: List[Dict[str, Any]] = []
+    suggested_followups: Optional[List[str]] = None
+    provider_info: Optional[Dict[str, Any]] = None
 
 class LLMExtractRequest(BaseModel):
     text: str
@@ -114,24 +140,26 @@ def get_markdown_for_doc(document_id: str) -> str:
 def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
-    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
 ):
-    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
+    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
     return results
 
 @app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
 def api_search_docs(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
-    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
 ):
-    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
+    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
     
     enriched_results = []
     for r in results:
@@ -140,6 +168,27 @@ def api_search_docs(
         enriched_results.append(r_dict)
         
     return enriched_results
+
+
+@app.get("/search/docs/{document_id:path}/sections", tags=["SEARCH"])
+def api_get_doc_sections(document_id: str):
+    """
+    Retrieve structured parsed sections for a specific regulation document.
+    Returns a list of sections with metadata (id, title, type) and individual markdown text.
+    """
+    json_path = find_json_file(document_id)
+    if json_path:
+        md_text = render_document(json_path)
+    else:
+        md_text = regulations.get_document_markdown_content(document_id)
+        if not md_text:
+            raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
+    sections = parse_document_sections(md_text)
+    return {
+        "document_id": document_id,
+        "total_sections": len(sections),
+        "sections": sections
+    }
 
 
 @app.get("/search/docs/{document_id:path}", tags=["SEARCH"])
@@ -185,28 +234,11 @@ def api_get_doc_markdown(
         "section_scores": section_scores
     }
 
-@app.get("/search/docs/{document_id:path}/sections", tags=["SEARCH"])
-def api_get_doc_sections(document_id: str):
-    """
-    Retrieve structured parsed sections for a specific regulation document.
-    Returns a list of sections with metadata (id, title, type) and individual markdown text.
-    """
-    json_path = find_json_file(document_id)
-    if not json_path:
-        raise HTTPException(status_code=404, detail=f"Document '{document_id}' not found")
-    md_text = render_document(json_path)
-    sections = parse_document_sections(md_text)
-    return {
-        "document_id": document_id,
-        "total_sections": len(sections),
-        "sections": sections
-    }
-
 @app.get("/search/keyword", response_model=List[KeywordSearchResponse], tags=["SEARCH"])
 def api_search_keyword(
     query: str = Query(..., description="Keywords, acronyms, or search terms to match"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     use_llm: bool = Query(True, description="Enable LLM keyword expansion (synonyms, acronyms)"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
 ):
@@ -222,15 +254,48 @@ def api_search_keyword(
 def api_search_hybrid(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', or 'manual'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     use_hyde: bool = Query(False, description="Use HyDE for the semantic component"),
-    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation")
+    document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
 ):
     """
     Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.
     """
-    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde, document_id=document_id)
+    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde, document_id=document_id, deep_research=deep_research)
     return results
+
+@app.get("/search/origin-options", tags=["SEARCH"])
+def api_get_origin_options():
+    """Returns the list of supported document origins for filtering."""
+    return [
+        {"id": "all", "label": "All Sources", "description": "Search across all regulations, notes, and bookshelf documents"},
+        {"id": "easa", "label": "EASA", "description": "EASA Easy Access Rules and Certification Specifications"},
+        {"id": "eu", "label": "EU", "description": "European Union Formex Aviation Regulations"},
+        {"id": "faa", "label": "FAA", "description": "FAA Title 14 CFR Regulations"},
+        {"id": "skybrary", "label": "SKYbrary Bookshelf", "description": "SKYbrary safety reports, investigation reviews, and guidance"},
+        {"id": "manual", "label": "Internal Manuals", "description": "Custom user-authored operating manuals and SOPs"},
+        {"id": "note", "label": "Notes & Journals", "description": "User-generated documentation, meeting minutes, and project logs"},
+    ]
+
+@app.get("/search/skybrary", response_model=regulations.SkybrarySearchResponse, tags=["SEARCH"])
+def api_search_skybrary_main(
+    query: str = Query(..., description="Keywords or phrases to search in SKYbrary Bookshelf"),
+    category: Optional[str] = Query(None, description="Optional category filter (e.g. 'Accident Investigation')"),
+    author: Optional[str] = Query(None, description="Optional publishing organization (e.g. 'EASA', 'FAA', 'UK AAIB', 'NTSB')"),
+    top_k: int = Query(10, ge=1, le=100, description="Max results to return"),
+    sort_by: str = Query("relevance", description="Sort order: 'relevance' or 'date'")
+):
+    """
+    Dedicated high-speed search across 228,000+ SKYbrary Bookshelf chunks with metadata filtering.
+    """
+    return regulations.api_search_skybrary(
+        query=query,
+        category=category,
+        author=author,
+        top_k=top_k,
+        sort_by=sort_by
+    )
 
 @app.get("/search/chunks/{chunk_id:path}/context", tags=["SEARCH"])
 def api_get_chunk_context(
@@ -325,71 +390,248 @@ def api_summarize_chunk_context(
         "summary": summary_text
     }
 
-@app.post("/llm/ask", tags=["LLM"])
+@app.post("/llm/ask", tags=["LLM"], response_model=LLMAskResponse)
 def api_llm_ask(request: LLMAskRequest):
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
         raise HTTPException(status_code=500, detail="Database not found")
         
-    chunk_texts = {}
+    # 1. Resolve active user query from multi-turn messages or single prompt
+    active_query = ""
+    prior_messages = []
     
-    # If chunk_ids are missing or just the Swagger default, do the search automatically!
+    if request.messages and len(request.messages) > 0:
+        # Find last user message
+        for msg in reversed(request.messages):
+            if msg.role.lower() == "user" and msg.content.strip():
+                active_query = msg.content.strip()
+                break
+        # Keep earlier turns as conversation history (up to last 8 turns)
+        history_msgs = request.messages[:-1] if request.messages[-1].role.lower() == "user" else request.messages
+        prior_messages = [
+            {"role": m.role.lower(), "content": m.content}
+            for m in history_msgs[-8:]
+            if m.role.lower() in ("user", "assistant")
+        ]
+        
+    if not active_query and request.prompt:
+        active_query = request.prompt.strip()
+        
+    if not active_query:
+        raise HTTPException(status_code=400, detail="A user prompt or conversation message is required.")
+
+    # 2. Resolve target chunks (explicit or via hybrid RAG retrieval)
     active_chunk_ids = request.chunk_ids or []
     if active_chunk_ids == ["string"]:
         active_chunk_ids = []
         
-    if not active_chunk_ids and (not request.context_sections or len(request.context_sections) == 0):
-        log_debug_info("API /llm/ask - DOING AUTO SEARCH", request.prompt)
-        search_results = search_hybrid(request.prompt, top_k=5, use_hyde=False)
+    candidate_results: List[Dict[str, Any]] = []
+    
+    # Restrict to single document_id if provided
+    target_doc_id = request.document_ids[0] if (request.document_ids and len(request.document_ids) == 1) else None
+
+    if not active_chunk_ids:
+        log_debug_info("API /llm/ask - EXECUTING HYBRID RETRIEVAL", {
+            "query": active_query,
+            "origin": request.origin,
+            "stakeholder": request.stakeholder,
+            "top_k": request.top_k,
+            "use_hyde": request.use_hyde,
+            "document_id": target_doc_id
+        })
+        
+        search_results = search_hybrid(
+            query=active_query,
+            top_k=request.top_k,
+            origin=request.origin or "all",
+            use_hyde=request.use_hyde,
+            stakeholder=request.stakeholder,
+            document_id=target_doc_id,
+            deep_research=request.deep_research
+        )
+        
+        # If multiple document_ids requested, filter candidates locally
+        if request.document_ids and len(request.document_ids) > 1:
+            allowed_docs = set(request.document_ids)
+            search_results = [r for r in search_results if r.get("document_id") in allowed_docs]
+            
+        candidate_results = search_results
         active_chunk_ids = [res["chunk_id"] for res in search_results]
 
-    log_debug_info("API /llm/ask - INCOMING/AUTO CHUNK IDs", active_chunk_ids)
+    log_debug_info("API /llm/ask - RESOLVED CHUNK IDs", active_chunk_ids)
+
+    # 3. Retrieve chunks with surrounding context expansion and metadata
+    referenced_chunks = []
+    context_blocks = []
     
-    with sqlite3.connect(db_path) as conn:
-        cursor = conn.cursor()
-        for chunk_id in active_chunk_ids:
-            # Small-to-Big: Sliding Window Retrieval
-            cursor.execute("SELECT previous_chunk_id, next_chunk_id, source_text FROM chunks WHERE chunk_id = ?", (chunk_id,))
-            row = cursor.fetchone()
-            if row:
-                prev_id, next_id, text = row
-                context_text = text
+    for cid in active_chunk_ids:
+        try:
+            surrounding_info = get_chunk_surrounding_context(cid, window=request.context_window)
+            doc_id = surrounding_info.get("document_id", "Unknown")
+            doc_title = surrounding_info.get("document_title", doc_id)
+            chunks_list = surrounding_info.get("chunks", [])
+            
+            # Extract target chunk details
+            target_chunk = next((c for c in chunks_list if c.get("is_target")), chunks_list[0] if chunks_list else None)
+            path_list = target_chunk.get("section_path", []) if target_chunk else []
+            section_breadcrumbs = " > ".join(path_list) if path_list else "General Provision"
+            target_text = target_chunk.get("text", "") if target_chunk else ""
+            
+            referenced_chunks.append({
+                "chunk_id": cid,
+                "document_id": doc_id,
+                "title": doc_title,
+                "path": path_list,
+                "source": "database",
+                "text": target_text[:300] + ("..." if len(target_text) > 300 else "")
+            })
+            
+            # Combine surrounding text into unified block
+            block_parts = []
+            for sc in chunks_list:
+                pos = sc.get("position", "")
+                prefix = f"[{pos.upper()} PROVISION]" if pos != "target" else "[RELEVANT PROVISION]"
+                block_parts.append(f"{prefix} (ID: {sc.get('chunk_id')}):\n{sc.get('text', '')}")
                 
-                # Fetch previous chunk for context
-                if prev_id:
-                    cursor.execute("SELECT source_text FROM chunks WHERE chunk_id = ?", (prev_id,))
-                    p_row = cursor.fetchone()
-                    if p_row:
-                        context_text = f"[Previous Context]\n{p_row[0]}\n\n[Matched Section]\n{context_text}"
-                        
-                # Fetch next chunk for context
-                if next_id:
-                    cursor.execute("SELECT source_text FROM chunks WHERE chunk_id = ?", (next_id,))
-                    n_row = cursor.fetchone()
-                    if n_row:
-                        context_text = f"{context_text}\n\n[Following Context]\n{n_row[0]}"
-                        
-                chunk_texts[chunk_id] = context_text
+            combined_chunk_text = "\n\n".join(block_parts)
+            context_blocks.append(
+                f"=== REGULATORY CONTEXT [{cid}] ===\n"
+                f"Document: {doc_title} ({doc_id})\n"
+                f"Section: {section_breadcrumbs}\n\n"
+                f"{combined_chunk_text}"
+            )
+        except Exception as err:
+            log_debug_info("API /llm/ask - SURROUNDING CONTEXT ERROR", f"Chunk {cid}: {err}")
+            # Fallback direct lookup
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT c.document_id, c.section_path, c.source_text, d.title
+                    FROM chunks c
+                    LEFT JOIN documents d ON c.document_id = d.document_id
+                    WHERE c.chunk_id = ?
+                """, (cid,))
+                row = cursor.fetchone()
+                if row:
+                    doc_id, path_json, s_text, d_title = row
+                    p_list = json.loads(path_json) if path_json else []
+                    doc_title = d_title or doc_id
+                    referenced_chunks.append({
+                        "chunk_id": cid,
+                        "document_id": doc_id,
+                        "title": doc_title,
+                        "path": p_list,
+                        "source": "database",
+                        "text": s_text[:300] + ("..." if len(s_text) > 300 else "")
+                    })
+                    context_blocks.append(
+                        f"=== REGULATORY CONTEXT [{cid}] ===\n"
+                        f"Document: {doc_title} ({doc_id})\n"
+                        f"Section: {' > '.join(p_list)}\n\n"
+                        f"{s_text}"
+                    )
 
-    context_str = ""
-    # Process user supplied sections if available
+    # 4. Process user supplied bookmarks/sections if available
+    user_notes_block = ""
     if request.context_sections and len(request.context_sections) > 0:
-        context_str += "--- USER BOOKMARKED SECTIONS ---\n"
-        for sec in request.context_sections:
-            if sec.get('enabled', True):
-                context_str += f"[Section: {sec.get('title', 'Unknown')}]\n{sec.get('markdown', '')}\n\n"
+        active_sections = [s for s in request.context_sections if s.get("enabled", True)]
+        if active_sections:
+            user_notes_block = "=== USER BOOKMARKED SECTIONS & WORKSPACE NOTES ===\n" + "\n\n".join([
+                f"[Section: {sec.get('title', 'User Note')}]\n{sec.get('markdown', '')}"
+                for sec in active_sections
+            ])
 
-    context_str += "\n\n".join([f"--- Chunk: {cid} ---\n{text}" for cid, text in chunk_texts.items()])
+    # Combine full regulatory context
+    full_context_parts = []
+    if user_notes_block:
+        full_context_parts.append(user_notes_block)
+    if context_blocks:
+        full_context_parts.append("\n\n".join(context_blocks))
+    full_context_str = "\n\n".join(full_context_parts) if full_context_parts else "No specific regulatory clauses retrieved."
+
+    # 5. Build System Prompt & Instructions
+    if request.deep_research:
+        sys_prompt = (
+            "You are a specialized Aviation Regulatory Compliance Project Manager and Senior Legal Auditor.\n"
+            "Synthesize actionable, highly structured compliance advice prioritizing operational safety, project logs, and user notes.\n"
+            "Ground every conclusion directly in the referenced regulatory articles and standards.\n"
+            "Format your answer with clear markdown headings, bullet points, and inline citations."
+        )
+    else:
+        sys_prompt = (
+            "You are AeroLex Assistant, an authoritative AI specialist in European and international aviation regulations (EASA, EU, FAA, ICAO).\n"
+            "Your goal is to answer the user's regulatory query with clarity, legal precision, and practical compliance guidance.\n\n"
+            "Guidelines:\n"
+            "1. Ground your explanations directly in the provided regulatory context documents and articles.\n"
+            "2. Whenever citing a rule or article, mention the document title/CELEX and specific provision (e.g. 'Regulation (EU) 2018/1139, Article 14(2)').\n"
+            "3. If the context does not contain sufficient details to definitively settle a question, state this clearly and outline standard industry compliance practice.\n"
+            "4. At the very end of your response, provide 2 to 3 logical follow-up questions the user might ask next, formatted inside a `<followups>` block, e.g.:\n"
+            "<followups>\n"
+            "- What are the specific training requirements under AMC1?\n"
+            "- How does this compare with FAA Part 121 equivalents?\n"
+            "</followups>"
+        )
+
+    # 6. Assemble Chat Messages for Unified Provider
+    chat_payload_messages = [{"role": "system", "content": sys_prompt}]
     
-    log_debug_info("API /llm/ask - RESOLVED CONTEXT CHUNKS", list(chunk_texts.keys()))
+    # Append prior conversation history
+    for m in prior_messages:
+        chat_payload_messages.append({"role": m["role"], "content": m["content"]})
+        
+    # Append latest user prompt with injected context
+    user_turn_content = (
+        f"--- RELEVANT REGULATORY PROVISIONS & CONTEXT ---\n"
+        f"{full_context_str}\n\n"
+        f"--- USER INQUIRY ---\n"
+        f"{active_query}"
+    )
+    chat_payload_messages.append({"role": "user", "content": user_turn_content})
+
+    # 7. Execute Call via Unified LLM Provider Router
+    raw_answer = call_unified_chat(
+        messages=chat_payload_messages,
+        max_tokens=4096,
+        temperature=request.temperature,
+        provider=request.provider or "local",
+        gemini_api_key=request.gemini_api_key,
+        gemini_model=request.gemini_model
+    )
+
+    # 8. Extract Follow-Up Suggestions
+    suggested_followups: List[str] = []
+    clean_answer = raw_answer
     
-    messages = [
-        {"role": "system", "content": "You are a helpful regulatory assistant. Use the provided document contexts to answer the user's question."},
-        {"role": "user", "content": f"Context documents:\n{context_str}\n\nQuestion:\n{request.prompt}"}
-    ]
-    
-    answer = call_lm_studio_chat(messages)
-    return {"answer": answer}
+    if "<followups>" in raw_answer and "</followups>" in raw_answer:
+        parts = raw_answer.split("<followups>")
+        clean_answer = parts[0].strip()
+        followups_section = parts[1].split("</followups>")[0].strip()
+        for line in followups_section.split("\n"):
+            line = line.strip().lstrip("-*•0123456789. ")
+            if line and len(line) > 5:
+                suggested_followups.append(line)
+
+    # Fallback follow-ups if model omitted tag
+    if not suggested_followups and referenced_chunks:
+        doc_names = list({rc["title"] for rc in referenced_chunks[:2] if rc.get("title")})
+        first_doc = doc_names[0] if doc_names else "this regulation"
+        suggested_followups = [
+            f"What are the compliance deadlines associated with {first_doc}?",
+            f"Are there any Acceptable Means of Compliance (AMC) or Guidance Material (GM) for these articles?",
+            f"How does this impact stakeholder operational manuals?"
+        ]
+
+    return LLMAskResponse(
+        answer=clean_answer,
+        referenced_chunks=referenced_chunks,
+        suggested_followups=suggested_followups,
+        provider_info={
+            "provider": request.provider or "local",
+            "model": request.gemini_model if request.provider == "gemini" else "local-lm-studio",
+            "chunks_retrieved": len(referenced_chunks),
+            "origin_filter": request.origin
+        }
+    )
 
 @app.post("/llm/extract", tags=["LLM"])
 def api_llm_extract(request: LLMExtractRequest):

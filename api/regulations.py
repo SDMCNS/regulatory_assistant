@@ -6,10 +6,14 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel, Field
+import hashlib
 
 from ingestion.core.config import settings
 from ingestion.retrieval.keyword_search import build_fts_query
 from ingestion.parsers.json_to_doc import find_json_file, render_document
+from ingestion.retrieval.search_chunks import get_embeddings_batch
+from ingestion.retrieval.faiss_index import LocalVectorIndex
+from ingestion.core.models import EmbeddingRecord, EmbeddingType
 from api.utils import get_document_metadata, log_debug_info
 
 router = APIRouter()
@@ -178,7 +182,11 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                     
             # Determine origin
             doc_low = (doc_id + " " + clean_title).lower()
-            if source == "FAA XML" or doc_id.startswith("FAA_") or "14 cfr" in doc_low:
+            if source == "SKYBRARY" or doc_id.startswith("SKYBRARY_"):
+                origin = "skybrary"
+            elif doc_id.startswith("NOTE_") or source in ("Note", "UserNote"):
+                origin = "note"
+            elif source == "FAA XML" or doc_id.startswith("FAA_") or "14 cfr" in doc_low:
                 origin = "faa"
             elif source in ("Manual", "Custom") or doc_id.startswith("MANUAL_"):
                 origin = "manual"
@@ -191,6 +199,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
             if r["metadata_json"]:
                 try:
                     meta_dict = json.loads(r["metadata_json"])
+                    if meta_dict.get("origin") == "note":
+                        origin = "note"
                 except Exception:
                     pass
 
@@ -310,7 +320,7 @@ class WorkspaceFtsResponse(BaseModel):
 @router.get("/catalog", response_model=CatalogResponse, tags=["REGULATIONS"])
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
-    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', or 'manual'"),
+    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),
     sort_order: Optional[str] = Query("desc", description="Sort order: 'asc' or 'desc'"),
@@ -873,4 +883,657 @@ def api_create_manual_document(req: ManualDocumentRequest):
     except Exception as e:
         print(f"Error creating manual document: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create manual document: {str(e)}")
+
+
+# -------------------------------------------------------------
+# USER NOTES & USER-GENERATED DOCUMENTATION OPERATIONS
+# -------------------------------------------------------------
+
+def embed_chunks_for_document(chunk_records: List[Dict[str, Any]]) -> int:
+    """
+    Computes vector embeddings for a list of chunk dicts (containing 'chunk_id' and 'embedding_text')
+    and persists them to the local FAISS index (EmbeddingType.CHUNK).
+    Returns count of successfully embedded chunks.
+    """
+    if not chunk_records:
+        return 0
+    try:
+        texts = [c["embedding_text"] for c in chunk_records]
+        vectors = get_embeddings_batch(texts)
+        if not vectors or len(vectors) != len(chunk_records):
+            print(f"Embedding generation warning: received {len(vectors) if vectors else 0} vectors for {len(chunk_records)} chunks")
+            return 0
+
+        vector_index = LocalVectorIndex(settings.EMBEDDINGS_DIR, settings.EMBEDDING_DIMENSIONS)
+        records = []
+        for c, vec in zip(chunk_records, vectors):
+            if not vec:
+                continue
+            text_hash = hashlib.md5(c["embedding_text"].encode("utf-8")).hexdigest()
+            records.append(EmbeddingRecord(
+                embedding_id=c["chunk_id"],
+                fragment_id=c["chunk_id"],
+                embedding_type=EmbeddingType.CHUNK,
+                model=settings.EMBEDDING_MODEL_NAME,
+                dimensions=len(vec),
+                vector=vec,
+                text_hash=text_hash
+            ))
+
+        if records:
+            vector_index.add_records(records)
+            vector_index.save()
+            return len(records)
+    except Exception as e:
+        print(f"Failed to embed chunks for document: {e}")
+    return 0
+
+
+class NoteSectionInput(BaseModel):
+    section_number: Optional[str] = Field(None, description="Optional section number or timestamp (e.g. '1', '10:30')")
+    heading: str = Field(..., min_length=1, description="Section heading or topic title")
+    content: str = Field(..., min_length=1, description="Markdown or text content of the section")
+    tags: Optional[List[str]] = Field(default=[], description="Optional section tags")
+
+class CreateNoteRequest(BaseModel):
+    title: str = Field(..., min_length=2, description="Title of the note or meeting minutes")
+    document_id: Optional[str] = Field(None, description="Optional custom ID (e.g. NOTE_PROJECT_XYZ_STATUS)")
+    note_type: str = Field(default="general_note", description="Type: meeting_minutes, daily_journal, project_note, general_note")
+    date: Optional[str] = Field(default="", description="Date (YYYY-MM-DD)")
+    author: Optional[str] = Field(default="User", description="Author, attendee list, or recorder")
+    project: Optional[str] = Field(default="", description="Associated project or topic (e.g. 'Project XYZ')")
+    tags: Optional[List[str]] = Field(default=[], description="Tags or keywords")
+    description: Optional[str] = Field(default="", description="High level overview or meeting attendees summary")
+    sections: List[NoteSectionInput] = Field(..., min_items=1, description="Structured sections/entries of the note")
+    auto_embed: Optional[bool] = Field(default=True, description="Immediately generate vector embeddings via LM Studio")
+
+class NoteSummaryItem(BaseModel):
+    document_id: str
+    title: str
+    note_type: str
+    date: str
+    author: str
+    project: str
+    tags: List[str]
+    chunk_count: int
+    is_embedded: bool
+    created_at: str
+
+class NoteDetailResponse(BaseModel):
+    document_id: str
+    title: str
+    note_type: str
+    date: str
+    author: str
+    project: str
+    tags: List[str]
+    description: str
+    chunk_count: int
+    is_embedded: bool
+    created_at: str
+    sections: List[NoteSectionInput]
+    markdown_doc: str
+
+class NoteActionResponse(BaseModel):
+    success: bool
+    document_id: str
+    title: str
+    chunk_count: int
+    is_embedded: bool
+    message: str
+
+
+@router.post("/notes", response_model=NoteActionResponse, tags=["REGULATIONS"])
+def api_create_note(req: CreateNoteRequest):
+    """
+    Creates and indexes user-generated documentation (daily journals, minutes of meetings, or project notes).
+    Chunks the note by user-defined sections with full contextual metadata, saves to SQLite,
+    updates SQLite FTS5, and computes vector embeddings for full semantic search.
+    """
+    if not req.sections:
+        raise HTTPException(status_code=400, detail="Note must contain at least one section.")
+
+    if req.document_id and req.document_id.strip():
+        raw_id = req.document_id.strip()
+        if not raw_id.startswith("NOTE_"):
+            raw_id = f"NOTE_{raw_id}"
+        clean_doc_id = re.sub(r'[^A-Za-z0-9_.-]+', '_', raw_id).strip('_')
+    else:
+        title_slug = re.sub(r'[^A-Za-z0-9_]+', '_', req.title.strip())[:30].strip('_')
+        clean_doc_id = f"NOTE_{title_slug}_{int(time.time())}"
+
+    date_str = req.date.strip() if req.date and req.date.strip() else time.strftime("%Y-%m-%d")
+    author_str = req.author.strip() if req.author and req.author.strip() else "User"
+    project_str = req.project.strip() if req.project and req.project.strip() else ""
+    note_type_str = req.note_type.strip() if req.note_type and req.note_type.strip() else "general_note"
+    tags_list = [t.strip() for t in (req.tags or []) if t and t.strip()]
+
+    doc_metadata = {
+        "title": req.title.strip(),
+        "source": author_str,
+        "author": author_str,
+        "date": date_str,
+        "language": "eng",
+        "project": project_str,
+        "note_type": note_type_str,
+        "tags": tags_list,
+        "description": (req.description or "").strip(),
+        "type": "Note",
+        "origin": "note",
+        "is_embedded": False,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
+
+    chunks_to_insert = []
+    easa_style_json = []
+    seen_chunk_ids = set()
+
+    if req.description:
+        easa_style_json.append({
+            "meta": {
+                "title": "Overview & Context",
+                "type": "preface",
+                "subject": req.title,
+                "id": f"{clean_doc_id}_preface"
+            },
+            "text": f"{req.title}\n\n{req.description}"
+        })
+
+    for idx, sec in enumerate(req.sections):
+        sec_num = sec.section_number.strip() if sec.section_number else str(idx + 1)
+        sec_heading = sec.heading.strip()
+        sec_content = sec.content.strip()
+
+        safe_num = re.sub(r'[^A-Za-z0-9_]+', '_', sec_num).strip('_')
+        base_chunk_id = f"{clean_doc_id}:sec_{safe_num}" if safe_num else f"{clean_doc_id}:sec_{idx+1}"
+        chunk_id = base_chunk_id
+        c_suffix = 1
+        while chunk_id in seen_chunk_ids:
+            chunk_id = f"{base_chunk_id}_{c_suffix}"
+            c_suffix += 1
+        seen_chunk_ids.add(chunk_id)
+
+        path = ["Notes"]
+        if project_str:
+            path.append(project_str)
+        else:
+            path.append(note_type_str.replace("_", " ").title())
+        path.append(f"{sec_num}. {sec_heading}" if sec_num else sec_heading)
+
+        source_text = f"## {sec_heading}\n\n{sec_content}"
+
+        emb_lines = [
+            f"Document: {req.title.strip()}",
+            f"Type: {note_type_str.replace('_', ' ').title()}",
+            f"Date: {date_str}"
+        ]
+        if project_str:
+            emb_lines.append(f"Project: {project_str}")
+        if author_str and author_str != "User":
+            emb_lines.append(f"Recorded by: {author_str}")
+        if tags_list:
+            emb_lines.append(f"Tags: {', '.join(tags_list)}")
+        emb_lines.append(f"Section: {sec_heading}\n\n{sec_content}")
+        embedding_text = "\n".join(emb_lines)
+
+        chunk_meta = {
+            "document_id": clean_doc_id,
+            "document_title": req.title.strip(),
+            "section_number": sec_num,
+            "section_title": sec_heading,
+            "origin": "note",
+            "source": author_str,
+            "doc_type": "note",
+            "note_type": note_type_str,
+            "project": project_str,
+            "author": author_str,
+            "date": date_str,
+            "tags": tags_list
+        }
+
+        chunks_to_insert.append({
+            "chunk_id": chunk_id,
+            "document_id": clean_doc_id,
+            "section_path": path,
+            "source_text": source_text,
+            "embedding_text": embedding_text,
+            "metadata_json": json.dumps(chunk_meta),
+            "previous_chunk_id": None,
+            "next_chunk_id": None
+        })
+
+        easa_style_json.append({
+            "meta": {
+                "title": sec_heading,
+                "type": "section",
+                "subject": project_str or req.title,
+                "id": chunk_id
+            },
+            "text": source_text
+        })
+
+    for i in range(len(chunks_to_insert)):
+        if i > 0:
+            chunks_to_insert[i]["previous_chunk_id"] = chunks_to_insert[i-1]["chunk_id"]
+        if i < len(chunks_to_insert) - 1:
+            chunks_to_insert[i]["next_chunk_id"] = chunks_to_insert[i+1]["chunk_id"]
+
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO documents (document_id, title, date, language, source, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (clean_doc_id, req.title.strip(), date_str, "eng", author_str, json.dumps(doc_metadata)))
+
+            cursor.execute("DELETE FROM chunks WHERE document_id = ?", (clean_doc_id,))
+
+            for c in chunks_to_insert:
+                cursor.execute("""
+                    INSERT INTO chunks (
+                        chunk_id, document_id, section_path, source_text, embedding_text,
+                        previous_chunk_id, next_chunk_id, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    c["chunk_id"],
+                    c["document_id"],
+                    json.dumps(c["section_path"]),
+                    c["source_text"],
+                    c["embedding_text"],
+                    c["previous_chunk_id"],
+                    c["next_chunk_id"],
+                    c["metadata_json"]
+                ))
+
+            conn.commit()
+
+            try:
+                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
+                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize');")
+                conn.commit()
+            except Exception as fts_err:
+                print(f"Warning: FTS rebuild for note: {fts_err}")
+
+        # Save JSON file for document viewer
+        try:
+            reg_dir = settings.DATA_DIR / "regulations"
+            reg_dir.mkdir(parents=True, exist_ok=True)
+            json_file = reg_dir / f"{clean_doc_id}.json"
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(easa_style_json, f, indent=2, ensure_ascii=False)
+        except Exception as file_err:
+            print(f"Warning: could not save Note JSON representation: {file_err}")
+
+        # Vector embedding
+        is_embedded = False
+        if req.auto_embed:
+            embedded_count = embed_chunks_for_document(chunks_to_insert)
+            if embedded_count > 0:
+                is_embedded = True
+                doc_metadata["is_embedded"] = True
+                with get_db_connection() as conn_up:
+                    conn_up.execute("UPDATE documents SET metadata_json = ? WHERE document_id = ?", (json.dumps(doc_metadata), clean_doc_id))
+                    conn_up.commit()
+
+        # Flush catalog cache
+        global _CATALOG_CACHE
+        _CATALOG_CACHE["timestamp"] = 0
+        _CATALOG_CACHE["items"] = []
+
+        return {
+            "success": True,
+            "document_id": clean_doc_id,
+            "title": req.title.strip(),
+            "chunk_count": len(chunks_to_insert),
+            "is_embedded": is_embedded,
+            "message": f"Successfully created and indexed note '{req.title.strip()}' with {len(chunks_to_insert)} sections." + (" Vector embeddings generated." if is_embedded else "")
+        }
+
+    except Exception as e:
+        print(f"Error creating note: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create note: {str(e)}")
+
+
+@router.get("/notes", response_model=List[NoteSummaryItem], tags=["REGULATIONS"])
+def api_list_notes(project: Optional[str] = Query(None, description="Optional filter by project")):
+    """Lists all user-generated notes, daily journals, and meeting minutes."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT d.document_id, d.title, d.date, d.source, d.metadata_json,
+                       COUNT(c.chunk_id) as chunk_count
+                FROM documents d
+                LEFT JOIN chunks c ON d.document_id = c.document_id
+                WHERE d.document_id LIKE 'NOTE_%' OR d.metadata_json LIKE '%"origin": "note"%'
+                GROUP BY d.document_id
+                ORDER BY d.rowid DESC;
+            """)
+            rows = cursor.fetchall()
+
+            notes = []
+            for r in rows:
+                meta = {}
+                if r["metadata_json"]:
+                    try:
+                        meta = json.loads(r["metadata_json"])
+                    except Exception:
+                        pass
+                
+                note_proj = meta.get("project") or ""
+                if project and project.lower() not in note_proj.lower():
+                    continue
+
+                notes.append({
+                    "document_id": r["document_id"],
+                    "title": r["title"] or r["document_id"],
+                    "note_type": meta.get("note_type") or "general_note",
+                    "date": r["date"] or "",
+                    "author": meta.get("author") or r["source"] or "User",
+                    "project": note_proj,
+                    "tags": meta.get("tags") or [],
+                    "chunk_count": r["chunk_count"] or 0,
+                    "is_embedded": bool(meta.get("is_embedded", False)),
+                    "created_at": meta.get("created_at") or r["date"] or ""
+                })
+            return notes
+    except Exception as e:
+        print(f"Error listing notes: {e}")
+        return []
+
+
+@router.get("/notes/{document_id}", response_model=NoteDetailResponse, tags=["REGULATIONS"])
+def api_get_note(document_id: str):
+    """Retrieves full details, structured sections, and markdown of a specific note."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM documents WHERE document_id = ?", (document_id,))
+            doc_row = cursor.fetchone()
+            if not doc_row:
+                raise HTTPException(status_code=404, detail="Note not found")
+
+            meta = {}
+            if doc_row["metadata_json"]:
+                try:
+                    meta = json.loads(doc_row["metadata_json"])
+                except Exception:
+                    pass
+
+            cursor.execute("""
+                SELECT chunk_id, section_path, source_text, metadata_json
+                FROM chunks WHERE document_id = ?
+                ORDER BY rowid ASC
+            """, (document_id,))
+            chunk_rows = cursor.fetchall()
+
+            sections = []
+            for cr in chunk_rows:
+                cm = {}
+                if cr["metadata_json"]:
+                    try:
+                        cm = json.loads(cr["metadata_json"])
+                    except Exception:
+                        pass
+                
+                heading = cm.get("section_title") or ""
+                sec_num = cm.get("section_number") or ""
+                src_txt = cr["source_text"] or ""
+                # Strip leading '## Heading\n\n' if stored that way
+                content = re.sub(r'^##\s+[^\n]+\n+', '', src_txt).strip() if src_txt.startswith("## ") else src_txt
+
+                sections.append({
+                    "section_number": sec_num,
+                    "heading": heading or cr["chunk_id"],
+                    "content": content,
+                    "tags": cm.get("tags") or []
+                })
+
+            markdown_doc = get_document_markdown_content(document_id)
+
+            return {
+                "document_id": doc_row["document_id"],
+                "title": doc_row["title"],
+                "note_type": meta.get("note_type") or "general_note",
+                "date": doc_row["date"] or "",
+                "author": meta.get("author") or doc_row["source"] or "User",
+                "project": meta.get("project") or "",
+                "tags": meta.get("tags") or [],
+                "description": meta.get("description") or "",
+                "chunk_count": len(chunk_rows),
+                "is_embedded": bool(meta.get("is_embedded", False)),
+                "created_at": meta.get("created_at") or doc_row["created_at"] or "",
+                "sections": sections,
+                "markdown_doc": markdown_doc
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching note {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/notes/{document_id}", tags=["REGULATIONS"])
+def api_delete_note(document_id: str):
+    """Deletes a note and its chunks from the database and FTS index."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+            conn.commit()
+
+            try:
+                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
+                conn.commit()
+            except Exception:
+                pass
+
+        # Remove JSON representation if present
+        try:
+            json_file = settings.DATA_DIR / "regulations" / f"{document_id}.json"
+            if json_file.exists():
+                json_file.unlink()
+        except Exception:
+            pass
+
+        global _CATALOG_CACHE
+        _CATALOG_CACHE["timestamp"] = 0
+        _CATALOG_CACHE["items"] = []
+
+        return {"success": True, "document_id": document_id, "message": f"Note '{document_id}' deleted."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notes/{document_id}/embed", tags=["REGULATIONS"])
+def api_embed_note(document_id: str):
+    """Generates vector embeddings for a note's chunks and adds them to FAISS."""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT chunk_id, embedding_text FROM chunks WHERE document_id = ? ORDER BY rowid ASC", (document_id,))
+            rows = cursor.fetchall()
+            if not rows:
+                raise HTTPException(status_code=404, detail="No chunks found for note.")
+
+            chunk_records = [{"chunk_id": r["chunk_id"], "embedding_text": r["embedding_text"]} for r in rows]
+            embedded_count = embed_chunks_for_document(chunk_records)
+            if embedded_count == 0:
+                raise HTTPException(status_code=500, detail="Failed to generate embeddings via LM Studio. Verify LM Studio embedding service is active.")
+
+            cursor.execute("SELECT metadata_json FROM documents WHERE document_id = ?", (document_id,))
+            doc_row = cursor.fetchone()
+            if doc_row and doc_row["metadata_json"]:
+                meta = json.loads(doc_row["metadata_json"])
+                meta["is_embedded"] = True
+                cursor.execute("UPDATE documents SET metadata_json = ? WHERE document_id = ?", (json.dumps(meta), document_id))
+                conn.commit()
+
+        return {
+            "success": True,
+            "document_id": document_id,
+            "embedded_count": embedded_count,
+            "message": f"Successfully generated vector embeddings for {embedded_count} chunks in '{document_id}'."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -------------------------------------------------------------
+# SKYBRARY BOOKSHELF OPERATIONS
+# -------------------------------------------------------------
+
+class SkybraryCategoryInfo(BaseModel):
+    category: str
+    doc_count: int
+
+class SkybraryCategoriesResponse(BaseModel):
+    total_categories: int
+    categories: List[SkybraryCategoryInfo]
+
+class SkybrarySearchResultItem(BaseModel):
+    chunk_id: str
+    document_id: str
+    title: str
+    category: Optional[str] = None
+    author: Optional[str] = None
+    date: Optional[str] = None
+    page: Optional[int] = None
+    score: float
+    source_text: str
+    pdf_url: Optional[str] = None
+    summary_url: Optional[str] = None
+    pdf_filename: Optional[str] = None
+    section_path: List[str] = Field(default_factory=list)
+
+class SkybrarySearchResponse(BaseModel):
+    query: str
+    total_found: int
+    items: List[SkybrarySearchResultItem]
+
+
+@router.get("/skybrary/categories", response_model=SkybraryCategoriesResponse, tags=["REGULATIONS"])
+def api_get_skybrary_categories():
+    """Returns all SKYbrary Bookshelf publication categories with publication counts."""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                json_extract(metadata_json, '$.category') as cat,
+                COUNT(document_id) as doc_count
+            FROM documents
+            WHERE source = 'SKYBRARY'
+            GROUP BY cat
+            ORDER BY doc_count DESC
+        """)
+        rows = cursor.fetchall()
+        categories = [
+            SkybraryCategoryInfo(category=r["cat"] or "Uncategorized", doc_count=r["doc_count"])
+            for r in rows
+        ]
+        return SkybraryCategoriesResponse(
+            total_categories=len(categories),
+            categories=categories
+        )
+
+
+@router.get("/skybrary/search", response_model=SkybrarySearchResponse, tags=["SEARCH", "REGULATIONS"])
+def api_search_skybrary(
+    query: str = Query(..., description="Keywords or phrases to search in SKYbrary Bookshelf"),
+    category: Optional[str] = Query(None, description="Optional category filter (e.g. 'Accident Investigation')"),
+    author: Optional[str] = Query(None, description="Optional publishing organization (e.g. 'EASA', 'FAA', 'UK AAIB', 'NTSB')"),
+    top_k: int = Query(10, ge=1, le=100, description="Max results to return"),
+    sort_by: str = Query("relevance", description="Sort order: 'relevance' or 'date'")
+):
+    """
+    Dedicated high-speed search across 228,000+ SKYbrary Bookshelf chunks with metadata filtering.
+    """
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        fts_q = build_fts_query(query)
+        if not fts_q:
+            return SkybrarySearchResponse(query=query, total_found=0, items=[])
+
+        where_clauses = ["chunks_fts MATCH ?", "d.source = 'SKYBRARY'"]
+        params: List[Any] = [fts_q]
+
+        if category and category.lower() != "all":
+            where_clauses.append("json_extract(d.metadata_json, '$.category') = ?")
+            params.append(category)
+
+        if author and author.lower() != "all":
+            where_clauses.append("json_extract(d.metadata_json, '$.author') LIKE ?")
+            params.append(f"%{author}%")
+
+        order_by = "bm25_score ASC" if sort_by == "relevance" else "d.date DESC"
+
+        sql = f"""
+            SELECT 
+                c.chunk_id,
+                c.document_id,
+                c.section_path,
+                c.source_text,
+                c.metadata_json as chunk_meta_json,
+                d.title,
+                d.date,
+                d.metadata_json as doc_meta_json,
+                bm25(chunks_fts, 1.0, 3.0, 2.0) AS bm25_score
+            FROM chunks_fts f
+            JOIN chunks c ON f.rowid = c.rowid
+            JOIN documents d ON c.document_id = d.document_id
+            WHERE {" AND ".join(where_clauses)}
+            ORDER BY {order_by}
+            LIMIT ?
+        """
+        params.append(top_k)
+
+        try:
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError:
+            # Fallback for simple tokens if complex boolean query fails
+            clean_words = re.sub(r'[^\w\s\-/]', ' ', query).split()
+            safe_terms = [f'"{w}"' if ("-" in w or "/" in w) else w for w in clean_words if w]
+            simple_q = " OR ".join(safe_terms)
+            if not simple_q:
+                return SkybrarySearchResponse(query=query, total_found=0, items=[])
+            params[0] = simple_q
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
+
+        items = []
+        for r in rows:
+            doc_meta = json.loads(r["doc_meta_json"]) if r["doc_meta_json"] else {}
+            chunk_meta = json.loads(r["chunk_meta_json"]) if r["chunk_meta_json"] else {}
+            sec_path = json.loads(r["section_path"]) if r["section_path"] else []
+
+            raw_bm25 = float(r["bm25_score"])
+            norm_score = round(abs(raw_bm25), 4)
+
+            items.append(SkybrarySearchResultItem(
+                chunk_id=r["chunk_id"],
+                document_id=r["document_id"],
+                title=r["title"] or r["document_id"],
+                category=doc_meta.get("category"),
+                author=doc_meta.get("author"),
+                date=r["date"],
+                page=chunk_meta.get("page_start"),
+                score=norm_score,
+                source_text=r["source_text"] or "",
+                pdf_url=doc_meta.get("pdf_url"),
+                summary_url=doc_meta.get("summary_url"),
+                pdf_filename=doc_meta.get("pdf_filename"),
+                section_path=sec_path
+            ))
+
+        return SkybrarySearchResponse(
+            query=query,
+            total_found=len(items),
+            items=items
+        )
+
 

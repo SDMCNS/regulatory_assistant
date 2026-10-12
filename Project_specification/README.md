@@ -2,6 +2,8 @@
 
 Welcome to the **AeroLex EU / Regulation Assistant** technical documentation directory. This folder contains the authoritative technical architecture, schema specifications, retrieval algorithms, API documentation, and operational onboarding guides for developers, systems architects, and auditors.
 
+> 🌐 **Interactive Documentation Suite (HTML)**: An executive-grade, tabbed HTML version of this documentation suite (including a layperson project overview cover page and all technical specifications) is available at [**README.html**](file:///c:/Projects/Regs/Project_specification/README.html) or [**index.html**](file:///c:/Projects/Regs/Project_specification/index.html). Open in any web browser for offline tab navigation, dark/light mode, and copyable snippets.
+
 ---
 
 ## Documentation Index

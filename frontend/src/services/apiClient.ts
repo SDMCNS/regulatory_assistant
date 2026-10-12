@@ -32,6 +32,12 @@ import {
   ChunkContextSummaryResponse,
   ManualDocumentRequest,
   ManualDocumentResponse,
+  SkybraryCategoriesResponse,
+  SkybrarySearchResponse,
+  CreateNoteRequest,
+  NoteActionResponse,
+  NoteSummaryItem,
+  NoteDetailResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -550,36 +556,85 @@ export async function getDocumentMarkdown(
   }
 }
 
+export interface AskLLMOptions {
+  prompt?: string;
+  messages?: { role: string; content: string }[];
+  chunkIds?: string[] | null;
+  contextSections?: import('../types').DocSection[] | null;
+  memoryContext?: string;
+  origin?: string;
+  stakeholder?: string | null;
+  documentIds?: string[] | null;
+  topK?: number;
+  useHyde?: boolean;
+  contextWindow?: number;
+  settings?: AppSettings;
+}
+
 /**
  * POST /llm/ask
- * Ask question to local LLM with optional targeted chunk IDs
+ * Ask question to LLM (LM Studio or Gemini) with multi-turn messages, hybrid retrieval, and surrounding context.
  */
 export async function askLLM(
-  prompt: string,
+  promptOrOptions: string | AskLLMOptions,
   chunkIds?: string[] | null,
   contextSections?: import('../types').DocSection[] | null,
   memoryContext?: string,
-  settings: AppSettings = loadSettings()
-): Promise<{ answer: string; rawResponse?: any }> {
-  const clean = cleanUrl(settings.apiUrl);
+  customSettings?: AppSettings
+): Promise<{
+  answer: string;
+  referencedChunks: any[];
+  suggestedFollowups?: string[];
+  providerInfo?: Record<string, any>;
+  rawResponse?: any;
+}> {
+  let options: AskLLMOptions;
+  if (typeof promptOrOptions === 'string') {
+    options = {
+      prompt: promptOrOptions,
+      chunkIds: chunkIds,
+      contextSections: contextSections,
+      memoryContext: memoryContext,
+      settings: customSettings || loadSettings(),
+    };
+  } else {
+    options = {
+      ...promptOrOptions,
+      settings: promptOrOptions.settings || customSettings || loadSettings(),
+    };
+  }
 
-  let finalPrompt = prompt;
-  if (memoryContext && memoryContext.trim()) {
-    finalPrompt = `[CONTEXT FROM PREVIOUS USER QUERIES IN THIS SESSION]:\n${memoryContext.trim()}\n\n[USER INQUIRY]:\n${prompt}`;
+  const activeSettings = options.settings || loadSettings();
+  const clean = cleanUrl(activeSettings.apiUrl);
+
+  let finalPrompt = options.prompt || '';
+  if (options.memoryContext && options.memoryContext.trim() && finalPrompt) {
+    finalPrompt = `[CONTEXT FROM PREVIOUS USER QUERIES IN THIS SESSION]:\n${options.memoryContext.trim()}\n\n[USER INQUIRY]:\n${finalPrompt}`;
   }
 
   const reqBody: LLMAskRequest = {
-    prompt: finalPrompt,
-    chunk_ids: chunkIds && chunkIds.length > 0 ? chunkIds : null,
-    context_sections: contextSections && contextSections.length > 0 ? contextSections : null,
+    prompt: finalPrompt || undefined,
+    messages: options.messages && options.messages.length > 0 ? options.messages : undefined,
+    chunk_ids: options.chunkIds && options.chunkIds.length > 0 ? options.chunkIds : null,
+    context_sections: options.contextSections && options.contextSections.length > 0 ? options.contextSections : null,
+    origin: options.origin || activeSettings.defaultOrigin || 'all',
+    stakeholder: options.stakeholder || null,
+    document_ids: options.documentIds && options.documentIds.length > 0 ? options.documentIds : null,
+    top_k: options.topK || activeSettings.defaultTopK || 5,
+    use_hyde: options.useHyde || false,
+    context_window: options.contextWindow ?? 1,
+    provider: activeSettings.researchProvider || 'local',
+    gemini_api_key: activeSettings.geminiApiKey || undefined,
+    gemini_model: activeSettings.geminiModel || undefined,
+    temperature: 0.2,
   };
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
-  if (settings.apiAuthToken) {
-    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  if (activeSettings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${activeSettings.apiAuthToken}`;
   }
 
   const doFetch = async (targetBase: string) => {
@@ -595,16 +650,34 @@ export async function askLLM(
 
     const data = await res.json();
     let textAnswer = '';
+    let referencedChunks: any[] = [];
+    let suggestedFollowups: string[] | undefined = undefined;
+    let providerInfo: Record<string, any> | undefined = undefined;
 
     if (typeof data === 'string') {
       textAnswer = data;
     } else if (typeof data === 'object' && data !== null) {
       textAnswer = data.answer || data.response || data.result || data.text || JSON.stringify(data, null, 2);
+      if (Array.isArray(data.referenced_chunks)) {
+        referencedChunks = data.referenced_chunks;
+      }
+      if (Array.isArray(data.suggested_followups)) {
+        suggestedFollowups = data.suggested_followups;
+      }
+      if (data.provider_info) {
+        providerInfo = data.provider_info;
+      }
     } else {
       textAnswer = String(data);
     }
 
-    return { answer: textAnswer, rawResponse: data };
+    return {
+      answer: textAnswer,
+      referencedChunks,
+      suggestedFollowups,
+      providerInfo,
+      rawResponse: data,
+    };
   };
 
   try {
@@ -801,6 +874,52 @@ export async function deleteResearchJob(
     if (clean.includes('8000') && !clean.startsWith('/api')) {
       await doFetch('/api');
       return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /research/jobs/:id/generate-comprehensive
+ * Triggers sub-research jobs addressing identified gaps and generates a comprehensive report.
+ */
+export async function generateComprehensiveReport(
+  jobId: string,
+  settings: AppSettings = loadSettings()
+): Promise<{ job_id: string; status: string; message: string }> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const payload = {
+    provider: settings.researchProvider || 'local',
+    gemini_api_key: settings.geminiApiKey || undefined,
+    gemini_model: settings.geminiModel || 'gemini-3.5-flash',
+  };
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/research/jobs/${encodeURIComponent(jobId)}/generate-comprehensive`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
     }
     throw err;
   }
@@ -1133,6 +1252,257 @@ export async function createManualDocument(
     throw err;
   }
 }
+
+/**
+ * Perform dedicated high-speed search across SKYbrary Bookshelf documents
+ */
+export async function searchSkybrary(
+  params: {
+    query: string;
+    category?: string;
+    author?: string;
+    top_k?: number;
+    sort_by?: 'relevance' | 'date';
+  },
+  settings: AppSettings = loadSettings()
+): Promise<SkybrarySearchResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const qParams = new URLSearchParams({
+    query: params.query,
+    top_k: String(params.top_k ?? 10),
+    sort_by: params.sort_by ?? 'relevance',
+  });
+  if (params.category && params.category !== 'all') {
+    qParams.append('category', params.category);
+  }
+  if (params.author && params.author !== 'all') {
+    qParams.append('author', params.author);
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/search/skybrary?${qParams.toString()}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from /search/skybrary: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Retrieve all SKYbrary Bookshelf publication categories
+ */
+export async function getSkybraryCategories(
+  settings: AppSettings = loadSettings()
+): Promise<SkybraryCategoriesResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/skybrary/categories`);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from /regulations/skybrary/categories: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+// -------------------------------------------------------------
+// User Notes & Internal Documentation API Client
+// -------------------------------------------------------------
+
+/**
+ * Create a new user note / documentation, chunk it by sections, and optionally embed it.
+ */
+export async function createNote(
+  req: CreateNoteRequest,
+  settings: AppSettings = loadSettings()
+): Promise<NoteActionResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when creating note`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * List all user notes, optionally filtered by project
+ */
+export async function listNotes(
+  project?: string,
+  settings: AppSettings = loadSettings()
+): Promise<NoteSummaryItem[]> {
+  const clean = cleanUrl(settings.apiUrl);
+  const qParams = new URLSearchParams();
+  if (project && project.trim() && project !== 'all') {
+    qParams.append('project', project.trim());
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes?${qParams.toString()}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when listing notes`);
+    }
+    const data = await res.json();
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.notes)) return data.notes;
+    return [];
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Get full note details with structured sections and rendered markdown
+ */
+export async function getNote(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<NoteDetailResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes/${encodeURIComponent(documentId)}`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when getting note`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Delete a user note and its chunks
+ */
+export async function deleteNote(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<NoteActionResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes/${encodeURIComponent(documentId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when deleting note`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Trigger on-demand FAISS embedding for an existing note
+ */
+export async function embedNote(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<NoteActionResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes/${encodeURIComponent(documentId)}/embed`, {
+      method: 'POST',
+      headers,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when embedding note`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
 
 
 

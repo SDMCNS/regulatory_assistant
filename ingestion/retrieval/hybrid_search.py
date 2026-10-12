@@ -10,7 +10,8 @@ def search_hybrid(
     rrf_k: int = 60, 
     use_hyde: bool = False,
     stakeholder: Optional[str] = None,
-    document_id: Optional[str] = None
+    document_id: Optional[str] = None,
+    deep_research: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Performs Reciprocal Rank Fusion (RRF) between semantic vector search
@@ -21,9 +22,9 @@ def search_hybrid(
     # We fetch more results than top_k for each to get a good intersection pool
     fetch_k = max(top_k * 2, 20)
     
-    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id)
+    semantic_results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
     # Disable LLM expansion for hybrid inner search to keep it fast, or keep it if desired
-    keyword_results = search_keywords(query, fetch_k, origin, use_llm_expansion=False, document_id=document_id)
+    keyword_results = search_keywords(query, fetch_k, origin, use_llm_expansion=False, document_id=document_id, deep_research=deep_research)
     
     # RRF Scoring Map: chunk_id -> { "score": float, "doc": dict }
     rrf_map: Dict[str, Dict[str, Any]] = {}

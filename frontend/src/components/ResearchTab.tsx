@@ -32,15 +32,30 @@ import {
   Columns
 } from 'lucide-react';
 import { marked } from 'marked';
-import { AppSettings, SearchDocResponse, ResearchJobSummary, ResearchJobDetail, DocSection, ChunkContextSummaryResponse } from '../types';
+import { 
+  AppSettings, 
+  SearchDocResponse, 
+  ResearchJobSummary, 
+  ResearchJobDetail, 
+  DocSection, 
+  ChunkContextSummaryResponse,
+  ResearchGap,
+  SkybraryReadingMaterial,
+  UserNoteReadingMaterial
+} from '../types';
 import { parseReportSections, getSectionStyle, countCitations, normalizeChunkCitations, findChunkExcerpt } from '../utils/sectionParser';
+import { 
+  downloadResearchReportHtml, 
+  downloadResearchReportMarkdown 
+} from '../utils/reportHtmlGenerator';
 import { 
   createResearchJob, 
   listResearchJobs, 
   getResearchJob, 
   deleteResearchJob, 
   getDocumentMarkdown,
-  getChunkContextSummary
+  getChunkContextSummary,
+  generateComprehensiveReport
 } from '../services/apiClient';
 
 interface ResearchTabProps {
@@ -82,6 +97,22 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
   const [copiedContextKey, setCopiedContextKey] = useState<string | null>(null);
   const [loadingDocId, setLoadingDocId] = useState<string | null>(null);
   const [cacheNotification, setCacheNotification] = useState<string | null>(null);
+  const [isGeneratingComprehensive, setIsGeneratingComprehensive] = useState(false);
+
+  const handleGenerateComprehensive = async (jobId: string) => {
+    try {
+      setIsGeneratingComprehensive(true);
+      await generateComprehensiveReport(jobId, settings);
+      const detail = await getResearchJob(jobId, settings);
+      setSelectedJobDetail(detail);
+      const updatedList = await listResearchJobs(settings);
+      setJobs(updatedList);
+    } catch (err: any) {
+      alert(`Failed to start comprehensive report: ${err.message}`);
+    } finally {
+      setIsGeneratingComprehensive(false);
+    }
+  };
 
   const handleFetchChunkContext = async (chunkId: string) => {
     if (chunkContexts[chunkId]) return;
@@ -152,10 +183,14 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
     }
   }, [selectedJobId, loadJobDetail]);
 
-  // Polling: poll every 4s if any job is PENDING or RUNNING
+  // Polling: poll every 4s if any job is PENDING or RUNNING (including comprehensive report generation)
   useEffect(() => {
-    const hasActiveJob = jobs.some(j => j.status === 'PENDING' || j.status === 'RUNNING') ||
-      (selectedJobDetail && (selectedJobDetail.status === 'PENDING' || selectedJobDetail.status === 'RUNNING'));
+    const hasActiveJob = jobs.some(j => j.status === 'PENDING' || j.status === 'RUNNING' || j.comprehensive_status === 'RUNNING') ||
+      (selectedJobDetail && (
+        selectedJobDetail.status === 'PENDING' || 
+        selectedJobDetail.status === 'RUNNING' || 
+        selectedJobDetail.comprehensive_status === 'RUNNING'
+      ));
 
     if (!hasActiveJob) return;
 
@@ -523,6 +558,8 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
                 onRetry={() => handleRetryJob(selectedJobDetail)}
                 onForceRerun={() => handleSubmit(undefined, true, selectedJobDetail.query)}
                 onOpenWorkspaceWithDocs={onOpenWorkspaceWithDocs}
+                onGenerateComprehensive={handleGenerateComprehensive}
+                isGeneratingComprehensive={isGeneratingComprehensive}
               />
             ) : (
               <div className="border border-slate-800/80 rounded-2xl p-12 bg-slate-900/20 text-center flex flex-col items-center justify-center min-h-[400px]">
@@ -870,6 +907,8 @@ interface ResearchReportViewerProps {
   onRetry: () => void;
   onForceRerun: () => void;
   onOpenWorkspaceWithDocs?: (documentIds: string[], initialQuery?: string) => void;
+  onGenerateComprehensive?: (jobId: string) => void;
+  isGeneratingComprehensive?: boolean;
 }
 
 const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
@@ -879,9 +918,14 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
   loadingDocId,
   onRetry,
   onForceRerun,
-  onOpenWorkspaceWithDocs
+  onOpenWorkspaceWithDocs,
+  onGenerateComprehensive,
+  isGeneratingComprehensive
 }) => {
   // ALL HOOKS MUST BE UNCONDITIONALLY CALLED AT THE TOP LEVEL BEFORE ANY RETURN
+  const [reportType, setReportType] = useState<'initial' | 'comprehensive'>('initial');
+  const [showSkybrary, setShowSkybrary] = useState(true);
+  const [showUserNotes, setShowUserNotes] = useState(true);
   const [viewMode, setViewMode] = useState<'sections' | 'continuous'>('sections');
   const [sectionFilter, setSectionFilter] = useState('');
   const [openSectionIds, setOpenSectionIds] = useState<Record<string, boolean>>({});
@@ -898,11 +942,19 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
     showBelow: boolean;
   } | null>(null);
 
+  // Determine active markdown (initial vs comprehensive)
+  const activeMarkdown = useMemo(() => {
+    if (reportType === 'comprehensive' && job.comprehensive_report_markdown) {
+      return job.comprehensive_report_markdown;
+    }
+    return job.report_markdown || '';
+  }, [reportType, job.comprehensive_report_markdown, job.report_markdown]);
+
   // Parse structured report sections
   const sections = useMemo<DocSection[]>(() => {
-    if (!job.report_markdown) return [];
-    return parseReportSections(job.report_markdown);
-  }, [job.report_markdown]);
+    if (!activeMarkdown) return [];
+    return parseReportSections(activeMarkdown);
+  }, [activeMarkdown]);
 
   // Initial open state: expand all sections by default so report is immediately readable
   useEffect(() => {
@@ -913,7 +965,7 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
       });
       setOpenSectionIds(initialOpen);
     }
-  }, [job.job_id, sections]);
+  }, [job.job_id, sections, reportType]);
 
   // Dismiss tooltip on scroll to prevent stale floating positions
   useEffect(() => {
@@ -932,9 +984,9 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
   }, [sections, sectionFilter]);
 
   const continuousHtml = useMemo(() => {
-    if (!job.report_markdown) return '';
-    return renderMarkdownWithCitations(job.report_markdown);
-  }, [job.report_markdown]);
+    if (!activeMarkdown) return '';
+    return renderMarkdownWithCitations(activeMarkdown);
+  }, [activeMarkdown]);
 
   const handleExpandAll = () => {
     const allOpen: Record<string, boolean> = {};
@@ -963,22 +1015,27 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
   };
 
   const handleCopyMarkdown = () => {
-    if (!job.report_markdown) return;
-    navigator.clipboard.writeText(job.report_markdown);
+    if (!activeMarkdown) return;
+    navigator.clipboard.writeText(activeMarkdown);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [downloadToast, setDownloadToast] = useState<string | null>(null);
+
+  const handleDownloadHtml = () => {
+    if (!activeMarkdown) return;
+    downloadResearchReportHtml(job, reportType);
+    setDownloadToast('Report downloaded as interactive HTML with citation mouse-overs!');
+    setTimeout(() => setDownloadToast(null), 3500);
+  };
+
   const handleDownloadMarkdown = () => {
-    if (!job.report_markdown) return;
-    const blob = new Blob([job.report_markdown], { type: 'text/markdown;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Regulatory_Research_${job.job_id.slice(0, 8)}.md`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    if (!activeMarkdown) return;
+    downloadResearchReportMarkdown(job, reportType);
+    setDownloadToast('Report downloaded as Markdown (.md)!');
+    setTimeout(() => setDownloadToast(null), 3500);
   };
 
   const handleMouseOver = (e: React.MouseEvent) => {
@@ -1154,6 +1211,38 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
               {totalWords.toLocaleString()} words
             </span>
           </div>
+
+          {/* Version Switcher if Comprehensive Report is Available */}
+          {job.comprehensive_report_markdown && (
+            <div className="pt-2 flex items-center gap-2">
+              <span className="text-[11px] text-slate-400 font-medium">Report Version:</span>
+              <div className="inline-flex items-center p-0.5 bg-slate-950 border border-slate-800 rounded-lg text-xs">
+                <button
+                  type="button"
+                  onClick={() => setReportType('initial')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                    reportType === 'initial'
+                      ? 'bg-slate-800 text-sky-300 shadow-sm border border-slate-700'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Initial Report
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportType('comprehensive')}
+                  className={`px-2.5 py-1 rounded-md font-medium flex items-center gap-1.5 transition-all ${
+                    reportType === 'comprehensive'
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span>Comprehensive (Gaps Resolved)</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -1175,15 +1264,170 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
             <span>{copied ? 'Copied!' : 'Copy'}</span>
           </button>
 
-          <button
-            onClick={handleDownloadMarkdown}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white transition-colors shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download</span>
-          </button>
+          {/* Hooked Download Button: Downloads well-formatted HTML with citation mouse-overs */}
+          <div className="relative inline-flex items-center rounded-lg shadow-sm">
+            <button
+              onClick={handleDownloadHtml}
+              title="Download well-formatted interactive HTML report with citation mouse-overs"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-l-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download HTML</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDownloadMenu(prev => !prev)}
+              title="Choose report download format (.html or .md)"
+              className="px-1.5 py-1.5 rounded-r-lg bg-indigo-700 hover:bg-indigo-600 border-l border-indigo-500/40 text-white transition-colors"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+
+            {showDownloadMenu && (
+              <div 
+                className="absolute right-0 top-full mt-1.5 w-64 p-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95"
+                onMouseLeave={() => setShowDownloadMenu(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDownloadHtml();
+                    setShowDownloadMenu(false);
+                  }}
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-indigo-950/60 border border-transparent hover:border-indigo-800 transition-colors"
+                >
+                  <span className="p-1 rounded bg-indigo-500/20 text-indigo-400 mt-0.5">
+                    <FileText className="w-3.5 h-3.5" />
+                  </span>
+                  <div>
+                    <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                      <span>HTML Report (.html)</span>
+                      <span className="text-[9px] bg-indigo-600 text-white px-1 py-0.2 rounded font-mono font-bold">Recommended</span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Interactive executive view with citation mouse-overs & appendices</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDownloadMarkdown();
+                    setShowDownloadMenu(false);
+                  }}
+                  className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-slate-800/80 border border-transparent hover:border-slate-700 transition-colors mt-1"
+                >
+                  <span className="p-1 rounded bg-slate-800 text-slate-400 mt-0.5">
+                    <Copy className="w-3.5 h-3.5" />
+                  </span>
+                  <div>
+                    <div className="text-xs font-semibold text-slate-200">Raw Markdown (.md)</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">Plain text markdown document</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Download Confirmation Toast */}
+      {downloadToast && (
+        <div className="flex items-center gap-2 p-2.5 px-3.5 rounded-xl bg-emerald-950/90 border border-emerald-600/70 text-emerald-200 text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-1">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{downloadToast}</span>
+        </div>
+      )}
+
+      {/* Research Gaps Self-Critique & Sub-Research Activities Panel */}
+      {job.research_gaps && job.research_gaps.length > 0 && (
+        <div className="border border-indigo-500/40 rounded-2xl bg-gradient-to-br from-indigo-950/40 via-slate-900/60 to-purple-950/30 backdrop-blur overflow-hidden shadow-xl">
+          <div className="p-4 bg-slate-900/70 border-b border-indigo-900/40 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                <Sparkles className="w-4 h-4 text-amber-300" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-xs font-bold text-white tracking-wide uppercase">
+                    Report Self-Critique & Identified Regulatory Gaps
+                  </h3>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-semibold">
+                    {job.research_gaps.length} Sub-Research Job{job.research_gaps.length === 1 ? '' : 's'} Available
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  The research engine reviewed its report and identified aspects that could benefit from dedicated sub-research.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <div className="flex items-center gap-2">
+              {job.comprehensive_status === 'COMPLETED' ? (
+                <button
+                  type="button"
+                  onClick={() => setReportType('comprehensive')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-sm ${
+                    reportType === 'comprehensive'
+                      ? 'bg-emerald-600 text-white shadow-emerald-950/50'
+                      : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700 hover:bg-emerald-900'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>{reportType === 'comprehensive' ? 'Viewing Comprehensive Report' : 'View Comprehensive Report'}</span>
+                </button>
+              ) : (job.comprehensive_status === 'RUNNING' || isGeneratingComprehensive) ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-950/90 border border-indigo-600/70 text-indigo-200 text-xs font-semibold shadow-sm animate-pulse">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                  <span>Investigating Gaps & Synthesizing...</span>
+                </div>
+              ) : onGenerateComprehensive ? (
+                <button
+                  type="button"
+                  onClick={() => onGenerateComprehensive(job.job_id)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shadow-md shadow-indigo-900/50 hover:shadow-indigo-800/60"
+                  title="Run targeted sub-research jobs addressing identified gaps and synthesize a master report"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Produce Comprehensive Report</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Gaps Grid */}
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {job.research_gaps.map((gap, i) => (
+                <div key={gap.gap_id || i} className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800/90 flex flex-col justify-between space-y-2.5">
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-semibold uppercase">
+                        Sub-Job {i + 1}
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-semibold text-slate-100">{gap.topic}</h4>
+                    <p className="text-[11px] text-slate-300 leading-relaxed mt-1">
+                      {gap.description}
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800/60 space-y-1">
+                    <div className="text-[10px] text-slate-400 font-medium">Target Sub-Query:</div>
+                    <div className="text-[11px] font-mono text-cyan-300 bg-slate-900/80 px-2 py-1 rounded border border-cyan-900/40 break-words">
+                      {gap.sub_query}
+                    </div>
+                    {gap.rationale && (
+                      <p className="text-[10px] text-slate-400 italic pt-0.5">
+                        {gap.rationale}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sections Viewer Controls & Filter Bar */}
       <div className="bg-slate-900/60 border border-slate-800/80 rounded-xl p-3 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg backdrop-blur">
@@ -1712,6 +1956,345 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Collapsible Additional Potential Reading Materials (SKYbrary Bookshelf) */}
+      <div className="border border-sky-900/50 rounded-2xl bg-gradient-to-br from-slate-900/90 via-sky-950/20 to-slate-900/90 backdrop-blur overflow-hidden shadow-xl">
+        <button
+          onClick={() => setShowSkybrary(!showSkybrary)}
+          className="w-full flex items-center justify-between p-4 bg-slate-900/80 hover:bg-slate-850 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-sky-500/15 text-sky-400 border border-sky-500/30">
+              <BookOpen className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-100 uppercase tracking-wide">
+                  Additional Potential Reading Materials · SKYbrary Bookshelf
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-800/80 font-semibold">
+                  {job.skybrary_reading_materials?.length || 0} Curated Resource{(job.skybrary_reading_materials?.length || 0) === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                External aviation safety articles, operational guidance, and best-practice materials matched to this finished report.
+              </p>
+            </div>
+          </div>
+          {showSkybrary ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+        </button>
+
+        {showSkybrary && (
+          <div className="p-5 border-t border-sky-900/40 space-y-4">
+            {job.skybrary_reading_materials && job.skybrary_reading_materials.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {job.skybrary_reading_materials.map((item, idx) => {
+                  const matchPercent = Math.round(item.relevance_score * 100);
+                  return (
+                    <div
+                      key={item.document_id || idx}
+                      className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-sky-700/60 transition-all duration-200 flex flex-col justify-between space-y-3 group hover:shadow-lg hover:shadow-sky-950/30"
+                    >
+                      <div className="space-y-2">
+                        {/* Header Badges */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase bg-sky-950 text-sky-300 border border-sky-800/80">
+                              {item.category || 'SKYbrary Guidance'}
+                            </span>
+                            {item.author && (
+                              <span className="text-[10px] text-slate-400 truncate max-w-[140px]" title={item.author}>
+                                {item.author}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Relevance Score Badge with visual bar */}
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-12 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  matchPercent >= 85
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                                    : 'bg-gradient-to-r from-sky-500 to-indigo-500'
+                                }`}
+                                style={{ width: `${matchPercent}%` }}
+                              />
+                            </div>
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                                matchPercent >= 85
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/80'
+                                  : 'bg-sky-950 text-sky-300 border border-sky-800/80'
+                              }`}
+                            >
+                              {matchPercent}% Match
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Document Title */}
+                        <h4 className="text-sm font-semibold text-white group-hover:text-sky-300 transition-colors leading-snug">
+                          {item.title}
+                        </h4>
+
+                        {/* Match Rationale */}
+                        {item.match_rationale && (
+                          <p className="text-xs text-slate-300 leading-relaxed pl-2 border-l-2 border-sky-500/50 bg-sky-950/20 py-1 pr-1 rounded-r">
+                            <strong className="text-sky-400 text-[11px] uppercase tracking-wide block mb-0.5 font-semibold">
+                              Why Recommended:
+                            </strong>
+                            {item.match_rationale}
+                          </p>
+                        )}
+
+                        {/* Key Excerpt */}
+                        {item.key_excerpt && (
+                          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800/80 text-[11px] text-slate-400 italic leading-relaxed line-clamp-3">
+                            "{item.key_excerpt}"
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          {onOpenDoc && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenDoc(item.document_id)}
+                              disabled={loadingDocId === item.document_id}
+                              title="Inspect full text in regulatory document reader"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors border border-slate-700/80"
+                            >
+                              {loadingDocId === item.document_id ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                              ) : (
+                                <ExternalLink className="w-3 h-3 text-sky-400" />
+                              )}
+                              <span>Read In-App</span>
+                            </button>
+                          )}
+
+                          {onOpenWorkspaceWithDocs && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenWorkspaceWithDocs([item.document_id], job.query)}
+                              title="Open this SKYbrary document in workspace side-by-side"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs font-medium transition-colors border border-slate-800"
+                            >
+                              <Columns className="w-3 h-3 text-indigo-400" />
+                              <span>Workspace</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {item.pdf_url && (
+                            <a
+                              href={item.pdf_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Open or download official publication PDF"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-950/80 hover:bg-sky-900 text-sky-300 text-xs font-medium transition-colors border border-sky-800/80"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>PDF</span>
+                            </a>
+                          )}
+
+                          {item.summary_url && (
+                            <a
+                              href={item.summary_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Visit official SKYbrary portal article"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white text-xs font-medium transition-colors border border-slate-800"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>SKYbrary Portal</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-2">
+                <p className="text-xs text-slate-400">
+                  No dedicated SKYbrary bookshelf items have been matched for this research run yet.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Re-running or producing a comprehensive report will automatically search the SKYbrary knowledge corpus for relevant operational guidance.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Collapsible Additional Potential Reading Materials (User Notes & Internal Documentation) */}
+      <div className="border border-amber-900/50 rounded-2xl bg-gradient-to-br from-slate-900/90 via-amber-950/20 to-slate-900/90 backdrop-blur overflow-hidden shadow-xl">
+        <button
+          onClick={() => setShowUserNotes(!showUserNotes)}
+          className="w-full flex items-center justify-between p-4 bg-slate-900/80 hover:bg-slate-850 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">
+              <FileText className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-100 uppercase tracking-wide">
+                  Internal Documentation & Project Notes · Relevant Follow-up Reading
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800/80 font-semibold">
+                  {job.user_notes_reading_materials?.length || 0} Matched Note{(job.user_notes_reading_materials?.length || 0) === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Internal team journals, meeting minutes, and project documentation matched to this inquiry for contextual background.
+              </p>
+            </div>
+          </div>
+          {showUserNotes ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+        </button>
+
+        {showUserNotes && (
+          <div className="p-5 border-t border-amber-900/40 space-y-4">
+            {job.user_notes_reading_materials && job.user_notes_reading_materials.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {job.user_notes_reading_materials.map((item, idx) => {
+                  const matchPercent = Math.round(item.relevance_score * 100);
+                  return (
+                    <div
+                      key={item.document_id || idx}
+                      className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-amber-700/60 transition-all duration-200 flex flex-col justify-between space-y-3 group hover:shadow-lg hover:shadow-amber-950/30"
+                    >
+                      <div className="space-y-2">
+                        {/* Header Badges */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase bg-amber-950 text-amber-300 border border-amber-800/80">
+                              {item.note_type || 'Internal Note'}
+                            </span>
+                            {item.project && (
+                              <span className="text-[9px] font-mono px-2 py-0.5 rounded-full font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                                {item.project}
+                              </span>
+                            )}
+                            {item.author && (
+                              <span className="text-[10px] text-slate-400 truncate max-w-[140px]" title={item.author}>
+                                {item.author}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Relevance Score Badge */}
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-12 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${
+                                  matchPercent >= 80
+                                    ? 'bg-gradient-to-r from-amber-500 to-emerald-400'
+                                    : 'bg-gradient-to-r from-amber-500 to-orange-400'
+                                }`}
+                                style={{ width: `${matchPercent}%` }}
+                              />
+                            </div>
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                                matchPercent >= 80
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/80'
+                                  : 'bg-amber-950 text-amber-300 border border-amber-800/80'
+                              }`}
+                            >
+                              {matchPercent}% Match
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        <h4 className="text-sm font-semibold text-white group-hover:text-amber-300 transition-colors leading-snug">
+                          {item.title}
+                        </h4>
+
+                        {/* Match Rationale */}
+                        {item.match_rationale && (
+                          <p className="text-xs text-slate-300 leading-relaxed pl-2 border-l-2 border-amber-500/50 bg-amber-950/20 py-1 pr-1 rounded-r">
+                            <strong className="text-amber-400 text-[11px] uppercase tracking-wide block mb-0.5 font-semibold">
+                              Relevance Context:
+                            </strong>
+                            {item.match_rationale}
+                          </p>
+                        )}
+
+                        {/* Key Excerpt */}
+                        {item.key_excerpt && (
+                          <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800/80 text-[11px] text-slate-400 italic leading-relaxed line-clamp-3">
+                            "{item.key_excerpt}"
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          {onOpenDoc && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenDoc(item.document_id)}
+                              disabled={loadingDocId === item.document_id}
+                              title="Inspect full text in document reader"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors border border-slate-700/80"
+                            >
+                              {loadingDocId === item.document_id ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                              ) : (
+                                <ExternalLink className="w-3 h-3 text-amber-400" />
+                              )}
+                              <span>Read In-App</span>
+                            </button>
+                          )}
+
+                          {onOpenWorkspaceWithDocs && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenWorkspaceWithDocs([item.document_id], job.query)}
+                              title="Open this note in workspace alongside regulations"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-slate-200 text-xs font-medium transition-colors border border-slate-800"
+                            >
+                              <Columns className="w-3 h-3 text-amber-400" />
+                              <span>Workspace</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {item.date && (
+                          <span className="text-[10px] text-slate-500 font-mono">
+                            {item.date}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-2">
+                <p className="text-xs text-slate-400">
+                  No internal project notes or user documentation matched this regulatory query.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Author notes in the Notes & Journals tab to link internal project progress and meeting minutes with regulatory inquiries.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

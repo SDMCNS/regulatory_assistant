@@ -7,12 +7,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, Database, Copy, Check, Layers, ChevronDown, 
-  ChevronUp, FileText, ExternalLink, CornerDownLeft, Info, X
+  ChevronUp, FileText, ExternalLink, CornerDownLeft, Info, X, Sparkles, Cpu,
+  Edit2, Download
 } from 'lucide-react';
 import { AppSettings, ChatMessage, QueryMemoryItem, SearchDocResponse, ChatSession } from '../types';
 import { askLLM, searchRegulations } from '../services/apiClient';
 import { buildMemoryContextPrompt, recordQuery, getQueryMemory } from '../services/memoryService';
-import { getChats, createChat, addMessageToChat, deleteChat, toggleSectionInChat } from '../services/chatService';
+import { getChats, createChat, addMessageToChat, deleteChat, toggleSectionInChat, updateChat } from '../services/chatService';
+import { downloadChatReportHtml } from '../utils/chatHtmlReportGenerator';
 import { marked } from 'marked';
 
 interface AskAssistantProps {
@@ -50,9 +52,23 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
   const [useMemoryInPrompt, setUseMemoryInPrompt] = useState(settings.enableQueryMemoryContext);
   const [showMemoryPreview, setShowMemoryPreview] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingChatId, setEditingChatId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState<string>('');
   const [activeMemoryItems, setActiveMemoryItems] = useState<QueryMemoryItem[]>(() => 
     getQueryMemory().filter(m => m.isActiveInContext)
   );
+
+  const startRenaming = (chatId: string, currentTitle: string) => {
+    setEditingChatId(chatId);
+    setRenameValue(currentTitle);
+  };
+
+  const saveRenaming = (chatId: string) => {
+    if (renameValue.trim()) {
+      updateChat(chatId, { title: renameValue.trim() });
+    }
+    setEditingChatId(null);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -94,14 +110,23 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
     }
     let result: any;
       try {
+        // Multi-turn conversation history
+        const conversationHistory = [...messages, userMessage].map(m => ({
+          role: m.role,
+          content: m.content
+        }));
+
         // Live call to POST /llm/ask
-        result = await askLLM(
+        result = await askLLM({
           prompt,
-          targetedChunks.length > 0 ? targetedChunks : null,
-          savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
+          messages: conversationHistory,
+          chunkIds: targetedChunks.length > 0 ? targetedChunks : null,
+          contextSections: savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
           memoryContext,
+          origin: settings.defaultOrigin,
+          topK: settings.defaultTopK,
           settings
-        );
+        });
       } catch (err: any) {
         const errorMessage: ChatMessage = {
           id: 'msg-err-' + Date.now(),
@@ -115,17 +140,20 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
         return;
       }
 
-      // Search matching documents to provide rich citations from real API
+      // Use native referenced chunks from backend RAG, or fallback to supplementary search if empty
       let matchedChunks: any[] = [];
-      try {
-        const rawChunks = await searchRegulations(prompt, 3, settings.defaultOrigin, false, settings);
-        // Strip heavy fields to prevent blowing up localStorage quota
-        matchedChunks = rawChunks.map(c => {
-          const { text, metadata, ...lightweightChunk } = c as any;
-          return lightweightChunk;
-        });
-      } catch (e) {
-        console.warn('Could not retrieve supplementary doc chunks', e);
+      if (result.referencedChunks && result.referencedChunks.length > 0) {
+        matchedChunks = result.referencedChunks;
+      } else {
+        try {
+          const rawChunks = await searchRegulations(prompt, 3, settings.defaultOrigin, false, settings);
+          matchedChunks = rawChunks.map((c: any) => {
+            const { text, metadata, ...lightweightChunk } = c;
+            return lightweightChunk;
+          });
+        } catch (e) {
+          console.warn('Could not retrieve supplementary doc chunks', e);
+        }
       }
 
       const assistantMessage: ChatMessage = {
@@ -135,6 +163,8 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
         timestamp: Date.now(),
         referencedChunks: matchedChunks,
         usedMemoryItemIds: usedMemoryIds,
+        suggestedFollowups: result.suggestedFollowups,
+        providerInfo: result.providerInfo,
       };
 
       try {
@@ -200,30 +230,145 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1">
           {chats.map(chat => (
-            <div key={chat.id} className="group flex items-center justify-between">
-              <button
-                onClick={() => onChatChange(chat.id)}
-                className={`flex-1 text-left px-3 py-2 rounded-md text-sm truncate transition-colors ${
-                  activeChatId === chat.id ? 'bg-slate-800 text-sky-400 font-medium' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
-                }`}
-              >
-                {chat.title}
-              </button>
-              <button
-                onClick={() => {
-                  deleteChat(chat.id);
-                  if (activeChatId === chat.id) onChatChange(chats.find(c => c.id !== chat.id)?.id || '');
-                }}
-                className="p-2 text-slate-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+            <div key={chat.id} className="group flex items-center justify-between rounded-md p-1 hover:bg-slate-800/40">
+              {editingChatId === chat.id ? (
+                <div className="flex items-center gap-1 w-full py-0.5">
+                  <input
+                    type="text"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveRenaming(chat.id);
+                      if (e.key === 'Escape') setEditingChatId(null);
+                    }}
+                    autoFocus
+                    className="flex-1 bg-slate-950 border border-sky-500 rounded px-1.5 py-0.5 text-xs text-slate-100 focus:outline-none min-w-0"
+                  />
+                  <button
+                    onClick={() => saveRenaming(chat.id)}
+                    className="p-1 text-emerald-400 hover:text-emerald-300 shrink-0"
+                    title="Save title"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setEditingChatId(null)}
+                    className="p-1 text-slate-400 hover:text-slate-300 shrink-0"
+                    title="Cancel"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => onChatChange(chat.id)}
+                    className={`flex-1 text-left px-2 py-1 rounded text-sm truncate transition-colors ${
+                      activeChatId === chat.id ? 'bg-slate-800 text-sky-400 font-medium' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {chat.title}
+                  </button>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startRenaming(chat.id, chat.title);
+                      }}
+                      className="p-1 text-slate-400 hover:text-sky-300"
+                      title="Rename chat"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteChat(chat.id);
+                        if (activeChatId === chat.id) onChatChange(chats.find(c => c.id !== chat.id)?.id || '');
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-400"
+                      title="Delete chat"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
+      {/* Active Chat Title & Actions Header */}
+      <div className="flex items-center justify-between px-6 py-2.5 bg-slate-900 border-b border-slate-800 text-xs shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {editingChatId === activeChatId ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && activeChatId) saveRenaming(activeChatId);
+                  if (e.key === 'Escape') setEditingChatId(null);
+                }}
+                autoFocus
+                className="bg-slate-950 border border-sky-500 rounded px-2.5 py-1 text-sm text-slate-100 focus:outline-none w-64"
+              />
+              <button
+                onClick={() => activeChatId && saveRenaming(activeChatId)}
+                className="p-1 text-emerald-400 hover:text-emerald-300"
+                title="Save title"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setEditingChatId(null)}
+                className="p-1 text-slate-400 hover:text-slate-300"
+                title="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div 
+              className="flex items-center gap-2 group cursor-pointer" 
+              onClick={() => activeChat && startRenaming(activeChat.id, activeChat.title)}
+              title="Click to rename chat session"
+            >
+              <h2 className="text-sm font-semibold text-slate-100 truncate group-hover:text-sky-300 transition-colors">
+                {activeChat?.title || 'Chat Session'}
+              </h2>
+              <button
+                type="button"
+                className="text-slate-500 group-hover:text-sky-400 p-0.5 rounded transition-colors"
+                title="Rename chat"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          <span className="text-slate-600">|</span>
+          <span className="text-[11px] text-slate-500 font-mono">
+            {messages.length} message{messages.length === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {activeChat && messages.length > 0 && (
+            <button
+              onClick={() => downloadChatReportHtml(activeChat, settings)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-950/70 hover:bg-sky-900/90 border border-sky-800 text-sky-300 hover:text-sky-200 rounded-md text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+              title="Save chat session and referenced regulations as a standalone HTML report"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-400" />
+              <span>Save Chat as HTML Report</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Top Context Subheader */}
       <div className="flex flex-wrap items-center justify-between px-6 py-2.5 bg-slate-900/60 border-b border-slate-800/80 text-xs text-slate-400 gap-3 shrink-0">
         {/* Left: Memory Status & Toggle */}
@@ -394,38 +539,93 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                     <span>Referenced Regulatory Standards ({msg.referencedChunks.length})</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {msg.referencedChunks.map((chunk) => (
-                      <div
-                        key={chunk.chunk_id}
-                        className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 hover:border-slate-700 transition-colors"
-                      >
-                        <div className="min-w-0 pr-2">
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                            <span className="font-mono text-sky-400 uppercase">{chunk.source}</span>
-                            <span aria-hidden="true">·</span>
-                            <span className="truncate">{chunk.document_id}</span>
-                          </div>
-                          <div className="text-xs font-medium text-slate-200 truncate">
-                            {chunk.path[chunk.path.length - 1] || chunk.chunk_id}
-                          </div>
-                        </div>
+                    {msg.referencedChunks.map((chunk: any) => {
+                      const displayTitle = chunk.title || chunk.metadata?.title || chunk.metadata?.description || chunk.document_id;
+                      const sectionPath = chunk.path && chunk.path.length > 0
+                        ? chunk.path[chunk.path.length - 1]
+                        : chunk.metadata?.section || chunk.metadata?.clause || chunk.chunk_id;
+                      const fullBreadcrumb = chunk.path && chunk.path.length > 0
+                        ? chunk.path.join(' › ')
+                        : sectionPath;
 
-                        <button
-                          onClick={() => onViewDoc(chunk as SearchDocResponse)}
-                          className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded transition-colors shrink-0"
-                          title="View complete regulatory document"
+                      return (
+                        <div
+                          key={chunk.chunk_id}
+                          className="flex items-start justify-between p-2.5 rounded-lg bg-slate-950/70 border border-slate-800 hover:border-slate-700 transition-colors gap-2"
                         >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                          <div className="min-w-0 flex-1">
+                            {/* Prominent human-readable Document Title or Description */}
+                            <div className="text-xs font-semibold text-slate-100 line-clamp-1" title={displayTitle}>
+                              {displayTitle}
+                            </div>
+                            
+                            {/* Specific Section or Provision Path */}
+                            <div className="text-[11px] font-medium text-sky-300 truncate mt-0.5" title={fullBreadcrumb}>
+                              {sectionPath}
+                            </div>
+
+                            {/* Origin & Document ID tag */}
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-1">
+                              <span className="uppercase text-slate-400 px-1 py-0.2 bg-slate-900 rounded border border-slate-800">
+                                {chunk.source || 'REG'}
+                              </span>
+                              <span className="truncate" title={chunk.document_id}>
+                                {chunk.document_id}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const related = (msg.referencedChunks || []).filter((c: any) => c.document_id === chunk.document_id);
+                              onViewDoc({
+                                ...(chunk as SearchDocResponse),
+                                matched_chunks: related,
+                                matched_chunk_ids: related.map((c: any) => c.chunk_id),
+                              });
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded transition-colors shrink-0 mt-0.5"
+                            title="View complete regulatory document and skip between matched provisions"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Suggested Follow-Up Inquiries */}
+              {msg.suggestedFollowups && msg.suggestedFollowups.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Suggested Inquiries</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {msg.suggestedFollowups.map((followup, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSend(followup)}
+                        className="text-left text-xs bg-slate-800/70 hover:bg-sky-950/60 hover:text-sky-300 hover:border-sky-500/50 border border-slate-700/70 text-slate-300 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                        title="Click to ask this question"
+                      >
+                        <CornerDownLeft className="w-3 h-3 text-sky-400 shrink-0" />
+                        <span>{followup}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Message Actions */}
+              {/* Message Actions & Model Info */}
               {msg.role === 'assistant' && (
-                <div className="flex items-center justify-end gap-2 mt-3 pt-2 border-t border-slate-800/40 text-xs text-slate-400">
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-800/40 text-xs text-slate-400">
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
+                    <Cpu className="w-3 h-3 text-slate-400" />
+                    <span>{msg.providerInfo?.provider === 'gemini' ? `Gemini (${msg.providerInfo.model || 'Flash'})` : 'LM Studio Local'}</span>
+                  </div>
                   <button
                     onClick={() => handleCopyMessage(msg.id, msg.content)}
                     className="flex items-center gap-1 px-2 py-1 hover:text-slate-200 hover:bg-slate-800 rounded transition-colors"
@@ -447,7 +647,9 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                 <div className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '150ms' }} />
                 <div className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
-              <span>Querying local LLM at {settings.apiUrl}/llm/ask...</span>
+              <span>
+                Querying {settings.researchProvider === 'gemini' ? 'Gemini Cloud' : 'Local LM Studio'} via {settings.apiUrl}/llm/ask...
+              </span>
             </div>
           </div>
         )}

@@ -34,8 +34,14 @@ Located under the **Catalog & Download** tab:
 ### 2.2. Interactive Document Viewer & Supporting Acts Drawer
 Clicking **View in App** opens the `DocViewerModal`:
 1. **Interactive Sections Breakdown vs. Continuous Reading**: Toggle between collapsible statutory sections and traditional document view.
-2. **Client-Side Text Similarity Search**: Real-time substring and fuzzy search across document sections with word frequency counters and match stepping.
-3. **Supporting Regulations & Decisions Banner**:
+2. **Sequential Provision Stepper & Match Navigation**:
+   - Automatically detects all matching clauses when opened from Search Explorer or Assistant citations without filtering out non-matching sections, preserving preceding/succeeding statutory context.
+   - **Exact Referenced Match vs. Incidental Matches**: Clearly separates the exact clause clicked or cited from incidental search matches across the document.
+     - **Exact Referenced Match**: Receives an emerald border and glowing ring (`ring-2 ring-emerald-400`), a bold `🎯 REFERENCED MATCH` badge on the section header, and a dedicated **`[🎯 Referenced Match]`** button in the header toolbar to immediately return to the focal clause at any time.
+     - **Incidental Matches**: Highlighted with amber borders (`border-amber-500/40`), glowing amber rings when active, and an `INCIDENTAL MATCH #X` badge.
+   - **Navigation Controls**: Use `Prev` / `Next` stepper buttons, keyboard shortcuts (<kbd>↓</kbd>/<kbd>j</kbd>/<kbd>n</kbd> for Next, <kbd>↑</kbd>/<kbd>k</kbd>/<kbd>p</kbd> for Prev, <kbd>r</kbd> for Referenced Match), or the quick-jump selector dropdown to navigate through all matches.
+3. **Client-Side Text Similarity Search**: Real-time substring and fuzzy search across document sections with word frequency counters and match stepping.
+4. **Supporting Regulations & Decisions Banner**:
    - If the regulation has supporting acts, an interactive banner appears:
      > 🔗 **This regulation has {n} supporting acts (Decisions, Corrigenda, Implementing acts) that follow from it. Would you like to explore these too?**
    - Clicking **Explore Supporting Acts** expands a curated card grid displaying the title, date, CELEX reference, type badge (`DECISION`, `CORRIGENDUM`), and content snippet of each supporting act.
@@ -76,3 +82,14 @@ Located under the **Deep Research** tab (`ResearchTab.tsx`):
    - **Focal Provision**: Full text of the cited provision with copy capabilities.
    - **Surrounding Sequence & LLM Context**: AI synthesis of operational implications alongside the chronological sequence of preceding, focal, and subsequent provisions.
 5. **Evidence & Negation Audit Ledger**: Transparent accounting of validated vs. negated provisions with one-click access to surrounding provision sequences.
+6. **Interactive HTML Report Export**: One-click export generates a self-contained, beautifully styled HTML compliance report featuring collapsible report sections, collapsible appendices/tables, and interactive mouseover tooltips displaying full cited clause texts and operational context.
+
+---
+
+### 2.6. Ask Assistant & Regulatory Chat
+Located under the **Ask Assistant** tab (`AskAssistant.tsx`):
+1. **Context-Aware Dialogue**: Chat with local or Gemini LLMs with hybrid retrieval across EASA, EU, FAA, Skybrary, Notes, and custom manuals.
+2. **Conversation Management**: Create multiple chat threads, auto-title new discussions, and inline-rename conversations directly in the history sidebar.
+3. **Referenced Regulatory Standards**: Displays user-friendly, descriptive regulation titles (rather than cryptic database IDs) with direct access to open the full document and jump straight to the cited clause.
+4. **HTML Chat Report Export**: Export the conversation thread into a standalone interactive HTML report with expandable sections, mouseover citation cards, and referenced regulatory standards summaries.
+

@@ -20,8 +20,16 @@ ingestion/data/
 
 # Skybrary & PDFs
 ingestion/skybrary_bookshelf/text/
-pdf_test/output/
+ingestion/skybrary_bookshelf/pdfs/
+ingestion/skybrary_bookshelf/chunks/
+ingestion/skybrary_bookshelf/skybrary_browser_profile/
+ingestion/skybrary_bookshelf/skybrary_pdfs/
+pdf_test/
 *.pdf
+*.part
+
+# Large Datasets & Model Training
+LoRa/*.jsonl
 
 # Logs & Generated Summaries
 *.log

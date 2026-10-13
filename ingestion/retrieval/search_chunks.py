@@ -15,6 +15,7 @@ import json
 from ingestion.core.config import settings
 from ingestion.core.models import EmbeddingType
 from ingestion.retrieval.faiss_index import LocalVectorIndex
+from ingestion.retrieval.skybrary_weighting import calculate_skybrary_weight
 
 def get_query_embedding(query: str) -> list[float]:
     payload = {
@@ -159,8 +160,16 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                 if origin == "faa" and not is_faa:
                     continue
 
+                is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
+                sky_weight = 1.0
+                sky_expl = None
+                if is_skybrary:
+                    import json
+                    meta_dict = json.loads(meta_json) if meta_json else {}
+                    sky_weight, sky_expl = calculate_skybrary_weight(meta_dict, "", doc_id)
+
                 is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
-                adjusted_score = float(score) * (0.1 if is_suppressed else 1.0)
+                adjusted_score = float(score) * sky_weight * (0.1 if is_suppressed else 1.0)
 
                 candidates.append({
                     "chunk_id": chunk_id,
@@ -171,6 +180,9 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                     "source_text": source_text,
                     "is_easa": is_easa,
                     "is_faa": is_faa,
+                    "is_skybrary": is_skybrary,
+                    "sky_weight": sky_weight,
+                    "sky_expl": sky_expl,
                     "is_suppressed": is_suppressed,
                     "superseded_by": superseded_by,
                     "deactivation_reason": deactivation_reason
@@ -181,13 +193,15 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
 
         valid_results_count = len(top_candidates)
         for rank, cand in enumerate(top_candidates, 1):
-            source_label = 'FAA' if cand["is_faa"] else ('EASA' if cand["is_easa"] else 'EU')
+            source_label = 'SKYBRARY' if cand.get("is_skybrary") else ('FAA' if cand["is_faa"] else ('EASA' if cand["is_easa"] else 'EU'))
             sup_tag = ""
+            if cand.get("is_skybrary") and cand.get("sky_weight", 1.0) < 1.0:
+                sup_tag += f" [{cand.get('sky_expl')}]"
             if cand["is_suppressed"]:
                 if cand["superseded_by"]:
-                    sup_tag = f" [SUPERSEDED by {cand['superseded_by']} - 0.1x weight]"
+                    sup_tag += f" [SUPERSEDED by {cand['superseded_by']} - 0.1x weight]"
                 else:
-                    sup_tag = " [DEACTIVATED/SUPPRESSED - 0.1x weight]"
+                    sup_tag += " [DEACTIVATED/SUPPRESSED - 0.1x weight]"
             print("="*80)
             print(f"RANK {rank} | Score: {cand['score']:.4f} (raw: {cand['raw_score']:.4f}) | Source: {source_label}{sup_tag} | Chunk ID: {cand['chunk_id']}")
             results_list.append(cand["doc_id"])
@@ -302,7 +316,8 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
             "chunks": all_chunks,
             "is_active": bool(chunk_active and doc_active),
             "deactivation_reason": deact_reason,
-            "superseded_by": supers_by
+            "superseded_by": supers_by,
+            "metadata": meta_dict
         }
 
 
@@ -504,6 +519,13 @@ def search_semantic(
             if deep_research and is_note:
                 combined_score *= 2.5
 
+            # Apply Skybrary recency downweighting (75% if undated, 5%/year up to 60% if dated; reports/investigations exempt)
+            sky_weight = 1.0
+            sky_expl = None
+            if is_skybrary:
+                sky_weight, sky_expl = calculate_skybrary_weight(meta_dict, doc_title, doc_id)
+                combined_score *= sky_weight
+
             # Weight superseded or suppressed records at 0.1 so they can be returned if nothing else matches
             if is_suppressed:
                 combined_score *= 0.1
@@ -523,7 +545,9 @@ def search_semantic(
                 "is_active": bool(chunk_active and doc_active),
                 "is_suppressed": is_suppressed,
                 "superseded_by": superseded_by,
-                "deactivation_reason": deactivation_reason
+                "deactivation_reason": deactivation_reason,
+                "skybrary_weight": sky_weight if is_skybrary else None,
+                "skybrary_explanation": sky_expl if is_skybrary else None
             })
 
     # Re-rank by combined score descending

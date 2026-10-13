@@ -605,6 +605,16 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                                 <span>⚠️ {chunk.superseded_by ? `Superseded by ${chunk.superseded_by}` : 'Deactivated / Suppressed (0.1x fallback)'}</span>
                               </div>
                             )}
+
+                            {/* Skybrary Weighting / Recency Notice */}
+                            {chunk.skybrary_explanation && (
+                              <div className="flex items-center gap-1 text-[10px] text-indigo-300 font-medium mt-1 bg-indigo-950/40 border border-indigo-800/40 px-1.5 py-0.5 rounded">
+                                <span>
+                                  {chunk.skybrary_weight !== undefined && chunk.skybrary_weight < 1.0 ? '⏳ ' : '🛡️ '}
+                                  {chunk.skybrary_explanation}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           <button

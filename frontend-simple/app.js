@@ -353,6 +353,7 @@ function renderChat() {
                   <span class="citation-source-pill">${c.source || 'REG'}</span>
                 </div>
                 ${c.superseded_by ? `<div style="color: #f59e0b; font-size: 0.7rem; font-weight: 600; margin-bottom: 2px;">⚠️ Superseded by: ${c.superseded_by} (0.1x fallback)</div>` : (c.is_active === 0 || c.is_active === false ? `<div style="color: #f59e0b; font-size: 0.7rem; font-weight: 600; margin-bottom: 2px;">⚠️ Deactivated / Suppressed (0.1x fallback)</div>` : '')}
+                ${c.skybrary_explanation ? `<div style="color: #818cf8; font-size: 0.7rem; font-weight: 500; margin-bottom: 2px;">ℹ️ ${c.skybrary_explanation}</div>` : ''}
                 ${c.text ? `<div class="citation-excerpt">${c.text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
               </div>
             `).join('')}

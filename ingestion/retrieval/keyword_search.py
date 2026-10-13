@@ -13,6 +13,7 @@ if str(_project_root) not in sys.path:
 
 import requests
 from ingestion.core.config import settings
+from ingestion.retrieval.skybrary_weighting import calculate_skybrary_weight
 
 def ensure_fts_index(conn: sqlite3.Connection):
     """
@@ -327,6 +328,15 @@ def search_keywords(
             if deep_research and is_note:
                 # FTS5 bm25 returns negative numbers. More negative is better.
                 custom_score *= 2.5
+
+            # Apply Skybrary recency downweighting (75% if undated, 5%/year up to 60% if dated; reports/investigations exempt)
+            sky_weight = 1.0
+            sky_expl = None
+            if is_skybrary:
+                sky_weight, sky_expl = calculate_skybrary_weight(meta_dict, doc_title, doc_id)
+                # BM25 scores are negative, multiplying by sky_weight (0.25 to 1.0) brings score closer to 0 (weaker)
+                custom_score *= sky_weight
+
             if is_suppressed:
                 # Downweight by 0.1 (multiplying negative number by 0.1 brings it closer to 0, making it weaker)
                 custom_score *= 0.1
@@ -347,7 +357,9 @@ def search_keywords(
                 "is_active": bool(chunk_active and doc_active),
                 "is_suppressed": is_suppressed,
                 "superseded_by": superseded_by,
-                "deactivation_reason": deactivation_reason
+                "deactivation_reason": deactivation_reason,
+                "skybrary_weight": sky_weight if is_skybrary else None,
+                "skybrary_explanation": sky_expl if is_skybrary else None
             })
             
     # Re-sort results by custom_score ASC (more negative is better)

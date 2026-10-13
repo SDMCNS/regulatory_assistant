@@ -491,12 +491,15 @@ def api_llm_ask(request: LLMAskRequest):
 
     log_debug_info("API /llm/ask - RESOLVED CHUNK IDs", active_chunk_ids)
 
+    candidate_meta_map = {res["chunk_id"]: res for res in candidate_results}
+
     # 3. Retrieve chunks with surrounding context expansion and metadata
     referenced_chunks = []
     context_blocks = []
     
     for cid in active_chunk_ids:
         try:
+            cand_meta = candidate_meta_map.get(cid, {})
             surrounding_info = get_chunk_surrounding_context(cid, window=request.context_window)
             doc_id = surrounding_info.get("document_id", "Unknown")
             doc_title = surrounding_info.get("document_title", doc_id)
@@ -520,7 +523,9 @@ def api_llm_ask(request: LLMAskRequest):
                 "text": target_text[:300] + ("..." if len(target_text) > 300 else ""),
                 "is_active": is_active,
                 "deactivation_reason": deact_reason,
-                "superseded_by": supers_by
+                "superseded_by": supers_by,
+                "skybrary_weight": cand_meta.get("skybrary_weight"),
+                "skybrary_explanation": cand_meta.get("skybrary_explanation")
             })
             
             # Combine surrounding text into unified block

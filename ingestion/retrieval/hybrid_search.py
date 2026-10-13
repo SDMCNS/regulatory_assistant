@@ -57,16 +57,20 @@ def search_hybrid(
         chunk_id = doc["chunk_id"]
         is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
         supp_weight = 0.1 if is_supp else 1.0
+        sky_weight = float(doc.get("skybrary_weight") if doc.get("skybrary_weight") is not None else 1.0)
+        effective_weight = supp_weight * sky_weight
 
         if chunk_id not in rrf_map:
             rrf_map[chunk_id] = dict(doc)
             rrf_map[chunk_id]["rrf_score"] = 0.0
             rrf_map[chunk_id]["hybrid_components"] = []
             
-        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * supp_weight
+        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * effective_weight
         comp_label = f"Semantic Rank: {rank+1}"
         if is_supp:
             comp_label += " (Suppressed/Superseded: 0.1x weight)"
+        if sky_weight < 1.0 and doc.get("skybrary_explanation"):
+            comp_label += f" ({doc['skybrary_explanation']})"
         rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         
     # Process Keyword Results
@@ -74,16 +78,20 @@ def search_hybrid(
         chunk_id = doc["chunk_id"]
         is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
         supp_weight = 0.1 if is_supp else 1.0
+        sky_weight = float(doc.get("skybrary_weight") if doc.get("skybrary_weight") is not None else 1.0)
+        effective_weight = supp_weight * sky_weight
 
         if chunk_id not in rrf_map:
             rrf_map[chunk_id] = dict(doc)
             rrf_map[chunk_id]["rrf_score"] = 0.0
             rrf_map[chunk_id]["hybrid_components"] = []
             
-        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * supp_weight
+        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * effective_weight
         comp_label = f"Keyword Rank: {rank+1}"
         if is_supp:
             comp_label += " (Suppressed/Superseded: 0.1x weight)"
+        if sky_weight < 1.0 and doc.get("skybrary_explanation"):
+            comp_label += f" ({doc['skybrary_explanation']})"
         rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         
     # If a keyword filter is specifically provided, also query FTS5 directly with it
@@ -102,16 +110,20 @@ def search_hybrid(
                 chunk_id = doc["chunk_id"]
                 is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
                 supp_weight = 0.1 if is_supp else 1.0
+                sky_weight = float(doc.get("skybrary_weight") if doc.get("skybrary_weight") is not None else 1.0)
+                effective_weight = supp_weight * sky_weight
 
                 if chunk_id not in rrf_map:
                     rrf_map[chunk_id] = dict(doc)
                     rrf_map[chunk_id]["rrf_score"] = 0.0
                     rrf_map[chunk_id]["hybrid_components"] = []
-                # Provide a strong RRF boost for direct keyword filter hits (downweighted for suppressed)
-                rrf_map[chunk_id]["rrf_score"] += (1.5 / (rrf_k + rank + 1)) * supp_weight
+                # Provide a strong RRF boost for direct keyword filter hits (downweighted for suppressed & skybrary)
+                rrf_map[chunk_id]["rrf_score"] += (1.5 / (rrf_k + rank + 1)) * effective_weight
                 comp_label = f"Direct Keyword Filter Hit: Rank {rank+1}"
                 if is_supp:
                     comp_label += " (Suppressed/Superseded: 0.1x weight)"
+                if sky_weight < 1.0 and doc.get("skybrary_explanation"):
+                    comp_label += f" ({doc['skybrary_explanation']})"
                 rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         except Exception as e:
             print(f"[HybridSearch Warning] Keyword filter retrieval error: {e}")
@@ -134,13 +146,16 @@ def search_hybrid(
                 # Check if all terms appear in combined chunk info
                 if all(term in combined_text for term in kf_terms):
                     is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
-                    boost = 2.0 * (0.1 if is_supp else 1.0)
+                    sky_weight = float(doc.get("skybrary_weight") if doc.get("skybrary_weight") is not None else 1.0)
+                    boost = 2.0 * (0.1 if is_supp else 1.0) * sky_weight
                     doc["rrf_score"] += boost
                     if "hybrid_components" not in doc:
                         doc["hybrid_components"] = []
                     comp_text = f"Matches Keyword Filter: '{keyword_filter.strip()}'"
                     if is_supp:
                         comp_text += " (Suppressed: 0.1x weight)"
+                    if sky_weight < 1.0 and doc.get("skybrary_explanation"):
+                        comp_text += f" ({doc['skybrary_explanation']})"
                     doc["hybrid_components"].append(comp_text)
                     matching_chunks.append(doc)
             

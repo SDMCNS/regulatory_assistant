@@ -17,6 +17,7 @@ import { RegulationsWorkspace } from './components/RegulationsWorkspace';
 import { DocumentBuilder } from './components/DocumentBuilder';
 import { NotesTab } from './components/NotesTab';
 import { KnowledgeGovernance } from './components/KnowledgeGovernance';
+import { ConsultationWorkspace } from './components/ConsultationWorkspace';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
@@ -224,6 +225,12 @@ export default function App() {
               setWorkspaceInitialQuery('');
             }}
           />
+        )}
+
+        {activeTab === 'consultation' && (
+          <ErrorBoundary fallbackTitle="Document Consultation Workspace Error">
+            <ConsultationWorkspace />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'governance' && (

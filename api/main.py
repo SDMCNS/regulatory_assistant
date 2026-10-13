@@ -27,8 +27,13 @@ from api.utils import log_debug_info, call_lm_studio_chat, call_unified_chat, co
 from api import research
 from api import regulations
 from api import upload
+from api import consultation
 
 tags_metadata = [
+    {
+        "name": "CONSULTATION",
+        "description": "Document Consultation Workspace for stakeholder feedback review, common themes, sentiment analysis, and comment validity assessment."
+    },
     {
         "name": "REGULATIONS",
         "description": "Regulation catalog, multi-select download, and workspace FTS cross-document overlap analysis."
@@ -56,6 +61,7 @@ app = FastAPI(
     version="1.0.0",
     openapi_tags=tags_metadata
 )
+app.include_router(consultation.router, prefix="/consultation", tags=["CONSULTATION"])
 app.include_router(research.router, prefix="/research", tags=["RESEARCH"])
 app.include_router(regulations.router, prefix="/regulations", tags=["REGULATIONS"])
 app.include_router(upload.router, prefix="/documents", tags=["DOCUMENTS"])

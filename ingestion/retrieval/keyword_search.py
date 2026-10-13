@@ -229,14 +229,21 @@ def search_keywords(
                 c.source_text,
                 d.metadata_json,
                 d.title,
-                bm25(chunks_fts, 1.0, 3.0, 2.0) AS bm25_score
+                bm25(chunks_fts, 1.0, 3.0, 2.0) AS bm25_score,
+                COALESCE(c.is_active, 1) AS chunk_active,
+                COALESCE(d.is_active, 1) AS doc_active,
+                d.superseded_by,
+                d.deactivation_reason
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
             JOIN documents d ON c.document_id = d.document_id
-            WHERE chunks_fts MATCH ? 
-              AND COALESCE(c.is_active, 1) = 1 
-              AND COALESCE(d.is_active, 1) = 1{where_extra}
-            ORDER BY bm25_score ASC
+            WHERE chunks_fts MATCH ?{where_extra}
+            ORDER BY 
+                CASE 
+                    WHEN COALESCE(c.is_active, 1) = 0 OR COALESCE(d.is_active, 1) = 0 OR (d.superseded_by IS NOT NULL AND d.superseded_by != '')
+                    THEN bm25(chunks_fts, 1.0, 3.0, 2.0) * 0.1
+                    ELSE bm25(chunks_fts, 1.0, 3.0, 2.0)
+                END ASC
             LIMIT ?;
         """
         
@@ -270,7 +277,7 @@ def search_keywords(
         for row in rows:
             if count >= fetch_limit:
                 break
-            chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score = row
+            chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score, chunk_active, doc_active, superseded_by, deactivation_reason = row
             
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
@@ -315,10 +322,14 @@ def search_keywords(
                 meta_dict["document_title"] = doc_title
             meta_dict["origin"] = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
 
+            is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
             custom_score = float(score)
             if deep_research and is_note:
                 # FTS5 bm25 returns negative numbers. More negative is better.
                 custom_score *= 2.5
+            if is_suppressed:
+                # Downweight by 0.1 (multiplying negative number by 0.1 brings it closer to 0, making it weaker)
+                custom_score *= 0.1
 
             results.append({
                 "rank": count,
@@ -332,15 +343,17 @@ def search_keywords(
                 "source_text": source_text,
                 "source": "NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))),
                 "metadata": meta_dict,
-                "expanded_terms": expanded_terms
+                "expanded_terms": expanded_terms,
+                "is_active": bool(chunk_active and doc_active),
+                "is_suppressed": is_suppressed,
+                "superseded_by": superseded_by,
+                "deactivation_reason": deactivation_reason
             })
             
-    # Re-sort if deep_research modified the scores
-    if deep_research:
-        results.sort(key=lambda x: x["score"], reverse=False) # more negative is better
-        # update rank
-        for i, r in enumerate(results):
-            r["rank"] = i + 1
+    # Re-sort results by custom_score ASC (more negative is better)
+    results.sort(key=lambda x: x["score"], reverse=False)
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
 
     # Apply top_k cut here because we fetched up to fetch_limit valid items
     results = results[:top_k]

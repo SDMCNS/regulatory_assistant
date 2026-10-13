@@ -598,6 +598,13 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                                 {chunk.document_id}
                               </span>
                             </div>
+
+                            {/* Superseded / Deactivation Warning */}
+                            {(chunk.is_active === false || chunk.is_active === 0 || Boolean(chunk.superseded_by)) && (
+                              <div className="flex items-center gap-1 text-[10px] text-amber-400 font-medium mt-1 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                                <span>⚠️ {chunk.superseded_by ? `Superseded by ${chunk.superseded_by}` : 'Deactivated / Suppressed (0.1x fallback)'}</span>
+                              </div>
+                            )}
                           </div>
 
                           <button

@@ -55,24 +55,36 @@ def search_hybrid(
     # Process Semantic Results
     for rank, doc in enumerate(semantic_results):
         chunk_id = doc["chunk_id"]
+        is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
+        supp_weight = 0.1 if is_supp else 1.0
+
         if chunk_id not in rrf_map:
             rrf_map[chunk_id] = dict(doc)
             rrf_map[chunk_id]["rrf_score"] = 0.0
             rrf_map[chunk_id]["hybrid_components"] = []
             
-        rrf_map[chunk_id]["rrf_score"] += 1.0 / (rrf_k + rank + 1)
-        rrf_map[chunk_id]["hybrid_components"].append(f"Semantic Rank: {rank+1}")
+        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * supp_weight
+        comp_label = f"Semantic Rank: {rank+1}"
+        if is_supp:
+            comp_label += " (Suppressed/Superseded: 0.1x weight)"
+        rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         
     # Process Keyword Results
     for rank, doc in enumerate(keyword_results):
         chunk_id = doc["chunk_id"]
+        is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
+        supp_weight = 0.1 if is_supp else 1.0
+
         if chunk_id not in rrf_map:
             rrf_map[chunk_id] = dict(doc)
             rrf_map[chunk_id]["rrf_score"] = 0.0
             rrf_map[chunk_id]["hybrid_components"] = []
             
-        rrf_map[chunk_id]["rrf_score"] += 1.0 / (rrf_k + rank + 1)
-        rrf_map[chunk_id]["hybrid_components"].append(f"Keyword Rank: {rank+1}")
+        rrf_map[chunk_id]["rrf_score"] += (1.0 / (rrf_k + rank + 1)) * supp_weight
+        comp_label = f"Keyword Rank: {rank+1}"
+        if is_supp:
+            comp_label += " (Suppressed/Superseded: 0.1x weight)"
+        rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         
     # If a keyword filter is specifically provided, also query FTS5 directly with it
     if keyword_filter and keyword_filter.strip():
@@ -88,13 +100,19 @@ def search_hybrid(
             )
             for rank, doc in enumerate(kf_results):
                 chunk_id = doc["chunk_id"]
+                is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
+                supp_weight = 0.1 if is_supp else 1.0
+
                 if chunk_id not in rrf_map:
                     rrf_map[chunk_id] = dict(doc)
                     rrf_map[chunk_id]["rrf_score"] = 0.0
                     rrf_map[chunk_id]["hybrid_components"] = []
-                # Provide a strong RRF boost for direct keyword filter hits
-                rrf_map[chunk_id]["rrf_score"] += 1.5 / (rrf_k + rank + 1)
-                rrf_map[chunk_id]["hybrid_components"].append(f"Direct Keyword Filter Hit: Rank {rank+1}")
+                # Provide a strong RRF boost for direct keyword filter hits (downweighted for suppressed)
+                rrf_map[chunk_id]["rrf_score"] += (1.5 / (rrf_k + rank + 1)) * supp_weight
+                comp_label = f"Direct Keyword Filter Hit: Rank {rank+1}"
+                if is_supp:
+                    comp_label += " (Suppressed/Superseded: 0.1x weight)"
+                rrf_map[chunk_id]["hybrid_components"].append(comp_label)
         except Exception as e:
             print(f"[HybridSearch Warning] Keyword filter retrieval error: {e}")
 
@@ -115,14 +133,20 @@ def search_hybrid(
                 
                 # Check if all terms appear in combined chunk info
                 if all(term in combined_text for term in kf_terms):
-                    doc["rrf_score"] += 2.0
+                    is_supp = doc.get("is_suppressed") or (not doc.get("is_active", True)) or bool(doc.get("superseded_by"))
+                    boost = 2.0 * (0.1 if is_supp else 1.0)
+                    doc["rrf_score"] += boost
                     if "hybrid_components" not in doc:
                         doc["hybrid_components"] = []
-                    doc["hybrid_components"].append(f"Matches Keyword Filter: '{keyword_filter.strip()}'")
+                    comp_text = f"Matches Keyword Filter: '{keyword_filter.strip()}'"
+                    if is_supp:
+                        comp_text += " (Suppressed: 0.1x weight)"
+                    doc["hybrid_components"].append(comp_text)
                     matching_chunks.append(doc)
             
-            # If any chunks strictly match the keyword filter, isolate them!
+            # If any chunks strictly match the keyword filter, sort them by rrf_score descending
             if matching_chunks:
+                matching_chunks.sort(key=lambda x: x["rrf_score"], reverse=True)
                 sorted_results = matching_chunks
 
     # Take the top_k

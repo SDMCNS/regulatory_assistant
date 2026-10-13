@@ -606,8 +606,9 @@ def api_llm_ask(request: LLMAskRequest):
             "Guidelines:\n"
             "1. Ground your explanations directly in the provided regulatory context documents and articles.\n"
             "2. Whenever citing a rule or article, mention the document title/CELEX and specific provision (e.g. 'Regulation (EU) 2018/1139, Article 14(2)').\n"
-            "3. If the context does not contain sufficient details to definitively settle a question, state this clearly and outline standard industry compliance practice.\n"
-            "4. At the very end of your response, provide 2 to 3 logical follow-up questions the user might ask next, formatted inside a `<followups>` block, e.g.:\n"
+            "3. If any referenced provisions are tagged as SUPERSEDED or DEACTIVATED, state clearly and prominently that these provisions are obsolete/superseded and advise verifying against current active consolidated instruments.\n"
+            "4. If the context does not contain sufficient details to definitively settle a question, state this clearly and outline standard industry compliance practice.\n"
+            "5. At the very end of your response, provide 2 to 3 logical follow-up questions the user might ask next, formatted inside a `<followups>` block, e.g.:\n"
             "<followups>\n"
             "- What are the specific training requirements under AMC1?\n"
             "- How does this compare with FAA Part 121 equivalents?\n"
@@ -652,6 +653,24 @@ def api_llm_ask(request: LLMAskRequest):
             line = line.strip().lstrip("-*•0123456789. ")
             if line and len(line) > 5:
                 suggested_followups.append(line)
+
+    # Prepend warning banner if answer was derived from superseded / suppressed fallback records
+    has_suppressed = any(not rc.get("is_active", True) or bool(rc.get("superseded_by")) for rc in referenced_chunks)
+    all_suppressed = bool(referenced_chunks and all(not rc.get("is_active", True) or bool(rc.get("superseded_by")) for rc in referenced_chunks))
+    if all_suppressed:
+        notice_banner = (
+            "> ⚠️ **Regulatory Status Warning:** No active regulations matched your query. "
+            "The retrieved provisions originate from **superseded or deactivated instruments** (included via 0.1x fallback weight). "
+            "Verify against current active consolidated amendments before applying.\n\n"
+        )
+        if not clean_answer.startswith("> ⚠️"):
+            clean_answer = notice_banner + clean_answer
+    elif has_suppressed:
+        notice_banner = (
+            "> ℹ️ **Regulatory Notice:** Some referenced provisions originate from **superseded or deactivated instruments** (included via 0.1x fallback weight).\n\n"
+        )
+        if not clean_answer.startswith("> ℹ️") and not clean_answer.startswith("> ⚠️"):
+            clean_answer = notice_banner + clean_answer
 
     # Fallback follow-ups if model omitted tag
     if not suggested_followups and referenced_chunks:

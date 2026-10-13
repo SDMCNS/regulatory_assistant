@@ -132,20 +132,21 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
         results_list = []
         valid_results_count = 0
         
+        candidates = []
         for (chunk_id, score) in results:
-            if valid_results_count >= top_k:
-                break
-                
             cursor.execute("""
-                SELECT c.document_id, c.section_path, c.source_text, d.metadata_json 
+                SELECT c.document_id, c.section_path, c.source_text, d.metadata_json,
+                       COALESCE(c.is_active, 1) as chunk_active,
+                       COALESCE(d.is_active, 1) as doc_active,
+                       d.superseded_by, d.deactivation_reason
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
-                WHERE c.chunk_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
+                WHERE c.chunk_id = ?
             """, (chunk_id,))
             row = cursor.fetchone()
             
             if row:
-                doc_id, section_path, source_text, meta_json = row
+                doc_id, section_path, source_text, meta_json, chunk_active, doc_active, superseded_by, deactivation_reason = row
                 
                 # Check origin
                 is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
@@ -157,23 +158,46 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                     continue
                 if origin == "faa" and not is_faa:
                     continue
-                
-                valid_results_count += 1
-                rank = valid_results_count
-                
-                source_label = 'FAA' if is_faa else ('EASA' if is_easa else 'EU')
-                print("="*80)
-                print(f"RANK {rank} | Score: {score:.4f} | Source: {source_label} | Chunk ID: {chunk_id}")
-                results_list.append(doc_id)
-                print(f"Document: {doc_id}")
-                import json
-                path_list = json.loads(section_path)
-                print(f"Path: {' > '.join(path_list)}")
-                print("-" * 80)
-                print(textwrap.fill(source_text, width=80))
-                print("="*80 + "\n")
-            else:
-                pass
+
+                is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
+                adjusted_score = float(score) * (0.1 if is_suppressed else 1.0)
+
+                candidates.append({
+                    "chunk_id": chunk_id,
+                    "score": adjusted_score,
+                    "raw_score": float(score),
+                    "doc_id": doc_id,
+                    "section_path": section_path,
+                    "source_text": source_text,
+                    "is_easa": is_easa,
+                    "is_faa": is_faa,
+                    "is_suppressed": is_suppressed,
+                    "superseded_by": superseded_by,
+                    "deactivation_reason": deactivation_reason
+                })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        top_candidates = candidates[:top_k]
+
+        valid_results_count = len(top_candidates)
+        for rank, cand in enumerate(top_candidates, 1):
+            source_label = 'FAA' if cand["is_faa"] else ('EASA' if cand["is_easa"] else 'EU')
+            sup_tag = ""
+            if cand["is_suppressed"]:
+                if cand["superseded_by"]:
+                    sup_tag = f" [SUPERSEDED by {cand['superseded_by']} - 0.1x weight]"
+                else:
+                    sup_tag = " [DEACTIVATED/SUPPRESSED - 0.1x weight]"
+            print("="*80)
+            print(f"RANK {rank} | Score: {cand['score']:.4f} (raw: {cand['raw_score']:.4f}) | Source: {source_label}{sup_tag} | Chunk ID: {cand['chunk_id']}")
+            results_list.append(cand["doc_id"])
+            print(f"Document: {cand['doc_id']}")
+            import json
+            path_list = json.loads(cand["section_path"]) if cand["section_path"] else []
+            print(f"Path: {' > '.join(path_list)}")
+            print("-" * 80)
+            print(textwrap.fill(cand["source_text"], width=80))
+            print("="*80 + "\n")
                 
         if valid_results_count == 0:
             print(f"No results found matching origin: {origin}")
@@ -208,6 +232,7 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
         # 1. Fetch target chunk
         cursor.execute("""
             SELECT c.rowid, c.document_id, c.section_path, c.source_text, d.title, d.metadata_json,
+                   COALESCE(c.is_active, 1) as chunk_active,
                    COALESCE(d.is_active, 1) as doc_active, d.deactivation_reason, d.superseded_by
             FROM chunks c
             LEFT JOIN documents d ON c.document_id = d.document_id
@@ -217,7 +242,7 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
         if not target_row:
             raise ValueError(f"Chunk '{chunk_id}' not found in database.")
 
-        t_rowid, doc_id, t_path_json, t_text, doc_title, meta_json, doc_active, deact_reason, supers_by = target_row
+        t_rowid, doc_id, t_path_json, t_text, doc_title, meta_json, chunk_active, doc_active, deact_reason, supers_by = target_row
         t_path = json.loads(t_path_json) if t_path_json else []
         meta_dict = json.loads(meta_json) if meta_json else {}
 
@@ -275,7 +300,7 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
             "window": window,
             "total_chunks": len(all_chunks),
             "chunks": all_chunks,
-            "is_active": bool(doc_active),
+            "is_active": bool(chunk_active and doc_active),
             "deactivation_reason": deact_reason,
             "superseded_by": supers_by
         }
@@ -368,10 +393,12 @@ def search_semantic(
         doc_chunks = None
         if document_id:
             cursor.execute("""
-                SELECT c.chunk_id, c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
+                SELECT c.chunk_id, c.document_id, c.section_path, c.source_text, d.metadata_json, d.title,
+                       COALESCE(c.is_active, 1) as chunk_active, COALESCE(d.is_active, 1) as doc_active,
+                       d.superseded_by, d.deactivation_reason
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
-                WHERE c.document_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
+                WHERE c.document_id = ?
             """, (document_id,))
             doc_chunks = {r[0]: r[1:] for r in cursor.fetchall()}
             if not doc_chunks:
@@ -381,18 +408,20 @@ def search_semantic(
             if doc_chunks is not None:
                 if chunk_id not in doc_chunks:
                     continue
-                doc_id, section_path, source_text, meta_json, doc_title = doc_chunks[chunk_id]
+                doc_id, section_path, source_text, meta_json, doc_title, chunk_active, doc_active, superseded_by, deactivation_reason = doc_chunks[chunk_id]
             else:
                 cursor.execute("""
-                    SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
+                    SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title,
+                           COALESCE(c.is_active, 1) as chunk_active, COALESCE(d.is_active, 1) as doc_active,
+                           d.superseded_by, d.deactivation_reason
                     FROM chunks c
                     JOIN documents d ON c.document_id = d.document_id
-                    WHERE c.chunk_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
+                    WHERE c.chunk_id = ?
                 """, (chunk_id,))
                 row = cursor.fetchone()
                 if not row:
                     continue
-                doc_id, section_path, source_text, meta_json, doc_title = row
+                doc_id, section_path, source_text, meta_json, doc_title, chunk_active, doc_active, superseded_by, deactivation_reason = row
 
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
@@ -418,8 +447,8 @@ def search_semantic(
                 cursor.execute("""
                     SELECT title FROM documents 
                     WHERE document_id <= ? AND document_id LIKE ? 
-                      AND title NOT LIKE 'ANNEX%' 
-                      AND title NOT LIKE 'APPENDIX%'
+                    AND title NOT LIKE 'ANNEX%' 
+                    AND title NOT LIKE 'APPENDIX%'
                     ORDER BY document_id DESC LIMIT 1
                 """, (doc_id, prefix))
                 p_row = cursor.fetchone()
@@ -462,6 +491,8 @@ def search_semantic(
                         # Apply a 15% additive boost proportional to stakeholder alignment
                         stk_bonus = float(target_val) * 0.15
 
+            is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
+
             # Compute combined score: Chunk Score + Act Prior Boost + Stakeholder Bonus
             base_score = float(raw_score)
             act_prior = act_scores.get(doc_id, 0.0)
@@ -472,6 +503,10 @@ def search_semantic(
 
             if deep_research and is_note:
                 combined_score *= 2.5
+
+            # Weight superseded or suppressed records at 0.1 so they can be returned if nothing else matches
+            if is_suppressed:
+                combined_score *= 0.1
 
             candidate_records.append({
                 "chunk_id": chunk_id,
@@ -484,7 +519,11 @@ def search_semantic(
                 "text": source_text,
                 "metadata": meta_dict,
                 "primary_stakeholder": primary_stk,
-                "stakeholder_scores": stakeholder_data
+                "stakeholder_scores": stakeholder_data,
+                "is_active": bool(chunk_active and doc_active),
+                "is_suppressed": is_suppressed,
+                "superseded_by": superseded_by,
+                "deactivation_reason": deactivation_reason
             })
 
     # Re-rank by combined score descending

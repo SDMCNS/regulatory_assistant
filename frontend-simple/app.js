@@ -276,7 +276,7 @@ async function handleSend(textToSend) {
 
     // Check if any referenced chunk is deactivated or superseded
     const referenced = data.referenced_chunks || [];
-    const hasSuperseded = referenced.some(c => c.is_active === 0 || c.superseded_by);
+    const hasSuperseded = referenced.some(c => c.is_active === 0 || c.is_active === false || Boolean(c.superseded_by));
 
     const botMsg = {
       id: 'bot-' + Date.now(),
@@ -352,8 +352,7 @@ function renderChat() {
                   <span class="citation-title" title="${c.document_id}">${c.document_id}</span>
                   <span class="citation-source-pill">${c.source || 'REG'}</span>
                 </div>
-                ${c.path ? `<div class="citation-path" title="${c.path}">${c.path}</div>` : ''}
-                ${c.superseded_by ? `<div style="color: #f59e0b; font-size: 0.7rem; font-weight: 600; margin-bottom: 2px;">⚠️ Superseded by: ${c.superseded_by}</div>` : ''}
+                ${c.superseded_by ? `<div style="color: #f59e0b; font-size: 0.7rem; font-weight: 600; margin-bottom: 2px;">⚠️ Superseded by: ${c.superseded_by} (0.1x fallback)</div>` : (c.is_active === 0 || c.is_active === false ? `<div style="color: #f59e0b; font-size: 0.7rem; font-weight: 600; margin-bottom: 2px;">⚠️ Deactivated / Suppressed (0.1x fallback)</div>` : '')}
                 ${c.text ? `<div class="citation-excerpt">${c.text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>` : ''}
               </div>
             `).join('')}

@@ -152,15 +152,20 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                 # Check origin
                 is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
                 is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
+                is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
+                is_user = ('"source": "USER"' in meta_json) or ('"origin": "user"' in meta_json) or doc_id.startswith("USER_")
                 
-                if origin == "eu" and (is_easa or is_faa):
+                if origin == "eu" and (is_easa or is_faa or is_skybrary or is_user):
                     continue
                 if origin == "easa" and not is_easa:
                     continue
                 if origin == "faa" and not is_faa:
                     continue
+                if origin == "skybrary" and not is_skybrary:
+                    continue
+                if origin in ("user", "user_docs", "user_supplied") and not is_user:
+                    continue
 
-                is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
                 sky_weight = 1.0
                 sky_expl = None
                 if is_skybrary:
@@ -181,6 +186,7 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                     "is_easa": is_easa,
                     "is_faa": is_faa,
                     "is_skybrary": is_skybrary,
+                    "is_user": is_user,
                     "sky_weight": sky_weight,
                     "sky_expl": sky_expl,
                     "is_suppressed": is_suppressed,
@@ -193,7 +199,7 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
 
         valid_results_count = len(top_candidates)
         for rank, cand in enumerate(top_candidates, 1):
-            source_label = 'SKYBRARY' if cand.get("is_skybrary") else ('FAA' if cand["is_faa"] else ('EASA' if cand["is_easa"] else 'EU'))
+            source_label = 'USER' if cand.get("is_user") else ('SKYBRARY' if cand.get("is_skybrary") else ('FAA' if cand["is_faa"] else ('EASA' if cand["is_easa"] else 'EU')))
             sup_tag = ""
             if cand.get("is_skybrary") and cand.get("sky_weight", 1.0) < 1.0:
                 sup_tag += f" [{cand.get('sky_expl')}]"
@@ -321,7 +327,7 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
         }
 
 
-def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool) -> bool:
+def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool, is_user: bool = False) -> bool:
     if not origin_filter:
         return True
     if isinstance(origin_filter, (list, tuple, set)):
@@ -330,8 +336,8 @@ def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_man
         allowed = {str(o).lower().strip() for o in str(origin_filter).split(",") if str(o).strip()}
     if not allowed or "all" in allowed:
         return True
-    chunk_origin = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
-    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu"}
+    chunk_origin = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu", "user_docs": "user", "user_supplied": "user"}
     canonical_allowed = {aliases.get(a, a) for a in allowed}
     return chunk_origin in canonical_allowed
 
@@ -443,9 +449,10 @@ def search_semantic(
             is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
             is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
             is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
+            is_user = ('"source": "USER"' in meta_json) or ('"origin": "user"' in meta_json) or doc_id.startswith("USER_")
             
             if not doc_chunks:
-                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note):
+                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note, is_user):
                     continue
 
             # Check keyword filter if specified
@@ -475,7 +482,7 @@ def search_semantic(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
-            meta_dict["origin"] = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
+            meta_dict["origin"] = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
 
             # Read stakeholder applicability scores if available
             stakeholder_data = {}

@@ -437,6 +437,18 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                 >
                   Notes
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setOrigin('user')}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    origin === 'user'
+                      ? 'bg-slate-800 text-cyan-400 shadow-sm border border-cyan-700/60'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                  title="Search user-supplied and uploaded documents"
+                >
+                  User Docs
+                </button>
               </div>
 
               {/* Top K Dropdown */}
@@ -642,6 +654,10 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         ) : doc.source === 'SKYBRARY' ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-indigo-950/80 border border-indigo-500/50 text-indigo-300">
                             SKYBRARY
+                          </span>
+                        ) : doc.source === 'USER' || doc.source === 'User Supplied' || doc.metadata?.origin === 'user' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-cyan-950/80 border border-cyan-500/50 text-cyan-300">
+                            USER DOC
                           </span>
                         ) : (
                           <span className="font-mono text-sky-400 uppercase tracking-wider font-semibold">

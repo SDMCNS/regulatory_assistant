@@ -3,7 +3,67 @@
  * Fully aligned with OpenAPI 3.1 schema (SEARCH & LLM operations)
  */
 
-export type RegulationOrigin = 'all' | 'eu' | 'easa' | 'faa' | 'manual' | 'skybrary' | 'note';
+export type RegulationOrigin = 'all' | 'eu' | 'easa' | 'faa' | 'manual' | 'skybrary' | 'note' | 'user';
+
+export interface ComparisonMatchItem {
+  document_id: string;
+  title: string;
+  source: string;
+  date?: string | null;
+  is_active: boolean;
+  superseded_by?: string | null;
+  similarity_score: number;
+  match_type: 'exact_duplicate' | 'update' | 'similar';
+  comparison_details: string;
+}
+
+export interface UploadAnalysisResponse {
+  staging_id: string;
+  filename: string;
+  format: string;
+  workflow: string;
+  category: string;
+  origin: string;
+  is_xml: boolean;
+  detection_reason: string;
+  extracted_metadata: {
+    title: string;
+    date?: string | null;
+    year?: number | null;
+    page_count?: number;
+    word_count?: number;
+    char_count?: number;
+    sha256?: string;
+    is_pdf?: boolean;
+    is_xml?: boolean;
+  };
+  has_conflict: boolean;
+  suggested_action: 'none' | 'supersede' | 'suppress';
+  suggested_target_doc_id?: string | null;
+  matches: ComparisonMatchItem[];
+}
+
+export interface IngestConfirmRequest {
+  staging_id: string;
+  executive_action: 'none' | 'supersede' | 'suppress';
+  target_doc_id?: string | null;
+  custom_title?: string | null;
+  custom_date?: string | null;
+}
+
+export interface IngestionResultResponse {
+  status: string;
+  document_id: string;
+  title: string;
+  source: string;
+  origin: string;
+  workflow: string;
+  chunks_count: number;
+  embeddings_count: number;
+  executive_action: string;
+  target_doc_id?: string | null;
+  action_summary: string;
+}
 
 export interface SkybraryCategoryInfo {
   category: string;

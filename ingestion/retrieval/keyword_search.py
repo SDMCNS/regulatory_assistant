@@ -175,7 +175,7 @@ def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = Non
             
     return " OR ".join(clauses)
 
-def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool) -> bool:
+def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool, is_user: bool = False) -> bool:
     if not origin_filter:
         return True
     if isinstance(origin_filter, (list, tuple, set)):
@@ -184,8 +184,8 @@ def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_man
         allowed = {str(o).lower().strip() for o in str(origin_filter).split(",") if str(o).strip()}
     if not allowed or "all" in allowed:
         return True
-    chunk_origin = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
-    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu"}
+    chunk_origin = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu", "user_docs": "user", "user_supplied": "user"}
     canonical_allowed = {aliases.get(a, a) for a in allowed}
     return chunk_origin in canonical_allowed
 
@@ -285,8 +285,9 @@ def search_keywords(
             is_manual = ('"source": "Manual"' in meta_json) if meta_json else (doc_id.startswith("MANUAL_"))
             is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
             is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
+            is_user = ('"source": "USER"' in meta_json) or ('"origin": "user"' in meta_json) or doc_id.startswith("USER_")
             if not document_id:
-                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note):
+                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note, is_user):
                     continue
 
             # Check keyword filter if specified
@@ -321,7 +322,7 @@ def search_keywords(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
-            meta_dict["origin"] = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
+            meta_dict["origin"] = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
 
             is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
             custom_score = float(score)

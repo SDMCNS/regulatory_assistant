@@ -191,6 +191,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 origin = "skybrary"
             elif doc_id.startswith("NOTE_") or source in ("Note", "UserNote"):
                 origin = "note"
+            elif source in ("USER", "User Supplied") or doc_id.startswith("USER_"):
+                origin = "user"
             elif source == "FAA XML" or doc_id.startswith("FAA_") or "14 cfr" in doc_low:
                 origin = "faa"
             elif source in ("Manual", "Custom") or doc_id.startswith("MANUAL_"):
@@ -206,6 +208,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                     meta_dict = json.loads(r["metadata_json"])
                     if meta_dict.get("origin") == "note":
                         origin = "note"
+                    elif meta_dict.get("origin") == "user":
+                        origin = "user"
                 except Exception:
                     pass
 
@@ -346,7 +350,7 @@ class GovernanceStatsResponse(BaseModel):
 @router.get("/catalog", response_model=CatalogResponse, tags=["REGULATIONS"])
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
-    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
+    origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note', or 'user'"),
     status: Optional[str] = Query("all", description="Filter by status: 'all', 'active', 'deactivated'"),
     stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),

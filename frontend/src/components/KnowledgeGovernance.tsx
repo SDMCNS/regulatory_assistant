@@ -13,14 +13,30 @@ import {
   FileText,
   X,
   ExternalLink,
-  Info
+  Info,
+  UploadCloud,
+  Upload,
+  Check,
+  Copy,
+  AlertCircle,
+  ArrowUpRight
 } from 'lucide-react';
-import { AppSettings, RegulationItem, GovernanceStats } from '../types';
+import {
+  AppSettings,
+  RegulationItem,
+  GovernanceStats,
+  UploadAnalysisResponse,
+  IngestConfirmRequest,
+  IngestionResultResponse,
+  ComparisonMatchItem
+} from '../types';
 import {
   getRegulationsCatalog,
   getGovernanceStats,
   deactivateDocument,
   activateDocument,
+  analyzeDocumentUpload,
+  confirmDocumentIngestion,
   loadSettings
 } from '../services/apiClient';
 
@@ -53,6 +69,18 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
 
   // Audit Log Drawer state
   const [showLogs, setShowLogs] = useState(false);
+
+  // Upload & Executive Comparison state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [analyzingFile, setAnalyzingFile] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<UploadAnalysisResponse | null>(null);
+  const [executiveAction, setExecutiveAction] = useState<'none' | 'supersede' | 'suppress'>('none');
+  const [targetDocId, setTargetDocId] = useState<string>('');
+  const [customTitle, setCustomTitle] = useState<string>('');
+  const [customDate, setCustomDate] = useState<string>('');
+  const [confirmingIngest, setConfirmingIngest] = useState(false);
+  const [ingestSuccess, setIngestSuccess] = useState<IngestionResultResponse | null>(null);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -138,6 +166,64 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
     }
   };
 
+  const handleOpenUploadModal = () => {
+    setUploadFile(null);
+    setAnalysisResult(null);
+    setIngestSuccess(null);
+    setAnalyzingFile(false);
+    setConfirmingIngest(false);
+    setExecutiveAction('none');
+    setTargetDocId('');
+    setCustomTitle('');
+    setCustomDate('');
+    setShowUploadModal(true);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadFile(file);
+    setAnalysisResult(null);
+    setIngestSuccess(null);
+    setAnalyzingFile(true);
+    setError(null);
+    try {
+      const res = await analyzeDocumentUpload(file, settings);
+      setAnalysisResult(res);
+      setExecutiveAction((res.suggested_action as any) || 'none');
+      setTargetDocId(res.suggested_target_doc_id || (res.matches?.[0]?.document_id || ''));
+      setCustomTitle(res.extracted_metadata?.title || '');
+      setCustomDate(res.extracted_metadata?.date || '');
+    } catch (err: any) {
+      setError(err.message || 'Failed to analyze uploaded document.');
+    } finally {
+      setAnalyzingFile(false);
+    }
+  };
+
+  const handleConfirmIngestion = async () => {
+    if (!analysisResult) return;
+    setConfirmingIngest(true);
+    setError(null);
+    try {
+      const payload: IngestConfirmRequest = {
+        staging_id: analysisResult.staging_id,
+        executive_action: executiveAction,
+        target_doc_id: executiveAction !== 'none' ? targetDocId : null,
+        custom_title: customTitle.trim() || null,
+        custom_date: customDate.trim() || null,
+      };
+      const res = await confirmDocumentIngestion(payload, settings);
+      setIngestSuccess(res);
+      setSuccessMsg(res.action_summary || `Document '${res.document_id}' ingested successfully.`);
+      await Promise.all([fetchStats(), fetchDocs()]);
+    } catch (err: any) {
+      setError(err.message || 'Failed to ingest document.');
+    } finally {
+      setConfirmingIngest(false);
+    }
+  };
+
   const originColor = (origin: string) => {
     switch (origin.toLowerCase()) {
       case 'easa': return 'bg-sky-950/80 text-sky-400 border-sky-800/60';
@@ -146,6 +232,7 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
       case 'skybrary': return 'bg-amber-950/80 text-amber-400 border-amber-800/60';
       case 'manual': return 'bg-teal-950/80 text-teal-400 border-teal-800/60';
       case 'note': return 'bg-purple-950/80 text-purple-400 border-purple-800/60';
+      case 'user': return 'bg-cyan-950/80 text-cyan-400 border-cyan-800/60';
       default: return 'bg-slate-800 text-slate-300 border-slate-700';
     }
   };
@@ -168,6 +255,14 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenUploadModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-colors"
+            title="Upload document, detect XML/Skybrary format, and compare duplicates with executive action"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            <span>Upload Document</span>
+          </button>
           <button
             onClick={() => setShowLogs(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700 transition-colors"
@@ -327,6 +422,7 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
             <option value="skybrary">SKYbrary Bookshelf</option>
             <option value="manual">Company SOPs & Manuals</option>
             <option value="note">Notes & Journals</option>
+            <option value="user">User Documents</option>
           </select>
         </div>
       </div>
@@ -546,6 +642,398 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                 {actionLoading && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 <span>Confirm Deactivation</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Upload & Executive Comparison Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150 my-8 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+              <div className="flex items-center gap-2.5 text-cyan-400">
+                <UploadCloud className="w-5 h-5" />
+                <div>
+                  <h2 className="text-base font-bold text-white">Upload & Compare Regulatory Document</h2>
+                  <p className="text-[11px] text-slate-400">
+                    Automatic XML/Skybrary workflow routing, duplicate/update detection, & executive superseding control
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="mt-4 space-y-4 overflow-y-auto flex-1 pr-1">
+              {/* Step 1: File Selection Area */}
+              {!analysisResult && !ingestSuccess && (
+                <div className="space-y-4">
+                  <div className="p-8 border-2 border-dashed border-slate-700/80 hover:border-cyan-500/80 rounded-2xl bg-slate-950/60 transition-colors text-center relative group">
+                    <input
+                      type="file"
+                      accept=".pdf,.xml,.txt,.md,.docx,.html"
+                      onChange={handleFileSelect}
+                      disabled={analyzingFile}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                    <div className="flex flex-col items-center justify-center gap-2 pointer-events-none">
+                      <div className="w-12 h-12 rounded-xl bg-cyan-950/80 border border-cyan-800/60 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
+                        {analyzingFile ? (
+                          <RefreshCw className="w-6 h-6 animate-spin text-cyan-300" />
+                        ) : (
+                          <Upload className="w-6 h-6" />
+                        )}
+                      </div>
+                      <div className="text-sm font-semibold text-white">
+                        {analyzingFile ? 'Analyzing & comparing document...' : 'Choose or drop a regulatory document'}
+                      </div>
+                      <p className="text-xs text-slate-400 max-w-md">
+                        Supports PDF, XML (EASA, EU Formex, FAA CFR), Markdown, TXT, HTML.
+                      </p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-300 border border-sky-800">EASA / FAA / EU XML</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950 text-indigo-300 border border-indigo-800">Skybrary Chunker Workflow</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {analyzingFile && (
+                    <div className="p-3 bg-cyan-950/40 border border-cyan-800/60 rounded-xl flex items-center gap-3 text-xs text-cyan-300">
+                      <RefreshCw className="w-4 h-4 animate-spin shrink-0 text-cyan-400" />
+                      <span>
+                        Inspecting document namespaces, parsing text, calculating SHA-256 fingerprint, and comparing against existing regulations...
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2: Analysis Results & Executive Control */}
+              {analysisResult && !ingestSuccess && (
+                <div className="space-y-4">
+                  {/* Format & Workflow Classification Banner */}
+                  <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Classified Workflow & Destination</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-cyan-950 text-cyan-300 border border-cyan-800">
+                        {analysisResult.workflow}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-300">
+                      <strong>Detection:</strong> {analysisResult.detection_reason}
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400">
+                      <span>Source: <strong className="text-white">{analysisResult.category}</strong></span>
+                      <span>•</span>
+                      <span>Origin: <strong className="text-white">{analysisResult.origin}</strong></span>
+                      <span>•</span>
+                      <span>Format: <strong className="text-white">{analysisResult.format}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Metadata & Title Overrides */}
+                  <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
+                    <div className="text-xs font-semibold text-slate-200">Extracted Document Attributes</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                          Document Title <span className="text-slate-500">(editable)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={customTitle}
+                          onChange={(e) => setCustomTitle(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-400 mb-1">
+                          Publication Date <span className="text-slate-500">(YYYY-MM-DD, optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 2024-05-15"
+                          value={customDate}
+                          onChange={(e) => setCustomDate(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 pt-1 border-t border-slate-800/60">
+                      {analysisResult.extracted_metadata.word_count && (
+                        <span>Words: <strong className="text-white">{analysisResult.extracted_metadata.word_count.toLocaleString()}</strong></span>
+                      )}
+                      {analysisResult.extracted_metadata.page_count && (
+                        <span>Pages: <strong className="text-white">{analysisResult.extracted_metadata.page_count}</strong></span>
+                      )}
+                      {analysisResult.extracted_metadata.sha256 && (
+                        <span className="font-mono truncate max-w-xs" title={analysisResult.extracted_metadata.sha256}>
+                          SHA-256: {analysisResult.extracted_metadata.sha256.slice(0, 12)}...
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Duplicate / Update Comparison Findings */}
+                  {analysisResult.matches && analysisResult.matches.length > 0 ? (
+                    <div className="p-3.5 bg-amber-950/20 border border-amber-900/40 rounded-xl space-y-3">
+                      <div className="flex items-center gap-2 text-amber-400">
+                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold">
+                          Known Predecessor or Duplicate Detected ({analysisResult.matches.length} matches)
+                        </span>
+                      </div>
+
+                      {/* Matches List */}
+                      <div className="space-y-2">
+                        {analysisResult.matches.map((match) => (
+                          <div
+                            key={match.document_id}
+                            className={`p-2.5 rounded-lg border text-xs space-y-1 transition-colors ${
+                              targetDocId === match.document_id
+                                ? 'bg-slate-900 border-amber-500/60'
+                                : 'bg-slate-950/80 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-slate-200">{match.title}</span>
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                                  match.match_type === 'exact_duplicate'
+                                    ? 'bg-rose-950 text-rose-300 border border-rose-800'
+                                    : match.match_type === 'update'
+                                    ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                                    : 'bg-sky-950 text-sky-300 border border-sky-800'
+                                }`}
+                              >
+                                {match.match_type.replace('_', ' ')}
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {match.comparison_details}
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-1">
+                              <span>ID: {match.document_id} • Date: {match.date || 'Unknown'}</span>
+                              <span>Similarity: {(match.similarity_score * 100).toFixed(0)}%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Executive Action Selector */}
+                      <div className="pt-2 border-t border-amber-900/30 space-y-2">
+                        <label className="block text-xs font-bold text-white">
+                          Executive Control: What should happen to the old document?
+                        </label>
+
+                        {analysisResult.matches.length > 1 && (
+                          <div className="mb-2">
+                            <label className="block text-[11px] text-slate-400 mb-1">Target Document to Supersede / Suppress:</label>
+                            <select
+                              value={targetDocId}
+                              onChange={(e) => setTargetDocId(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                            >
+                              {analysisResult.matches.map((m) => (
+                                <option key={m.document_id} value={m.document_id}>
+                                  {m.title} ({m.document_id})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-2">
+                          {/* Option 1: Supersede */}
+                          <label
+                            className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-colors ${
+                              executiveAction === 'supersede'
+                                ? 'bg-amber-950/40 border-amber-500/80 text-amber-200'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="executive_action"
+                              value="supersede"
+                              checked={executiveAction === 'supersede'}
+                              onChange={() => setExecutiveAction('supersede')}
+                              className="mt-0.5 accent-amber-500"
+                            />
+                            <div>
+                              <div className="text-xs font-bold flex items-center gap-1.5">
+                                <span>Supersede Old Document</span>
+                                <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-amber-900/60 text-amber-300">
+                                  Recommended for updates
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Marks old document as superseded by the new one. Outdated provisions are tombstoned from standard search, and only retrieved at a 0.1x fallback weight if no active regulations match.
+                              </p>
+                            </div>
+                          </label>
+
+                          {/* Option 2: Suppress */}
+                          <label
+                            className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-colors ${
+                              executiveAction === 'suppress'
+                                ? 'bg-rose-950/40 border-rose-500/80 text-rose-200'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="executive_action"
+                              value="suppress"
+                              checked={executiveAction === 'suppress'}
+                              onChange={() => setExecutiveAction('suppress')}
+                              className="mt-0.5 accent-rose-500"
+                            />
+                            <div>
+                              <div className="text-xs font-bold flex items-center gap-1.5">
+                                <span>Suppress / Deactivate Old Document</span>
+                                <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-rose-900/60 text-rose-300">
+                                  Recommended for duplicates
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Full machine forgetting. Deactivates and suppresses the predecessor document, completely omitting it from all future search operations.
+                              </p>
+                            </div>
+                          </label>
+
+                          {/* Option 3: Keep Both */}
+                          <label
+                            className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-colors ${
+                              executiveAction === 'none'
+                                ? 'bg-cyan-950/40 border-cyan-500/80 text-cyan-200'
+                                : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="executive_action"
+                              value="none"
+                              checked={executiveAction === 'none'}
+                              onChange={() => setExecutiveAction('none')}
+                              className="mt-0.5 accent-cyan-500"
+                            />
+                            <div>
+                              <div className="text-xs font-bold">Keep Both Active</div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Ingests the new document without changing the status of any existing documents. Both will remain active in the knowledge base.
+                              </p>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 bg-emerald-950/20 border border-emerald-900/40 rounded-xl flex items-center gap-3 text-xs text-emerald-300">
+                      <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400" />
+                      <div>
+                        <div className="font-semibold text-emerald-200">No Duplicate or Conflict Detected</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          This document does not match any existing regulation in the catalog and will be indexed cleanly as a new knowledge instrument.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 3: Ingestion Success Screen */}
+              {ingestSuccess && (
+                <div className="p-6 bg-slate-950 border border-emerald-800/60 rounded-2xl text-center space-y-4">
+                  <div className="w-12 h-12 rounded-full bg-emerald-950 border border-emerald-800 flex items-center justify-center text-emerald-400 mx-auto">
+                    <CheckCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Document Ingested Successfully!</h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                      {ingestSuccess.action_summary}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-left p-3 bg-slate-900/80 border border-slate-800 rounded-xl text-xs">
+                    <div>
+                      <div className="text-[10px] text-slate-500">Document ID</div>
+                      <div className="font-mono text-cyan-300 truncate" title={ingestSuccess.document_id}>
+                        {ingestSuccess.document_id}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">Origin / Source</div>
+                      <div className="font-mono text-white">{ingestSuccess.origin} / {ingestSuccess.source}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">Chunks Indexed</div>
+                      <div className="font-mono text-emerald-400">{ingestSuccess.chunks_count} chunks</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500">FAISS Embeddings</div>
+                      <div className="font-mono text-indigo-400">{ingestSuccess.embeddings_count} vectors</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-end gap-2 shrink-0">
+              {ingestSuccess ? (
+                <>
+                  <button
+                    onClick={handleOpenUploadModal}
+                    className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                  >
+                    Upload Another Document
+                  </button>
+                  <button
+                    onClick={() => setShowUploadModal(false)}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors"
+                  >
+                    Done
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      if (analysisResult) {
+                        setAnalysisResult(null);
+                        setUploadFile(null);
+                      } else {
+                        setShowUploadModal(false);
+                      }
+                    }}
+                    disabled={confirmingIngest}
+                    className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                  >
+                    {analysisResult ? 'Back' : 'Cancel'}
+                  </button>
+                  {analysisResult && (
+                    <button
+                      onClick={handleConfirmIngestion}
+                      disabled={confirmingIngest || !customTitle.trim()}
+                      className="px-4 py-2 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {confirmingIngest && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                      <span>
+                        {confirmingIngest ? 'Chunking & Embedding...' : 'Confirm & Ingest Document'}
+                      </span>
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

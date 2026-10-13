@@ -180,7 +180,8 @@ function updateIndicators() {
     faa: 'FAA',
     skybrary: 'SKYbrary',
     manual: 'Manuals',
-    note: 'Notes'
+    note: 'Notes',
+    user: 'User Docs'
   };
   if (elements.activeSourcePill) {
     elements.activeSourcePill.textContent = `Source: ${sourceLabels[state.source] || state.source}`;

@@ -26,11 +26,16 @@ from ingestion.core.config import settings
 from api.utils import log_debug_info, call_lm_studio_chat, call_unified_chat, cosine_similarity, get_document_metadata
 from api import research
 from api import regulations
+from api import upload
 
 tags_metadata = [
     {
         "name": "REGULATIONS",
         "description": "Regulation catalog, multi-select download, and workspace FTS cross-document overlap analysis."
+    },
+    {
+        "name": "DOCUMENTS",
+        "description": "User document upload, duplicate/update comparison, executive superseding/suppression, and multi-format ingestion."
     },
     {
         "name": "SEARCH",
@@ -53,6 +58,8 @@ app = FastAPI(
 )
 app.include_router(research.router, prefix="/research", tags=["RESEARCH"])
 app.include_router(regulations.router, prefix="/regulations", tags=["REGULATIONS"])
+app.include_router(upload.router, prefix="/documents", tags=["DOCUMENTS"])
+app.include_router(upload.router, prefix="/regulations/upload", tags=["REGULATIONS"])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -95,10 +102,10 @@ class LLMAskRequest(BaseModel):
     deep_research: bool = Field(False, description="Whether to prioritize internal project notes and operational logs")
     
     # Advanced search & scoping parameters
-    origin: Optional[str] = Field("all", description="Regulatory origin filter: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note'")
-    origins: Optional[List[str]] = Field(None, description="Optional list of document origins/sources to filter by: 'easa', 'eu', 'faa', 'skybrary', 'manual', 'note'")
+    origin: Optional[str] = Field("all", description="Regulatory origin filter: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note', 'user'")
+    origins: Optional[List[str]] = Field(None, description="Optional list of document origins/sources to filter by: 'easa', 'eu', 'faa', 'skybrary', 'manual', 'note', 'user'")
     keyword_filter: Optional[str] = Field(None, description="Optional keyword or phrase to strictly filter and prioritize candidate chunks")
-    domain: Optional[str] = Field(None, description="Operational domain or origin filter: 'all', 'flight_ops', 'airworthiness', 'atm', 'aerodromes', 'licensing', 'sms', 'easa', 'faa', 'eu', 'skybrary', 'manual', 'note'")
+    domain: Optional[str] = Field(None, description="Operational domain or origin filter: 'all', 'flight_ops', 'airworthiness', 'atm', 'aerodromes', 'licensing', 'sms', 'easa', 'faa', 'eu', 'skybrary', 'manual', 'note', 'user'")
     domains: Optional[List[str]] = Field(None, description="Optional list of domains to filter by")
     stakeholder: Optional[str] = Field(None, description="Stakeholder domain persona: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
     document_ids: Optional[List[str]] = Field(None, description="Optional list of document IDs to restrict search to")
@@ -145,7 +152,7 @@ def get_markdown_for_doc(document_id: str) -> str:
 def api_search(
     query: str = Query(..., description="The text to search for"),
     top_k: int = Query(5, description="Number of results to return"),
-    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
+    origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note', or 'user'"),
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),

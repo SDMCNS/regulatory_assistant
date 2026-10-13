@@ -45,6 +45,7 @@ const DOCUMENT_SOURCES = [
   { id: 'skybrary', label: 'SKYbrary' },
   { id: 'manual', label: 'Manuals' },
   { id: 'note', label: 'Notes' },
+  { id: 'user', label: 'User Docs' },
 ];
 
 export const AskAssistant: React.FC<AskAssistantProps> = ({

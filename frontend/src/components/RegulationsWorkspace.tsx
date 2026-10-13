@@ -157,7 +157,7 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
 
   // Filters & Search
   const [titleQuery, setTitleQuery] = useState<string>('');
-  const [originFilter, setOriginFilter] = useState<'all' | 'easa' | 'eu' | 'faa' | 'manual'>('all');
+  const [originFilter, setOriginFilter] = useState<'all' | 'easa' | 'eu' | 'faa' | 'manual' | 'user'>('all');
   const [stakeholderFilter, setStakeholderFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'chunks' | 'title' | 'date'>('chunks');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -826,6 +826,14 @@ export const RegulationsWorkspace: React.FC<RegulationsWorkspaceProps> = ({
                   }`}
                 >
                   Manual / Custom
+                </button>
+                <button
+                  onClick={() => setOriginFilter('user')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors font-medium ${
+                    originFilter === 'user' ? 'bg-cyan-950 text-cyan-300 font-semibold' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  User Docs
                 </button>
               </div>
 

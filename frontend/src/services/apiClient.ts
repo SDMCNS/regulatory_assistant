@@ -39,6 +39,9 @@ import {
   NoteSummaryItem,
   NoteDetailResponse,
   GovernanceStats,
+  UploadAnalysisResponse,
+  IngestConfirmRequest,
+  IngestionResultResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -1625,6 +1628,134 @@ export async function embedNote(
   }
 }
 
+/**
+ * Analyze an uploaded document for format detection, duplicate/update comparison, and executive recommendations
+ * POST /documents/analyze
+ */
+export async function analyzeDocumentUpload(
+  file: File,
+  settings: AppSettings = loadSettings()
+): Promise<UploadAnalysisResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
 
+  const formData = new FormData();
+  formData.append('file', file);
 
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/documents/analyze`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when analyzing document`);
+    }
+    return await res.json();
+  };
 
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Confirm and execute ingestion of a staged document with executive action (none, supersede, suppress)
+ * POST /documents/confirm
+ */
+export async function confirmDocumentIngestion(
+  req: IngestConfirmRequest,
+  settings: AppSettings = loadSettings()
+): Promise<IngestionResultResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/documents/confirm`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when confirming document ingestion`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Direct single-step document upload and ingestion
+ * POST /documents/upload
+ */
+export async function directDocumentUpload(
+  file: File,
+  executiveAction: 'none' | 'supersede' | 'suppress' = 'none',
+  targetDocId?: string,
+  customTitle?: string,
+  customDate?: string,
+  settings: AppSettings = loadSettings()
+): Promise<IngestionResultResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('executive_action', executiveAction);
+  if (targetDocId) formData.append('target_doc_id', targetDocId);
+  if (customTitle) formData.append('custom_title', customTitle);
+  if (customDate) formData.append('custom_date', customDate);
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/documents/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when uploading document`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}

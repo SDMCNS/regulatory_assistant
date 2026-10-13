@@ -174,17 +174,33 @@ def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = Non
             
     return " OR ".join(clauses)
 
+def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool) -> bool:
+    if not origin_filter:
+        return True
+    if isinstance(origin_filter, (list, tuple, set)):
+        allowed = {str(o).lower().strip() for o in origin_filter if str(o).strip()}
+    else:
+        allowed = {str(o).lower().strip() for o in str(origin_filter).split(",") if str(o).strip()}
+    if not allowed or "all" in allowed:
+        return True
+    chunk_origin = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu"}
+    canonical_allowed = {aliases.get(a, a) for a in allowed}
+    return chunk_origin in canonical_allowed
+
+
 def search_keywords(
     query: str,
     top_k: int = 5,
-    origin: str = "all",
+    origin: Any = "all",
     use_llm_expansion: bool = True,
     document_id: Optional[str] = None,
-    deep_research: bool = False
+    deep_research: bool = False,
+    keyword_filter: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Performs full-text keyword search in SQLite with BM25 ranking.
-    Optionally filters by document_id.
+    Optionally filters by document_id, origin(s), and strict keyword_filter.
     """
     db_path = settings.SQLITE_PATH
     if not db_path.exists():
@@ -224,7 +240,7 @@ def search_keywords(
             LIMIT ?;
         """
         
-        fetch_limit = top_k * 5 if (origin != "all" or document_id) else top_k
+        fetch_limit = top_k * 5 if (origin != "all" or document_id or keyword_filter) else top_k
         sql_params = [fts_query]
         if document_id:
             sql_params.append(document_id)
@@ -262,18 +278,16 @@ def search_keywords(
             is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
             is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
             if not document_id:
-                if origin == "eu" and (is_easa or is_faa or is_manual or is_skybrary or is_note):
+                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note):
                     continue
-                if origin == "easa" and not is_easa:
-                    continue
-                if origin == "faa" and not is_faa:
-                    continue
-                if origin == "manual" and not is_manual:
-                    continue
-                if origin in ("skybrary", "bookshelf") and not is_skybrary:
-                    continue
-                if origin in ("note", "notes") and not is_note:
-                    continue
+
+            # Check keyword filter if specified
+            if keyword_filter and keyword_filter.strip():
+                kf_terms = [t.lower() for t in re.findall(r'\b\w+\b', keyword_filter) if len(t) > 1]
+                if kf_terms:
+                    combined_check = f"{str(doc_id).lower()} {str(section_path).lower()} {str(source_text).lower()}"
+                    if not all(term in combined_check for term in kf_terms):
+                        continue
                 
             count += 1
             

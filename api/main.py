@@ -96,6 +96,8 @@ class LLMAskRequest(BaseModel):
     
     # Advanced search & scoping parameters
     origin: Optional[str] = Field("all", description="Regulatory origin filter: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note'")
+    origins: Optional[List[str]] = Field(None, description="Optional list of document origins/sources to filter by: 'easa', 'eu', 'faa', 'skybrary', 'manual', 'note'")
+    keyword_filter: Optional[str] = Field(None, description="Optional keyword or phrase to strictly filter and prioritize candidate chunks")
     domain: Optional[str] = Field(None, description="Operational domain or origin filter: 'all', 'flight_ops', 'airworthiness', 'atm', 'aerodromes', 'licensing', 'sms', 'easa', 'faa', 'eu', 'skybrary', 'manual', 'note'")
     domains: Optional[List[str]] = Field(None, description="Optional list of domains to filter by")
     stakeholder: Optional[str] = Field(None, description="Stakeholder domain persona: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
@@ -433,8 +435,8 @@ def api_llm_ask(request: LLMAskRequest):
     # Restrict to single document_id if provided
     target_doc_id = request.document_ids[0] if (request.document_ids and len(request.document_ids) == 1) else None
 
-    # Resolve domain filter
-    resolved_origin = request.origin or "all"
+    # Resolve source/origin filter
+    resolved_origin: Any = request.origins if (request.origins and len(request.origins) > 0) else (request.origin or "all")
     resolved_stakeholder = request.stakeholder
 
     domain_candidate = request.domain or (request.domains[0] if (request.domains and len(request.domains) > 0) else None)
@@ -459,8 +461,10 @@ def api_llm_ask(request: LLMAskRequest):
         log_debug_info("API /llm/ask - EXECUTING HYBRID RETRIEVAL", {
             "query": active_query,
             "origin": resolved_origin,
+            "origins": request.origins,
             "domain": domain_candidate,
             "stakeholder": resolved_stakeholder,
+            "keyword_filter": request.keyword_filter,
             "top_k": request.top_k,
             "use_hyde": request.use_hyde,
             "document_id": target_doc_id
@@ -473,7 +477,8 @@ def api_llm_ask(request: LLMAskRequest):
             use_hyde=request.use_hyde,
             stakeholder=resolved_stakeholder,
             document_id=target_doc_id,
-            deep_research=request.deep_research
+            deep_research=request.deep_research,
+            keyword_filter=request.keyword_filter
         )
         
         # If multiple document_ids requested, filter candidates locally

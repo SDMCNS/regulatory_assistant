@@ -60,22 +60,43 @@
     </div>
   </header>
 
+  <!-- Document Source Filter Bar -->
+  <nav class="filter-bar source-bar" aria-label="Document source filters">
+    <div class="filter-label">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+        <path d="M6 6h10"/>
+        <path d="M6 10h10"/>
+      </svg>
+      Source:
+    </div>
+    <div class="filter-chips" id="source-chips-container">
+      <button class="filter-chip active" data-source="all">All Sources</button>
+      <button class="filter-chip" data-source="easa">EASA</button>
+      <button class="filter-chip" data-source="eu">EU (EUR-Lex)</button>
+      <button class="filter-chip" data-source="faa">FAA</button>
+      <button class="filter-chip" data-source="skybrary">SKYbrary</button>
+      <button class="filter-chip" data-source="manual">Manuals</button>
+      <button class="filter-chip" data-source="note">Notes</button>
+    </div>
+  </nav>
+
   <!-- Domain Filter Bar -->
-  <nav class="domain-bar" aria-label="Regulatory domain filters">
-    <div class="domain-label">
+  <nav class="filter-bar domain-bar" aria-label="Regulatory domain filters">
+    <div class="filter-label">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
       </svg>
       Domain:
     </div>
-    <div class="domain-chips" id="domain-chips-container">
-      <button class="domain-chip active" data-domain="all">All Domains</button>
-      <button class="domain-chip" data-domain="flight_ops">Flight Ops (Air Ops)</button>
-      <button class="domain-chip" data-domain="airworthiness">Airworthiness & CAMO</button>
-      <button class="domain-chip" data-domain="atm">ATM / Air Navigation</button>
-      <button class="domain-chip" data-domain="aerodromes">Aerodromes & Ground</button>
-      <button class="domain-chip" data-domain="licensing">Crew & Licensing</button>
-      <button class="domain-chip" data-domain="drones">Drones / UAS</button>
+    <div class="filter-chips" id="domain-chips-container">
+      <button class="filter-chip active" data-domain="all">All Domains</button>
+      <button class="filter-chip" data-domain="flight_ops">Flight Ops (Air Ops)</button>
+      <button class="filter-chip" data-domain="airworthiness">Airworthiness & CAMO</button>
+      <button class="filter-chip" data-domain="atm">ATM / Air Navigation</button>
+      <button class="filter-chip" data-domain="aerodromes">Aerodromes & Ground</button>
+      <button class="filter-chip" data-domain="licensing">Crew & Licensing</button>
+      <button class="filter-chip" data-domain="drones">Drones / UAS</button>
     </div>
   </nav>
 
@@ -150,6 +171,23 @@
 
     <!-- Input Footer -->
     <footer class="input-area">
+      <div class="keyword-filter-bar">
+        <div class="keyword-filter-wrap">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input
+            type="text"
+            id="keyword-filter-input"
+            class="keyword-filter-input"
+            placeholder="Keyword filter: e.g. AMC-20, FTL, ATSEP, Part-ORO..."
+          />
+          <button id="btn-clear-keyword" class="btn-clear-keyword" style="display: none;" title="Clear keyword filter">&times;</button>
+        </div>
+        <span id="keyword-badge" class="filter-badge" style="display: none;">Keyword Filter Active</span>
+      </div>
+
       <div class="input-box">
         <textarea
           id="chat-textarea"
@@ -160,7 +198,9 @@
         
         <div class="input-controls">
           <div class="input-indicators">
+            <span class="indicator-pill" id="active-source-pill">Source: All</span>
             <span class="indicator-pill" id="active-domain-pill">Domain: All</span>
+            <span class="indicator-pill" id="active-keyword-pill" style="display: none;">Keyword: None</span>
             <span class="indicator-pill" id="active-provider-pill">LM Studio Local</span>
           </div>
 

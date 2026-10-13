@@ -10,6 +10,8 @@ const state = {
   geminiModel: localStorage.getItem('aeroreg_gemini_model') || 'gemini-2.5-flash',
   topK: parseInt(localStorage.getItem('aeroreg_topk') || '3', 10),
   domain: 'all',
+  source: 'all',
+  keywordFilter: '',
   messages: [],
   isLoading: false,
   isOnline: false,
@@ -31,8 +33,14 @@ const elements = {
   settingTopk: document.getElementById('setting-topk'),
   topkVal: document.getElementById('topk-val'),
   btnClearChat: document.getElementById('btn-clear-chat'),
+  sourceChipsContainer: document.getElementById('source-chips-container'),
+  activeSourcePill: document.getElementById('active-source-pill'),
   domainChipsContainer: document.getElementById('domain-chips-container'),
   activeDomainPill: document.getElementById('active-domain-pill'),
+  keywordFilterInput: document.getElementById('keyword-filter-input'),
+  btnClearKeyword: document.getElementById('btn-clear-keyword'),
+  activeKeywordPill: document.getElementById('active-keyword-pill'),
+  keywordBadge: document.getElementById('keyword-badge'),
   activeProviderPill: document.getElementById('active-provider-pill'),
   welcomeHero: document.getElementById('welcome-hero'),
   messagesViewport: document.getElementById('messages-viewport'),
@@ -165,6 +173,19 @@ async function checkBackendHealth() {
 
 // Update Indicators
 function updateIndicators() {
+  const sourceLabels = {
+    all: 'All Sources',
+    easa: 'EASA',
+    eu: 'EU (EUR-Lex)',
+    faa: 'FAA',
+    skybrary: 'SKYbrary',
+    manual: 'Manuals',
+    note: 'Notes'
+  };
+  if (elements.activeSourcePill) {
+    elements.activeSourcePill.textContent = `Source: ${sourceLabels[state.source] || state.source}`;
+  }
+
   const domainLabels = {
     all: 'All Domains',
     flight_ops: 'Flight Ops',
@@ -178,6 +199,19 @@ function updateIndicators() {
   elements.activeProviderPill.textContent = state.provider === 'gemini' 
     ? `Gemini (${state.geminiModel})` 
     : 'LM Studio Local';
+
+  if (state.keywordFilter && state.keywordFilter.trim()) {
+    if (elements.activeKeywordPill) {
+      elements.activeKeywordPill.style.display = 'inline-flex';
+      elements.activeKeywordPill.textContent = `Keyword: "${state.keywordFilter}"`;
+    }
+    if (elements.btnClearKeyword) elements.btnClearKeyword.style.display = 'inline-block';
+    if (elements.keywordBadge) elements.keywordBadge.style.display = 'inline-block';
+  } else {
+    if (elements.activeKeywordPill) elements.activeKeywordPill.style.display = 'none';
+    if (elements.btnClearKeyword) elements.btnClearKeyword.style.display = 'none';
+    if (elements.keywordBadge) elements.keywordBadge.style.display = 'none';
+  }
 }
 
 // Send Message
@@ -218,7 +252,9 @@ async function handleSend(textToSend) {
     const payload = {
       prompt: query,
       messages: conversationHistory,
+      origin: state.source !== 'all' ? state.source : null,
       domain: state.domain !== 'all' ? state.domain : null,
+      keyword_filter: state.keywordFilter.trim() || null,
       top_k: state.topK,
       provider: state.provider,
       model: state.provider === 'gemini' ? state.geminiModel : null,
@@ -398,16 +434,45 @@ window.copyAnswer = (msgId) => {
 
 // Event Listeners Initialization
 function initEvents() {
+  // Source Chips
+  if (elements.sourceChipsContainer) {
+    elements.sourceChipsContainer.addEventListener('click', (e) => {
+      const chip = e.target.closest('.filter-chip');
+      if (!chip) return;
+      
+      elements.sourceChipsContainer.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.source = chip.dataset.source;
+      updateIndicators();
+    });
+  }
+
   // Domain Chips
   elements.domainChipsContainer.addEventListener('click', (e) => {
-    const chip = e.target.closest('.domain-chip');
+    const chip = e.target.closest('.filter-chip, .domain-chip');
     if (!chip) return;
     
-    document.querySelectorAll('.domain-chip').forEach(c => c.classList.remove('active'));
+    elements.domainChipsContainer.querySelectorAll('.filter-chip, .domain-chip').forEach(c => c.classList.remove('active'));
     chip.classList.add('active');
     state.domain = chip.dataset.domain;
     updateIndicators();
   });
+
+  // Keyword Filter Input
+  if (elements.keywordFilterInput) {
+    elements.keywordFilterInput.addEventListener('input', (e) => {
+      state.keywordFilter = e.target.value.trim();
+      updateIndicators();
+    });
+  }
+
+  if (elements.btnClearKeyword) {
+    elements.btnClearKeyword.addEventListener('click', () => {
+      if (elements.keywordFilterInput) elements.keywordFilterInput.value = '';
+      state.keywordFilter = '';
+      updateIndicators();
+    });
+  }
 
   // Prompt Cards in Hero
   elements.welcomeHero.addEventListener('click', (e) => {

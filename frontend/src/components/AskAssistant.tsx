@@ -8,7 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, Database, Copy, Check, Layers, ChevronDown, 
   ChevronUp, FileText, ExternalLink, CornerDownLeft, Info, X, Sparkles, Cpu,
-  Edit2, Download, Filter
+  Edit2, Download, Filter, BookOpen, Search
 } from 'lucide-react';
 import { AppSettings, ChatMessage, QueryMemoryItem, SearchDocResponse, ChatSession } from '../types';
 import { askLLM, searchRegulations } from '../services/apiClient';
@@ -37,6 +37,16 @@ const AVIATION_DOMAINS = [
   { id: 'drones', label: 'Drones / UAS' },
 ];
 
+const DOCUMENT_SOURCES = [
+  { id: 'all', label: 'All Sources' },
+  { id: 'easa', label: 'EASA' },
+  { id: 'eu', label: 'EU (EUR-Lex)' },
+  { id: 'faa', label: 'FAA' },
+  { id: 'skybrary', label: 'SKYbrary' },
+  { id: 'manual', label: 'Manuals' },
+  { id: 'note', label: 'Notes' },
+];
+
 export const AskAssistant: React.FC<AskAssistantProps> = ({
   settings,
   targetedChunks,
@@ -59,6 +69,8 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string>('all');
+  const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [keywordFilter, setKeywordFilter] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [useMemoryInPrompt, setUseMemoryInPrompt] = useState(settings.enableQueryMemoryContext);
   const [showMemoryPreview, setShowMemoryPreview] = useState(false);
@@ -134,7 +146,8 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
           chunkIds: targetedChunks.length > 0 ? targetedChunks : null,
           contextSections: savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
           memoryContext,
-          origin: settings.defaultOrigin,
+          origin: selectedSource !== 'all' ? selectedSource : settings.defaultOrigin,
+          keywordFilter: keywordFilter.trim() ? keywordFilter.trim() : undefined,
           domain: selectedDomain !== 'all' ? selectedDomain : undefined,
           topK: settings.defaultTopK,
           settings
@@ -672,8 +685,30 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
       {/* Input Area */}
       <div className="p-4 sm:p-6 bg-slate-950 border-t border-slate-800/80 shrink-0">
         <div className="max-w-4xl mx-auto w-full space-y-2">
+          {/* Document Source Filter Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
+            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
+              <BookOpen className="w-3 h-3 text-sky-400" />
+              Source:
+            </span>
+            {DOCUMENT_SOURCES.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSelectedSource(s.id)}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
+                  selectedSource === s.id
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50 shadow-sm'
+                    : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           {/* Domain Filter Selector Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
             <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
               <Filter className="w-3 h-3 text-sky-400" />
               Domain:
@@ -683,7 +718,7 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                 key={d.id}
                 type="button"
                 onClick={() => setSelectedDomain(d.id)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
                   selectedDomain === d.id
                     ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50 shadow-sm'
                     : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
@@ -692,6 +727,33 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                 {d.label}
               </button>
             ))}
+          </div>
+
+          {/* Keyword Filter Input */}
+          <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-1 text-xs">
+            <Search className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <input
+              type="text"
+              value={keywordFilter}
+              onChange={(e) => setKeywordFilter(e.target.value)}
+              placeholder="Keyword filter: e.g. AMC-20, FTL, ATSEP, Part-ORO (restricts retrieved clauses to matches)..."
+              className="flex-1 bg-transparent text-xs text-slate-200 placeholder-slate-500 focus:outline-none font-sans"
+            />
+            {keywordFilter && (
+              <button
+                type="button"
+                onClick={() => setKeywordFilter('')}
+                className="text-slate-400 hover:text-slate-200 text-xs px-1 hover:bg-slate-800 rounded cursor-pointer"
+                title="Clear keyword filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            {keywordFilter.trim() && (
+              <span className="text-[10px] font-mono text-sky-300 bg-sky-950/80 border border-sky-800/80 px-1.5 py-0.5 rounded shrink-0">
+                Active Filter
+              </span>
+            )}
           </div>
 
           <div className="relative flex items-end bg-slate-900 border border-slate-800 focus-within:border-sky-500 rounded-xl shadow-lg transition-colors p-2">

@@ -9,6 +9,8 @@ import argparse
 import sqlite3
 import requests
 import textwrap
+import re
+import json
 
 from ingestion.core.config import settings
 from ingestion.core.models import EmbeddingType
@@ -279,14 +281,30 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
         }
 
 
+def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool) -> bool:
+    if not origin_filter:
+        return True
+    if isinstance(origin_filter, (list, tuple, set)):
+        allowed = {str(o).lower().strip() for o in origin_filter if str(o).strip()}
+    else:
+        allowed = {str(o).lower().strip() for o in str(origin_filter).split(",") if str(o).strip()}
+    if not allowed or "all" in allowed:
+        return True
+    chunk_origin = "note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu"}
+    canonical_allowed = {aliases.get(a, a) for a in allowed}
+    return chunk_origin in canonical_allowed
+
+
 def search_semantic(
     query: str, 
     top_k: int = 5, 
-    origin: str = "all", 
+    origin: Any = "all", 
     use_hyde: bool = False,
     stakeholder: Optional[str] = None,
     document_id: Optional[str] = None,
-    deep_research: bool = False
+    deep_research: bool = False,
+    keyword_filter: Optional[str] = None
 ) -> list[dict]:
     db_path = settings.DATA_DIR / "regulations" / "sqlite" / "chunks.db"
     if not db_path.exists():
@@ -330,7 +348,7 @@ def search_semantic(
         # Scan entire chunk index to exhaustively rank all chunks belonging to this document
         search_k = min(total_chunks, 48000)
     else:
-        search_k = top_k * 15 if origin != "all" or stakeholder else top_k * 4
+        search_k = top_k * 15 if (origin != "all" or stakeholder or keyword_filter) else top_k * 4
 
     vector_results = vector_index.search(query_vector, EmbeddingType.CHUNK, top_k=max(search_k, 25))
         
@@ -383,18 +401,16 @@ def search_semantic(
             is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
             
             if not doc_chunks:
-                if origin == "eu" and (is_easa or is_faa or is_manual or is_skybrary or is_note):
+                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note):
                     continue
-                if origin == "easa" and not is_easa:
-                    continue
-                if origin == "faa" and not is_faa:
-                    continue
-                if origin == "manual" and not is_manual:
-                    continue
-                if origin in ("skybrary", "bookshelf") and not is_skybrary:
-                    continue
-                if origin in ("note", "notes") and not is_note:
-                    continue
+
+            # Check keyword filter if specified
+            if keyword_filter and keyword_filter.strip():
+                kf_terms = [t.lower() for t in re.findall(r'\b\w+\b', keyword_filter) if len(t) > 1]
+                if kf_terms:
+                    combined_check = f"{str(doc_id).lower()} {str(section_path).lower()} {str(source_text).lower()}"
+                    if not all(term in combined_check for term in kf_terms):
+                        continue
             
             # Fetch parent title if this is an ANNEX or lacks a good title
             if not doc_title or str(doc_title).upper().startswith("ANNEX") or str(doc_title).upper().startswith("APPENDIX"):

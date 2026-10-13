@@ -564,6 +564,8 @@ export interface AskLLMOptions {
   contextSections?: import('../types').DocSection[] | null;
   memoryContext?: string;
   origin?: string;
+  origins?: string[] | null;
+  keywordFilter?: string | null;
   domain?: string | null;
   domains?: string[] | null;
   stakeholder?: string | null;
@@ -621,6 +623,8 @@ export async function askLLM(
     chunk_ids: options.chunkIds && options.chunkIds.length > 0 ? options.chunkIds : null,
     context_sections: options.contextSections && options.contextSections.length > 0 ? options.contextSections : null,
     origin: options.origin || activeSettings.defaultOrigin || 'all',
+    origins: options.origins && options.origins.length > 0 ? options.origins : undefined,
+    keyword_filter: options.keywordFilter || undefined,
     domain: options.domain || undefined,
     domains: options.domains || undefined,
     stakeholder: options.stakeholder || null,

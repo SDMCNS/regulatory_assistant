@@ -217,7 +217,9 @@ def search_keywords(
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
             JOIN documents d ON c.document_id = d.document_id
-            WHERE chunks_fts MATCH ?{where_extra}
+            WHERE chunks_fts MATCH ? 
+              AND COALESCE(c.is_active, 1) = 1 
+              AND COALESCE(d.is_active, 1) = 1{where_extra}
             ORDER BY bm25_score ASC
             LIMIT ?;
         """

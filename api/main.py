@@ -96,11 +96,14 @@ class LLMAskRequest(BaseModel):
     
     # Advanced search & scoping parameters
     origin: Optional[str] = Field("all", description="Regulatory origin filter: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note'")
+    domain: Optional[str] = Field(None, description="Operational domain or origin filter: 'all', 'flight_ops', 'airworthiness', 'atm', 'aerodromes', 'licensing', 'sms', 'easa', 'faa', 'eu', 'skybrary', 'manual', 'note'")
+    domains: Optional[List[str]] = Field(None, description="Optional list of domains to filter by")
     stakeholder: Optional[str] = Field(None, description="Stakeholder domain persona: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'")
     document_ids: Optional[List[str]] = Field(None, description="Optional list of document IDs to restrict search to")
     top_k: int = Field(5, ge=1, le=15, description="Number of candidate regulatory clauses to retrieve")
     use_hyde: bool = Field(False, description="Enable Hypothetical Document Embeddings for query expansion")
     context_window: int = Field(1, ge=0, le=4, description="Sequential surrounding context window (±N provisions)")
+    include_deactivated: bool = Field(False, description="Whether to include deactivated / superseded documents")
     
     # Provider & model parameters
     provider: Optional[str] = Field("local", description="LLM provider: 'local' (LM Studio) or 'gemini'")
@@ -430,11 +433,34 @@ def api_llm_ask(request: LLMAskRequest):
     # Restrict to single document_id if provided
     target_doc_id = request.document_ids[0] if (request.document_ids and len(request.document_ids) == 1) else None
 
+    # Resolve domain filter
+    resolved_origin = request.origin or "all"
+    resolved_stakeholder = request.stakeholder
+
+    domain_candidate = request.domain or (request.domains[0] if (request.domains and len(request.domains) > 0) else None)
+    if domain_candidate and domain_candidate.lower() != "all":
+        d_lower = domain_candidate.lower().strip()
+        if d_lower in ("easa", "eu", "faa", "skybrary", "manual", "note"):
+            resolved_origin = d_lower
+        elif d_lower in ("airline", "ansp", "airport", "economics", "maintenance", "flight_crew"):
+            resolved_stakeholder = d_lower
+        elif d_lower in ("flight_ops", "operations", "ops"):
+            resolved_stakeholder = "airline"
+        elif d_lower in ("atm", "ans", "atc"):
+            resolved_stakeholder = "ansp"
+        elif d_lower in ("aerodromes", "aerodrome", "airport"):
+            resolved_stakeholder = "airport"
+        elif d_lower in ("airworthiness", "mro", "maintenance"):
+            resolved_stakeholder = "maintenance"
+        elif d_lower in ("licensing", "crew", "fcl", "flight_crew"):
+            resolved_stakeholder = "flight_crew"
+
     if not active_chunk_ids:
         log_debug_info("API /llm/ask - EXECUTING HYBRID RETRIEVAL", {
             "query": active_query,
-            "origin": request.origin,
-            "stakeholder": request.stakeholder,
+            "origin": resolved_origin,
+            "domain": domain_candidate,
+            "stakeholder": resolved_stakeholder,
             "top_k": request.top_k,
             "use_hyde": request.use_hyde,
             "document_id": target_doc_id
@@ -443,9 +469,9 @@ def api_llm_ask(request: LLMAskRequest):
         search_results = search_hybrid(
             query=active_query,
             top_k=request.top_k,
-            origin=request.origin or "all",
+            origin=resolved_origin,
             use_hyde=request.use_hyde,
-            stakeholder=request.stakeholder,
+            stakeholder=resolved_stakeholder,
             document_id=target_doc_id,
             deep_research=request.deep_research
         )
@@ -470,6 +496,9 @@ def api_llm_ask(request: LLMAskRequest):
             doc_id = surrounding_info.get("document_id", "Unknown")
             doc_title = surrounding_info.get("document_title", doc_id)
             chunks_list = surrounding_info.get("chunks", [])
+            is_active = surrounding_info.get("is_active", True)
+            deact_reason = surrounding_info.get("deactivation_reason")
+            supers_by = surrounding_info.get("superseded_by")
             
             # Extract target chunk details
             target_chunk = next((c for c in chunks_list if c.get("is_target")), chunks_list[0] if chunks_list else None)
@@ -483,7 +512,10 @@ def api_llm_ask(request: LLMAskRequest):
                 "title": doc_title,
                 "path": path_list,
                 "source": "database",
-                "text": target_text[:300] + ("..." if len(target_text) > 300 else "")
+                "text": target_text[:300] + ("..." if len(target_text) > 300 else ""),
+                "is_active": is_active,
+                "deactivation_reason": deact_reason,
+                "superseded_by": supers_by
             })
             
             # Combine surrounding text into unified block
@@ -494,8 +526,13 @@ def api_llm_ask(request: LLMAskRequest):
                 block_parts.append(f"{prefix} (ID: {sc.get('chunk_id')}):\n{sc.get('text', '')}")
                 
             combined_chunk_text = "\n\n".join(block_parts)
+            
+            superseded_notice = ""
+            if not is_active or supers_by:
+                superseded_notice = f" [NOTICE: THIS PROVISION IS FROM A SUPERSEDED/DEACTIVATED INSTRUMENT. Superseded by: {supers_by or 'Unknown'}, Reason: {deact_reason or 'Superseded'}]"
+
             context_blocks.append(
-                f"=== REGULATORY CONTEXT [{cid}] ===\n"
+                f"=== REGULATORY CONTEXT [{cid}]{superseded_notice} ===\n"
                 f"Document: {doc_title} ({doc_id})\n"
                 f"Section: {section_breadcrumbs}\n\n"
                 f"{combined_chunk_text}"

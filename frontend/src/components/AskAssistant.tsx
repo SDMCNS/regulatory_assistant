@@ -8,7 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Send, Database, Copy, Check, Layers, ChevronDown, 
   ChevronUp, FileText, ExternalLink, CornerDownLeft, Info, X, Sparkles, Cpu,
-  Edit2, Download
+  Edit2, Download, Filter
 } from 'lucide-react';
 import { AppSettings, ChatMessage, QueryMemoryItem, SearchDocResponse, ChatSession } from '../types';
 import { askLLM, searchRegulations } from '../services/apiClient';
@@ -26,6 +26,16 @@ interface AskAssistantProps {
   activeChatId: string | null;
   onChatChange: (chatId: string) => void;
 }
+
+const AVIATION_DOMAINS = [
+  { id: 'all', label: 'All Domains' },
+  { id: 'flight_ops', label: 'Flight Ops (Air Ops)' },
+  { id: 'airworthiness', label: 'Airworthiness & CAMO' },
+  { id: 'atm', label: 'ATM / Air Navigation' },
+  { id: 'aerodromes', label: 'Aerodromes' },
+  { id: 'licensing', label: 'Flight Crew & Licensing' },
+  { id: 'drones', label: 'Drones / UAS' },
+];
 
 export const AskAssistant: React.FC<AskAssistantProps> = ({
   settings,
@@ -48,6 +58,7 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
   const savedSections = activeChat?.savedSections || [];
 
   const [inputPrompt, setInputPrompt] = useState('');
+  const [selectedDomain, setSelectedDomain] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(false);
   const [useMemoryInPrompt, setUseMemoryInPrompt] = useState(settings.enableQueryMemoryContext);
   const [showMemoryPreview, setShowMemoryPreview] = useState(false);
@@ -124,6 +135,7 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
           contextSections: savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
           memoryContext,
           origin: settings.defaultOrigin,
+          domain: selectedDomain !== 'all' ? selectedDomain : undefined,
           topK: settings.defaultTopK,
           settings
         });
@@ -660,6 +672,28 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
       {/* Input Area */}
       <div className="p-4 sm:p-6 bg-slate-950 border-t border-slate-800/80 shrink-0">
         <div className="max-w-4xl mx-auto w-full space-y-2">
+          {/* Domain Filter Selector Chips */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
+              <Filter className="w-3 h-3 text-sky-400" />
+              Domain:
+            </span>
+            {AVIATION_DOMAINS.map(d => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => setSelectedDomain(d.id)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
+                  selectedDomain === d.id
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50 shadow-sm'
+                    : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+
           <div className="relative flex items-end bg-slate-900 border border-slate-800 focus-within:border-sky-500 rounded-xl shadow-lg transition-colors p-2">
             <textarea
               ref={textareaRef}

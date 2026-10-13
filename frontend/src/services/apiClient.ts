@@ -38,6 +38,7 @@ import {
   NoteActionResponse,
   NoteSummaryItem,
   NoteDetailResponse,
+  GovernanceStats,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -563,6 +564,8 @@ export interface AskLLMOptions {
   contextSections?: import('../types').DocSection[] | null;
   memoryContext?: string;
   origin?: string;
+  domain?: string | null;
+  domains?: string[] | null;
   stakeholder?: string | null;
   documentIds?: string[] | null;
   topK?: number;
@@ -612,12 +615,14 @@ export async function askLLM(
     finalPrompt = `[CONTEXT FROM PREVIOUS USER QUERIES IN THIS SESSION]:\n${options.memoryContext.trim()}\n\n[USER INQUIRY]:\n${finalPrompt}`;
   }
 
-  const reqBody: LLMAskRequest = {
+  const reqBody: any = {
     prompt: finalPrompt || undefined,
     messages: options.messages && options.messages.length > 0 ? options.messages : undefined,
     chunk_ids: options.chunkIds && options.chunkIds.length > 0 ? options.chunkIds : null,
     context_sections: options.contextSections && options.contextSections.length > 0 ? options.contextSections : null,
     origin: options.origin || activeSettings.defaultOrigin || 'all',
+    domain: options.domain || undefined,
+    domains: options.domains || undefined,
     stakeholder: options.stakeholder || null,
     document_ids: options.documentIds && options.documentIds.length > 0 ? options.documentIds : null,
     top_k: options.topK || activeSettings.defaultTopK || 5,
@@ -990,7 +995,8 @@ export async function testGeminiApiKey(
 export async function getRegulationsCatalog(
   params: {
     query?: string;
-    origin?: RegulationOrigin;
+    origin?: RegulationOrigin | string;
+    status?: 'all' | 'active' | 'deactivated';
     stakeholder?: string;
     sort_by?: 'chunks' | 'title' | 'date';
     sort_order?: 'asc' | 'desc';
@@ -1003,6 +1009,7 @@ export async function getRegulationsCatalog(
   const searchParams = new URLSearchParams();
   if (params.query) searchParams.append('query', params.query);
   if (params.origin) searchParams.append('origin', params.origin);
+  if (params.status) searchParams.append('status', params.status);
   if (params.stakeholder) searchParams.append('stakeholder', params.stakeholder);
   if (params.sort_by) searchParams.append('sort_by', params.sort_by);
   if (params.sort_order) searchParams.append('sort_order', params.sort_order);
@@ -1020,6 +1027,117 @@ export async function getRegulationsCatalog(
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`HTTP ${res.status} from ${targetBase}/regulations/catalog: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * GET /regulations/governance/stats
+ * Retrieves global knowledge governance and forgetting statistics
+ */
+export async function getGovernanceStats(
+  settings: AppSettings = loadSettings()
+): Promise<GovernanceStats> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = { 'Accept': 'application/json' };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/stats`, { headers });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/{document_id}/deactivate
+ * Deactivates a document and its chunks in the database (knowledge forgetting)
+ */
+export async function deactivateDocument(
+  documentId: string,
+  reason: string,
+  supersededBy?: string,
+  settings: AppSettings = loadSettings()
+): Promise<any> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const encodedId = encodeURIComponent(documentId);
+    const res = await fetch(`${targetBase}/regulations/governance/${encodedId}/deactivate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        reason,
+        superseded_by: supersededBy || null
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/{document_id}/activate
+ * Reactivates a document and its chunks in the database
+ */
+export async function activateDocument(
+  documentId: string,
+  settings: AppSettings = loadSettings()
+): Promise<any> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const encodedId = encodeURIComponent(documentId);
+    const res = await fetch(`${targetBase}/regulations/governance/${encodedId}/activate`, {
+      method: 'POST',
+      headers
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
     }
     return await res.json();
   };

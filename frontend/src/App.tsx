@@ -16,6 +16,7 @@ import { ResearchTab } from './components/ResearchTab';
 import { RegulationsWorkspace } from './components/RegulationsWorkspace';
 import { DocumentBuilder } from './components/DocumentBuilder';
 import { NotesTab } from './components/NotesTab';
+import { KnowledgeGovernance } from './components/KnowledgeGovernance';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
@@ -223,6 +224,15 @@ export default function App() {
               setWorkspaceInitialQuery('');
             }}
           />
+        )}
+
+        {activeTab === 'governance' && (
+          <ErrorBoundary fallbackTitle="Knowledge Governance Error">
+            <KnowledgeGovernance
+              settings={settings}
+              onOpenInWorkspace={(docId) => handleOpenWorkspaceWithDocs([docId])}
+            />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'builder' && (

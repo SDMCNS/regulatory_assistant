@@ -138,7 +138,7 @@ def search(query: str, top_k: int = 5, origin: str = "all"):
                 SELECT c.document_id, c.section_path, c.source_text, d.metadata_json 
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
-                WHERE c.chunk_id = ?
+                WHERE c.chunk_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
             """, (chunk_id,))
             row = cursor.fetchone()
             
@@ -205,7 +205,8 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
 
         # 1. Fetch target chunk
         cursor.execute("""
-            SELECT c.rowid, c.document_id, c.section_path, c.source_text, d.title, d.metadata_json
+            SELECT c.rowid, c.document_id, c.section_path, c.source_text, d.title, d.metadata_json,
+                   COALESCE(d.is_active, 1) as doc_active, d.deactivation_reason, d.superseded_by
             FROM chunks c
             LEFT JOIN documents d ON c.document_id = d.document_id
             WHERE c.chunk_id = ?
@@ -214,7 +215,7 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
         if not target_row:
             raise ValueError(f"Chunk '{chunk_id}' not found in database.")
 
-        t_rowid, doc_id, t_path_json, t_text, doc_title, meta_json = target_row
+        t_rowid, doc_id, t_path_json, t_text, doc_title, meta_json, doc_active, deact_reason, supers_by = target_row
         t_path = json.loads(t_path_json) if t_path_json else []
         meta_dict = json.loads(meta_json) if meta_json else {}
 
@@ -271,7 +272,10 @@ def get_chunk_surrounding_context(chunk_id: str, window: int = 2) -> dict:
             "document_title": doc_title or meta_dict.get("title") or doc_id,
             "window": window,
             "total_chunks": len(all_chunks),
-            "chunks": all_chunks
+            "chunks": all_chunks,
+            "is_active": bool(doc_active),
+            "deactivation_reason": deact_reason,
+            "superseded_by": supers_by
         }
 
 
@@ -349,7 +353,7 @@ def search_semantic(
                 SELECT c.chunk_id, c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
-                WHERE c.document_id = ?
+                WHERE c.document_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
             """, (document_id,))
             doc_chunks = {r[0]: r[1:] for r in cursor.fetchall()}
             if not doc_chunks:
@@ -365,7 +369,7 @@ def search_semantic(
                     SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title 
                     FROM chunks c
                     JOIN documents d ON c.document_id = d.document_id
-                    WHERE c.chunk_id = ?
+                    WHERE c.chunk_id = ? AND COALESCE(c.is_active, 1) = 1 AND COALESCE(d.is_active, 1) = 1
                 """, (chunk_id,))
                 row = cursor.fetchone()
                 if not row:

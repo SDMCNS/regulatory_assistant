@@ -1,0 +1,15 @@
+{
+  "name": "regulatory-assistant-simple-chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone scaled-back chatbot front end for the Aviation Regulatory Assistant",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3001 --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --port 3001"
+  },
+  "devDependencies": {
+    "vite": "^6.2.0"
+  }
+}

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AeroReg Chatbot — Aviation Regulatory Assistant</title>
+  <meta name="description" content="Lightweight conversational interface for EU, EASA, FAA, and SKYbrary aviation regulations powered by RAG and LLMs.">
+  
+  <!-- Modern Typography Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.3c.4-.2.6-.6.5-1.1z"/>
+        </svg>
+      </div>
+      <div class="brand-title">
+        <h1>
+          AeroReg Chat
+          <span class="brand-badge">Simple RAG</span>
+        </h1>
+        <div class="brand-subtitle">Standalone Aviation Regulatory Chatbot</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <!-- Backend Status -->
+      <div id="backend-status" class="status-pill" title="Checking backend connection...">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+
+      <!-- Settings Button -->
+      <button id="btn-open-settings" class="btn-action" title="Configure endpoint and model">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+
+      <!-- Clear Chat Button -->
+      <button id="btn-clear-chat" class="btn-action" title="Clear chat session">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18"/>
+          <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+          <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+        </svg>
+        <span>New Chat</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Domain Filter Bar -->
+  <nav class="domain-bar" aria-label="Regulatory domain filters">
+    <div class="domain-label">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+      </svg>
+      Domain:
+    </div>
+    <div class="domain-chips" id="domain-chips-container">
+      <button class="domain-chip active" data-domain="all">All Domains</button>
+      <button class="domain-chip" data-domain="flight_ops">Flight Ops (Air Ops)</button>
+      <button class="domain-chip" data-domain="airworthiness">Airworthiness & CAMO</button>
+      <button class="domain-chip" data-domain="atm">ATM / Air Navigation</button>
+      <button class="domain-chip" data-domain="aerodromes">Aerodromes & Ground</button>
+      <button class="domain-chip" data-domain="licensing">Crew & Licensing</button>
+      <button class="domain-chip" data-domain="drones">Drones / UAS</button>
+    </div>
+  </nav>
+
+  <!-- Main Chat Section -->
+  <main class="chat-container">
+    <div class="messages-viewport" id="messages-viewport">
+      <!-- Welcome Hero (Visible when empty) -->
+      <section class="welcome-hero" id="welcome-hero">
+        <div class="hero-glow">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+          </svg>
+        </div>
+        <h2>Aviation Regulatory Assistant</h2>
+        <p>
+          Ask questions directly over EASA, EU regulations, FAA standards, and SKYbrary articles.
+          Answers are grounded via live semantic retrieval, with superseded and deactivated instruments automatically flagged.
+        </p>
+
+        <div class="hero-features">
+          <div class="feature-tag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+            Active Knowledge Only
+          </div>
+          <div class="feature-tag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+            Superseded Warning Alerts
+          </div>
+          <div class="feature-tag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+            Domain Filtering
+          </div>
+          <div class="feature-tag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+            Full Provision Citations
+          </div>
+        </div>
+
+        <div class="prompt-suggestions">
+          <div class="prompt-card" data-prompt="What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?" data-domain="flight_ops">
+            <div class="prompt-card-domain">Flight Ops</div>
+            <div class="prompt-card-text">What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?</div>
+          </div>
+          <div class="prompt-card" data-prompt="What are the continuing airworthiness maintenance responsibilities under Part-ML vs Part-M?" data-domain="airworthiness">
+            <div class="prompt-card-domain">Airworthiness</div>
+            <div class="prompt-card-text">Continuing airworthiness responsibilities under Part-ML vs Part-M?</div>
+          </div>
+          <div class="prompt-card" data-prompt="What are the competency and rating maintenance requirements for ATSEP personnel?" data-domain="atm">
+            <div class="prompt-card-domain">ATM</div>
+            <div class="prompt-card-text">Competency and rating requirements for ATSEP personnel?</div>
+          </div>
+          <div class="prompt-card" data-prompt="What are the operational boundaries and subcategory requirements for Open Category drones (A1, A2, A3)?" data-domain="drones">
+            <div class="prompt-card-domain">Drones / UAS</div>
+            <div class="prompt-card-text">Requirements for Open Category UAS operations (A1, A2, A3)?</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Message Bubbles will be injected here dynamically -->
+      <div id="messages-list"></div>
+
+      <!-- Loading Row -->
+      <div id="loading-indicator" class="loading-row" style="display: none;">
+        <div class="dots-loader">
+          <div class="dot"></div>
+          <div class="dot"></div>
+          <div class="dot"></div>
+        </div>
+        <span class="loading-text" id="loading-status-text">Querying regulations via /llm/ask...</span>
+      </div>
+    </div>
+
+    <!-- Input Footer -->
+    <footer class="input-area">
+      <div class="input-box">
+        <textarea
+          id="chat-textarea"
+          class="input-textarea"
+          placeholder="Ask a regulatory aviation question (e.g., ATSEP refresher training, Part-ORO duty limits)..."
+          rows="1"
+        ></textarea>
+        
+        <div class="input-controls">
+          <div class="input-indicators">
+            <span class="indicator-pill" id="active-domain-pill">Domain: All</span>
+            <span class="indicator-pill" id="active-provider-pill">LM Studio Local</span>
+          </div>
+
+          <button id="btn-send-message" class="btn-send" title="Send Question (Enter)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m22 2-7 20-4-9-9-4Z"/>
+              <path d="M22 2 11 13"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="input-hint">
+        Press <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for line break
+      </div>
+    </footer>
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h2 id="settings-title" class="modal-title">Settings</h2>
+        <button id="btn-close-settings" class="btn-close" aria-label="Close settings">&times;</button>
+      </div>
+
+      <div class="form-group">
+        <label for="setting-api-url" class="form-label">API Base URL</label>
+        <input type="text" id="setting-api-url" class="form-input" value="/api" placeholder="e.g. /api or http://localhost:8000">
+        <small style="color: var(--text-dim); font-size: 0.72rem;">Use <code>/api</code> when using the Vite dev server proxy to avoid CORS, or <code>http://localhost:8000</code> directly.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="setting-provider" class="form-label">Research LLM Provider</label>
+        <select id="setting-provider" class="form-select">
+          <option value="lm_studio">Local LM Studio (Default)</option>
+          <option value="gemini">Google Gemini (Cloud)</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="group-gemini-model" style="display: none;">
+        <label for="setting-gemini-model" class="form-label">Gemini Model</label>
+        <input type="text" id="setting-gemini-model" class="form-input" value="gemini-2.5-flash" placeholder="gemini-2.5-flash">
+      </div>
+
+      <div class="form-group">
+        <label for="setting-topk" class="form-label">Retriever Top-K Chunks: <span id="topk-val">3</span></label>
+        <input type="range" id="setting-topk" min="1" max="10" value="3" style="width: 100%; accent-color: var(--accent-cyan);">
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-save-settings" class="btn-action btn-primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

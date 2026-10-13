@@ -298,6 +298,29 @@ export interface RegulationItem {
   qualifier_count?: number;
   primary_stakeholder?: string | null;
   metadata?: Record<string, any> | null;
+  is_active?: boolean;
+  deactivation_reason?: string | null;
+  deactivated_at?: string | null;
+  superseded_by?: string | null;
+}
+
+export interface GovernanceLogItem {
+  id: number;
+  document_id: string;
+  action: 'DEACTIVATE' | 'ACTIVATE' | 'SUPERSEDE' | string;
+  reason?: string | null;
+  superseded_by?: string | null;
+  performed_at: string;
+}
+
+export interface GovernanceStats {
+  total_documents: number;
+  active_documents: number;
+  deactivated_documents: number;
+  total_chunks: number;
+  active_chunks: number;
+  forgotten_chunks: number;
+  recent_logs: GovernanceLogItem[];
 }
 
 export interface CatalogResponse {

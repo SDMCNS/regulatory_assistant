@@ -14,6 +14,7 @@ from ingestion.parsers.json_to_doc import find_json_file, render_document
 from ingestion.retrieval.search_chunks import get_embeddings_batch
 from ingestion.retrieval.faiss_index import LocalVectorIndex
 from ingestion.core.models import EmbeddingRecord, EmbeddingType
+from ingestion.core.governance import ensure_governance_schema, deactivate_document, activate_document, get_governance_stats
 from api.utils import get_document_metadata, log_debug_info
 
 router = APIRouter()
@@ -115,6 +116,10 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 d.date,
                 d.source,
                 d.metadata_json,
+                COALESCE(d.is_active, 1) as is_active,
+                d.deactivation_reason,
+                d.deactivated_at,
+                d.superseded_by,
                 COUNT(c.chunk_id) as chunk_count
             FROM documents d
             INNER JOIN chunks c ON d.document_id = c.document_id
@@ -220,7 +225,11 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 "chunk_count": chunk_count,
                 "qualifier_count": q_cnt,
                 "primary_stakeholder": stk,
-                "metadata": meta_dict
+                "metadata": meta_dict,
+                "is_active": bool(r["is_active"]),
+                "deactivation_reason": r["deactivation_reason"],
+                "deactivated_at": r["deactivated_at"],
+                "superseded_by": r["superseded_by"]
             })
             
     _CATALOG_CACHE["items"] = items
@@ -243,6 +252,10 @@ class RegulationItem(BaseModel):
     qualifier_count: int = 0
     primary_stakeholder: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    is_active: bool = True
+    deactivation_reason: Optional[str] = None
+    deactivated_at: Optional[str] = None
+    superseded_by: Optional[str] = None
 
 class CatalogResponse(BaseModel):
     total: int
@@ -312,6 +325,19 @@ class WorkspaceFtsResponse(BaseModel):
     results_by_document: Dict[str, List[ChunkMatch]]
     all_results: List[ChunkMatch]
 
+class DeactivateDocumentRequest(BaseModel):
+    reason: str = Field(..., min_length=2, description="Reason for deactivating / superseding this document")
+    superseded_by: Optional[str] = Field(None, description="Optional ID or title of the superseding regulation")
+
+class GovernanceStatsResponse(BaseModel):
+    total_documents: int
+    active_documents: int
+    deactivated_documents: int
+    total_chunks: int
+    active_chunks: int
+    forgotten_chunks: int
+    recent_logs: List[Dict[str, Any]]
+
 
 # -------------------------------------------------------------
 # Endpoints
@@ -321,6 +347,7 @@ class WorkspaceFtsResponse(BaseModel):
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
     origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
+    status: Optional[str] = Query("all", description="Filter by status: 'all', 'active', 'deactivated'"),
     stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),
     sort_order: Optional[str] = Query("desc", description="Sort order: 'asc' or 'desc'"),
@@ -329,11 +356,12 @@ def api_get_regulations_catalog(
 ):
     """
     Returns the comprehensive catalog of European aviation regulations indexed in the database.
-    Supports title-level search, origin filtering (EASA vs EU), stakeholder domain filtering, and sorting.
+    Supports title-level search, origin filtering (EASA vs EU), status filtering (active vs deactivated), stakeholder domain filtering, and sorting.
     """
     # Safely extract values if called directly outside FastAPI
     q_clean = query.strip() if (isinstance(query, str) and query.strip()) else None
     origin_str = (origin.lower() if isinstance(origin, str) else "all")
+    status_str = (status.lower() if isinstance(status, str) else "all")
     stk_clean = (stakeholder.lower().strip() if isinstance(stakeholder, str) and stakeholder.strip() else None)
     sort_by_str = (sort_by.lower() if isinstance(sort_by, str) else "chunks")
     sort_order_str = (sort_order.lower() if isinstance(sort_order, str) else "desc")
@@ -343,15 +371,21 @@ def api_get_regulations_catalog(
     all_items = load_cached_catalog()
     filtered = all_items
     
-    # 1. Filter by origin
+    # 1. Filter by status (active vs deactivated)
+    if status_str == "active":
+        filtered = [item for item in filtered if item.get("is_active", True) is True]
+    elif status_str == "deactivated":
+        filtered = [item for item in filtered if item.get("is_active", True) is False]
+
+    # 2. Filter by origin
     if origin_str != "all":
         filtered = [item for item in filtered if item["origin"] == origin_str]
 
-    # 2. Filter by stakeholder
+    # 3. Filter by stakeholder
     if stk_clean and stk_clean != "all":
         filtered = [item for item in filtered if (item.get("primary_stakeholder") or "").lower() == stk_clean]
         
-    # 3. Title-level search
+    # 4. Title-level search
     if q_clean:
         terms = q_clean.lower().split()
         
@@ -361,7 +395,7 @@ def api_get_regulations_catalog(
             
         filtered = [item for item in filtered if matches_query(item)]
         
-    # 3. Sorting
+    # 5. Sorting
     reverse = (sort_order_str == "desc")
     if sort_by_str == "title":
         filtered.sort(key=lambda x: x["title"].lower(), reverse=reverse)
@@ -379,6 +413,45 @@ def api_get_regulations_catalog(
         "filtered_count": filtered_count,
         "regulations": paged_items
     }
+
+
+@router.get("/governance/stats", response_model=GovernanceStatsResponse, tags=["REGULATIONS"])
+def api_get_governance_stats():
+    """Returns knowledge governance and forgetting statistics."""
+    return get_governance_stats()
+
+
+@router.post("/governance/{document_id:path}/deactivate", tags=["REGULATIONS"])
+def api_deactivate_document(document_id: str, req: DeactivateDocumentRequest):
+    """
+    Deactivates a document and its chunks in the database (knowledge forgetting).
+    Omitted from all search queries and LLM retrieval.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = deactivate_document(document_id, reason=req.reason, superseded_by=req.superseded_by)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/{document_id:path}/activate", tags=["REGULATIONS"])
+def api_activate_document(document_id: str):
+    """
+    Reactivates a previously deactivated document and restores its chunks to search.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = activate_document(document_id)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/batch", response_model=BatchDownloadResponse, tags=["REGULATIONS"])

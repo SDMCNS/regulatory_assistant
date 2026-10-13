@@ -678,7 +678,7 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                   <div className="p-8 border-2 border-dashed border-slate-700/80 hover:border-cyan-500/80 rounded-2xl bg-slate-950/60 transition-colors text-center relative group">
                     <input
                       type="file"
-                      accept=".pdf,.xml,.txt,.md,.docx,.html"
+                      accept=".pdf,.xml,.txt,.md,.docx,.doc,.html"
                       onChange={handleFileSelect}
                       disabled={analyzingFile}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
@@ -695,10 +695,11 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                         {analyzingFile ? 'Analyzing & comparing document...' : 'Choose or drop a regulatory document'}
                       </div>
                       <p className="text-xs text-slate-400 max-w-md">
-                        Supports PDF, XML (EASA, EU Formex, FAA CFR), Markdown, TXT, HTML.
+                        Supports PDF, Word (.DOC / .DOCX), XML (EASA, EU Formex, FAA CFR), Markdown, TXT, HTML.
                       </p>
                       <div className="flex items-center gap-2 mt-2">
                         <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-300 border border-sky-800">EASA / FAA / EU XML</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-950 text-blue-300 border border-blue-800">Word .DOC / .DOCX</span>
                         <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950 text-indigo-300 border border-indigo-800">Skybrary Chunker Workflow</span>
                       </div>
                     </div>
@@ -773,6 +774,14 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                       )}
                       {analysisResult.extracted_metadata.page_count && (
                         <span>Pages: <strong className="text-white">{analysisResult.extracted_metadata.page_count}</strong></span>
+                      )}
+                      {analysisResult.extracted_metadata.author && (
+                        <span>Author: <strong className="text-white">{analysisResult.extracted_metadata.author}</strong></span>
+                      )}
+                      {analysisResult.extracted_metadata.is_word && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-900/60 text-blue-200 border border-blue-700/60 font-mono">
+                          {analysisResult.extracted_metadata.word_format?.toUpperCase() || 'WORD'}
+                        </span>
                       )}
                       {analysisResult.extracted_metadata.sha256 && (
                         <span className="font-mono truncate max-w-xs" title={analysisResult.extracted_metadata.sha256}>

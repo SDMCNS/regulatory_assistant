@@ -49,12 +49,37 @@ def detect_document_format(file_path: Path, filename: str) -> Dict[str, Any]:
     # Non-XML files automatically follow the Skybrary workflow
     if not is_xml_file(file_path, filename):
         ext = file_path.suffix.lower().lstrip(".") or "document"
+        from .word_parser import is_word_binary_doc, is_word_docx
+
+        if ext in ("doc", "dot") or is_word_binary_doc(file_path):
+            return {
+                "format": DocFormat.USER_SKYBRARY.value,
+                "workflow": "Skybrary Workflow (Legacy Word .DOC)",
+                "category": "User Supplied",
+                "origin": "user",
+                "is_xml": False,
+                "doc_type": "doc",
+                "detection_reason": "Legacy Microsoft Word 97-2003 (.doc) binary format parsed via OLE2/FIB piece-table extractor."
+            }
+
+        if ext in ("docx", "dotx") or is_word_docx(file_path):
+            return {
+                "format": DocFormat.USER_SKYBRARY.value,
+                "workflow": "Skybrary Workflow (Word .DOCX)",
+                "category": "User Supplied",
+                "origin": "user",
+                "is_xml": False,
+                "doc_type": "docx",
+                "detection_reason": "Microsoft Word OpenXML (.docx) format parsed via OpenXML structure extractor."
+            }
+
         return {
             "format": DocFormat.USER_SKYBRARY.value,
             "workflow": "Skybrary Workflow (User Supplied)",
             "category": "User Supplied",
             "origin": "user",
             "is_xml": False,
+            "doc_type": ext,
             "detection_reason": f"Standard {ext.upper()} document ingested via Skybrary extraction, chunking, and embedding pipeline."
         }
 

@@ -155,6 +155,9 @@ async def api_analyze_upload(
                 "char_count": ext_res["char_count"],
                 "sha256": sha256_hash,
                 "is_pdf": ext_res["is_pdf"],
+                "is_word": ext_res.get("is_word", False),
+                "word_format": ext_res.get("word_format"),
+                "author": ext_res.get("author"),
             }
 
         # 3. Search and Compare for Duplicates or Updates

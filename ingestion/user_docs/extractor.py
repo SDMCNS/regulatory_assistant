@@ -17,6 +17,13 @@ try:
 except ImportError:
     fitz = None
 
+from .word_parser import (
+    extract_word_doc,
+    extract_word_docx,
+    is_word_binary_doc,
+    is_word_docx,
+)
+
 
 RE_DATE_PATTERNS = [
     # YYYY-MM-DD or YYYY/MM/DD
@@ -78,6 +85,7 @@ def clean_title_candidate(candidate: str, fallback_filename: str) -> str:
 def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
     """
     Extracts text, pages, title, date, and metrics from a user-supplied file.
+    Supports PDF, Word (.doc / .docx), Markdown, Plain Text, HTML, and XML.
     Returns:
         {
             "raw_text": str,
@@ -88,7 +96,11 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
             "word_count": int,
             "char_count": int,
             "sha256": str,
-            "is_pdf": bool
+            "is_pdf": bool,
+            "is_word": bool,
+            "word_format": Optional[str],
+            "author": Optional[str],
+            "filename": str
         }
     """
     file_path = Path(file_path)
@@ -98,6 +110,10 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
     raw_text = ""
     title_candidate = None
     page_count = 1
+    author = None
+    doc_date = None
+    is_word = False
+    word_format = None
 
     if ext == ".pdf" and fitz is not None:
         try:
@@ -109,6 +125,7 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
             pdf_meta_title = (meta.get("title") or "").strip()
             if pdf_meta_title and len(pdf_meta_title) > 3 and not pdf_meta_title.lower().startswith("untitled"):
                 title_candidate = pdf_meta_title
+            author = meta.get("author") or None
 
             first_page_lines: List[str] = []
 
@@ -122,7 +139,6 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
             raw_text = "\n\n".join(pages_text)
 
             if not title_candidate and first_page_lines:
-                # Find first line that looks like a title (not a header/date/number)
                 for line in first_page_lines[:6]:
                     if len(line) > 4 and not line.isdigit() and not line.startswith("http"):
                         title_candidate = line
@@ -130,6 +146,49 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
 
         except Exception as e:
             raw_text = f"Error reading PDF: {e}"
+
+    elif ext in (".doc", ".dot") or is_word_binary_doc(file_path):
+        # Legacy Microsoft Word 97-2003 (.doc) binary format
+        is_word = True
+        word_format = "doc"
+        try:
+            doc_res = extract_word_doc(file_path)
+            raw_text = doc_res["raw_text"]
+            title_candidate = doc_res.get("title")
+            author = doc_res.get("author")
+            doc_date = doc_res.get("created_date")
+            page_count = doc_res.get("page_count", 1)
+
+            if not title_candidate and raw_text:
+                first_lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+                if first_lines:
+                    title_candidate = first_lines[0]
+        except Exception as e:
+            raw_text = f"Error reading Word .doc: {e}"
+
+    elif ext in (".docx", ".dotx") or is_word_docx(file_path):
+        # Modern Microsoft Word OpenXML (.docx) format
+        is_word = True
+        word_format = "docx"
+        try:
+            docx_res = extract_word_docx(file_path)
+            raw_text = docx_res["raw_text"]
+            title_candidate = docx_res.get("title")
+            author = docx_res.get("author")
+            doc_date = docx_res.get("created_date")
+            page_count = docx_res.get("page_count", 1)
+
+            if not title_candidate and raw_text:
+                for line in raw_text.splitlines():
+                    clean_line = line.strip()
+                    if clean_line.startswith("# "):
+                        title_candidate = clean_line[2:].strip()
+                        break
+                    elif clean_line and not title_candidate:
+                        title_candidate = clean_line
+        except Exception as e:
+            raw_text = f"Error reading Word .docx: {e}"
+
     else:
         # Text, Markdown, HTML, XML, etc.
         try:
@@ -148,19 +207,31 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
                 title_candidate = first_lines[0]
 
     final_title = clean_title_candidate(title_candidate or "", filename)
-    date_str, pub_year = extract_date_from_text(raw_text)
+    extracted_date, pub_year = extract_date_from_text(raw_text)
+    final_date = doc_date or extracted_date
+
+    # If pub_year was not found from regex but doc_date is YYYY-MM-DD
+    if pub_year is None and final_date:
+        ym = re.search(r"\b(19\d\d|20\d\d)\b", final_date)
+        if ym:
+            pub_year = int(ym.group(1))
+
     word_count = len(re.findall(r"\b\w+\b", raw_text))
     char_count = len(raw_text)
 
     return {
         "raw_text": raw_text,
         "title": final_title,
-        "date": date_str,
+        "date": final_date,
         "year": pub_year,
         "page_count": page_count,
         "word_count": word_count,
         "char_count": char_count,
         "sha256": sha256_hash,
         "is_pdf": ext == ".pdf",
+        "is_word": is_word,
+        "word_format": word_format,
+        "author": author,
         "filename": filename
     }
+

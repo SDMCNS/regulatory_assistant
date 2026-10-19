@@ -116,3 +116,55 @@ Aggregated document-level stakeholder profile.
   - `dimensions`: integer (`3840`)
   - `vector`: `List[float]`
   - `text_hash`: SHA-256 hash of text
+
+---
+
+## 3. Kùzu Embedded Property Graph Schema (`kuzu_db`)
+
+The graph engine is built using **Kùzu** (`ingestion/data/kuzu_db`), a lightweight, embedded property graph database optimized for sub-millisecond multi-hop Cypher queries and low-memory graph traversals.
+
+### 3.1. Node Tables
+
+| Node Table | Primary Key | Key Properties | Description |
+| :--- | :--- | :--- | :--- |
+| `RegulationDocument` | `id: STRING` | `title: STRING`, `source: STRING`, `total_topics: INT64`, `code: STRING` | High-level regulatory acts and standard suites across 5 jurisdictions (EASA, FAA, EU, EUROCAE, SKYbrary; total 536 documents). |
+| `Annex` | `id: STRING` | `code: STRING`, `title: STRING`, `source_doc_id: STRING` | Technical annexes, parts, or appendices (e.g. Part-CAT, Part-ORO, Part-MED). |
+| `Provision` | `id: STRING` | `code: STRING`, `title: STRING`, `content_type: STRING`, `legal_force: STRING`, `text: STRING`, `subject: STRING` | Granular statutory clauses, certification specifications (CS), acceptable means of compliance (AMC), guidance material (GM), and federal regulations (FAR). |
+| `Concept` | `id: STRING` | `name: STRING`, `category: STRING`, `description: STRING` | Standardized and custom aviation domain concepts (e.g. Safety Management System, Fuel Planning, EDTO/ETOPS, Part-IS). |
+| `Organization` | `id: STRING` | `name: STRING`, `type: STRING`, `country: STRING` | Governing agencies (EASA, FAA, ICAO), national aviation authorities, or industry standard bodies. |
+
+### 3.2. Relational Edge Tables
+
+| Edge Type | From Node $\to$ To Node | Properties | Semantics |
+| :--- | :--- | :--- | :--- |
+| `CONTAINS_ANNEX` | `RegulationDocument` $\to$ `Annex` | None | Structural hierarchy linking acts to sub-annexes. |
+| `BELONGS_TO_ANNEX` | `Provision` $\to$ `Annex` | None | Maps provisions to their parent technical annex. |
+| `GOVERNS_CONCEPT` | `Provision` $\to$ `Concept` | `relevance_score: INT64`, `source: STRING` | Semantic association where a provision establishes requirements for an aviation concept. |
+| `BRIDGES_TO` | `Concept` $\to$ `RegulationDocument` | `shared_rules: INT64`, `rule_count: INT64` | Cross-regulatory bridge connecting a concept to external governing regulations. |
+| `COVERS_CONCEPT` | `RegulationDocument` $\to$ `Concept` | `rule_count: INT64` | Direct regulatory mandate over a concept domain. |
+| `SATISFIES` | `Provision` $\to$ `Provision` | `weight: DOUBLE` | Soft Law (AMC/GM) satisfying Hard Law (Implementing Rule). |
+| `CROSS_REFERENCES` | `Provision` $\to$ `Provision` | `citation_text: STRING` | Explicit statutory citations and inter-clause references. |
+| `SIMILAR_TO` | `Provision` $\to$ `Provision` | `similarity_score: DOUBLE` | Semantic vector cosine similarity between provisions ($\ge 0.82$). |
+| `AMENDS` | `RegulationDocument` $\to$ `RegulationDocument` | `date: STRING` | Legal amendment tracking between historical and amending acts. |
+
+### 3.3. Core Aviation Concepts Taxonomy (`CONCEPT_TAXONOMY`)
+
+The system ships with 17 canonical aviation concepts compiled into high-precision regex patterns for automated rule scoring and classification:
+1. `CONCEPT_SAFETY_MANAGEMENT_SYSTEM__SMS` (Governance & Compliance)
+2. `CONCEPT_FUEL_PLANNING___ENERGY_SCHEMES` (Flight Operations)
+3. `CONCEPT_EXTENDED_DIVERSION_TIME_OPERATIONS__EDTO_ETOPS` (Operational Authorizations)
+4. `CONCEPT_FLIGHT_TIME_LIMITATIONS___FATIGUE__FTL` (Crew Licensing & Rest)
+5. `CONCEPT_ALL_WEATHER___LOW_VISIBILITY_OPERATIONS__LVO_AWO` (All-Weather Operations)
+6. `CONCEPT_STERILE_FLIGHT_DECK_PROCEDURE` (Cockpit Procedures)
+7. `CONCEPT_DANGEROUS_GOODS__DG` (Cargo & Special Loads)
+8. `CONCEPT_ALTIMETER_SETTING___RVSM` (Navigation & Separation)
+9. `CONCEPT_RAMP_INSPECTIONS__SAFA_SACA` (Safety Oversight)
+10. `CONCEPT_MASS_AND_BALANCE__W_B` (Aircraft Performance)
+11. `CONCEPT_CONTINUING_AIRWORTHINESS___MAINTENANCE` (Airworthiness)
+12. `CONCEPT_AERODROME_DESIGN___RUNWAY_SAFETY` (Aerodromes & Ground)
+13. `CONCEPT_PILOT___CREW_LICENSING__PART_FCL___MED` (Personnel Licensing)
+14. `CONCEPT_AIR_TRAFFIC_MANAGEMENT___AIRSPACE__ATM_ANS_SERA` (Air Traffic & Airspace)
+15. `CONCEPT_UNMANNED_AIRCRAFT_SYSTEMS___U_SPACE` (UAS & Drones)
+16. `CONCEPT_INFORMATION_SECURITY___CYBERSECURITY__PART_IS` (Cybersecurity & Security)
+17. `CONCEPT_OCCURRENCE_REPORTING___JUST_CULTURE` (Safety Intelligence)
+

@@ -478,7 +478,19 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       .attr('fill', d => LINK_COLORS[d.type] || '#64748b')
       .attr('text-anchor', 'middle')
       .attr('dy', -3)
-      .text(d => d.label || d.type);
+      .text(d => {
+        if (d.rules && d.rules.length > 0) {
+          if (d.type === 'BRIDGES_TO') return `Bridges (${d.rules.length} rules)`;
+          if (d.type === 'COVERS_CONCEPT') return `Governs (${d.rules.length} rules)`;
+        }
+        return d.label || d.type;
+      });
+
+    link.append('title')
+      .text(d => {
+        const count = d.rules?.length || d.rule_count || 0;
+        return `${d.type}: ${count} associated rules (click to inspect)`;
+      });
 
     // Draw Nodes
     const nodeGroup = g.append('g').attr('class', 'nodes');

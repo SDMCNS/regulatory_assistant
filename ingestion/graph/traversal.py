@@ -638,12 +638,27 @@ class EasaGraphEngine:
                 short_code = f"SKYbrary {cat[:14]}"
                 clean_name = title.strip()
 
+            # Normalize source to clean canonical category: EASA, FAA, EU, EUROCAE, SKYBRARY
+            norm_source = "EASA"
+            if src:
+                src_l = src.lower()
+                if "faa" in src_l:
+                    norm_source = "FAA"
+                elif "eurocae" in src_l:
+                    norm_source = "EUROCAE"
+                elif "skybrary" in src_l:
+                    norm_source = "SKYBRARY"
+                elif "eu" in src_l and "easa" not in src_l:
+                    norm_source = "EU"
+                elif "easa" in src_l:
+                    norm_source = "EASA"
+
             regs.append({
                 "id": doc_id,
                 "name": clean_name,
                 "code": short_code,
                 "title": title,
-                "source": src or "EASA",
+                "source": norm_source,
                 "total_topics": topics or 0,
                 "annex_count": annexes or 0
             })
@@ -755,6 +770,67 @@ class EasaGraphEngine:
 
         return all_regs[0] if all_regs else None
 
+    @staticmethod
+    def _get_concept_patterns(c_id: str, c_name: str) -> List[Any]:
+        try:
+            from ingestion.graph.ingest_secondary_sources import COMPILED_CONCEPTS
+            if c_id in COMPILED_CONCEPTS:
+                return COMPILED_CONCEPTS[c_id]["patterns"]
+        except Exception:
+            pass
+        clean_name = re.sub(r'\(.*?\)', '', c_name).strip()
+        words = [w for w in re.split(r'[\s&/,\-_]+', clean_name) if len(w) > 3]
+        patterns = [re.compile(r"\b" + re.escape(clean_name) + r"\b", re.IGNORECASE)]
+        for w in words:
+            patterns.append(re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE))
+        return patterns
+
+    @staticmethod
+    def _score_and_rank_provisions(rows: List[Any], patterns: List[Any], top_n: int = 20) -> List[Dict[str, Any]]:
+        scored = []
+        for r in rows:
+            p_id, p_code, p_title, p_ctype, p_force, a_code, p_text = r[:7]
+            full_title = f"{p_code} {p_title}".lower()
+            full_text = (p_text or "").lower()
+
+            score = 0
+            for pat in patterns:
+                if pat.search(full_title):
+                    score += 10
+                    break
+
+            hits = 0
+            for pat in patterns:
+                if pat.search(full_text):
+                    hits += 1
+            score += min(hits * 2, 8)
+
+            if p_force == "HARD_LAW" or p_ctype in ("RULE", "REGULATION_ARTICLE", "CS", "IR", "FAR"):
+                score += 3
+            elif p_ctype in ("AMC", "AC"):
+                score += 1
+
+            snippet = (p_text[:280] + "...") if p_text and len(p_text) > 280 else (p_text or "")
+            scored.append((score, {
+                "id": p_id,
+                "code": p_code,
+                "title": p_title,
+                "content_type": p_ctype,
+                "legal_force": p_force,
+                "annex": a_code or "",
+                "text_snippet": snippet,
+                "relevance_score": score
+            }))
+
+        high = [item for s, item in scored if s >= 4]
+        if len(high) < 3:
+            high = [item for s, item in scored if s >= 2]
+        if not high:
+            high = [item for s, item in scored]
+
+        high.sort(key=lambda x: x["relevance_score"], reverse=True)
+        return high[:top_n]
+
     def get_regulation_concepts_subgraph(self, regulation_query: str) -> Dict[str, Any]:
         """
         Maps out applicable concepts covered by a regulation and identifies
@@ -829,86 +905,82 @@ class EasaGraphEngine:
         # 3. For each applicable concept, fetch its governing rules and top connected other regulations
         for c in sorted_concepts:
             c_id = c["id"]
+            c_name = c["name"]
+            patterns = self._get_concept_patterns(c_id, c_name)
+
             if not c["is_custom"]:
                 # Query governing rules in this regulation
                 res_rules = self.conn.execute(f"""
                     MATCH (d:RegulationDocument {{id: '{doc_id}'}})-[:CONTAINS_ANNEX]->(a:Annex)<-[:BELONGS_TO_ANNEX]-(p:Provision)-[:GOVERNS_CONCEPT]->(c:Concept {{id: '{c_id}'}})
                     RETURN p.id, p.code, p.title, p.content_type, p.legal_force, a.code, p.text
-                    LIMIT 40;
+                    LIMIT 80;
                 """)
-                concept_rules = []
+                raw_rules = []
                 while res_rules.has_next():
-                    rp_id, rp_code, rp_title, rp_ctype, rp_force, ra_code, rp_text = res_rules.get_next()
-                    snippet = (rp_text[:280] + "...") if rp_text and len(rp_text) > 280 else (rp_text or "")
-                    concept_rules.append({
-                        "id": rp_id,
-                        "code": rp_code,
-                        "title": rp_title,
-                        "content_type": rp_ctype,
-                        "legal_force": rp_force,
-                        "annex": ra_code or "",
-                        "text_snippet": snippet
-                    })
+                    raw_rules.append(res_rules.get_next())
+                concept_rules = self._score_and_rank_provisions(raw_rules, patterns, top_n=25)
                 c["rules"] = concept_rules
+                c["rule_count"] = len(concept_rules)
 
-                # Top connected OTHER regulations
+                # Query candidate cross-regulations
                 res_cross = self.conn.execute(f"""
                     MATCH (c:Concept {{id: '{c_id}'}})<-[:GOVERNS_CONCEPT]-(p2:Provision)-[:BELONGS_TO_ANNEX]->(a2:Annex)<-[:CONTAINS_ANNEX]-(d2:RegulationDocument)
                     WHERE d2.id <> '{doc_id}'
                     RETURN d2.id, d2.title, count(DISTINCT p2) as other_count
                     ORDER BY other_count DESC
-                    LIMIT 3;
+                    LIMIT 8;
                 """)
+                candidate_bridges = []
                 while res_cross.has_next():
                     d2_id, d2_title, ocnt = res_cross.get_next()
-                    reg_meta = all_regs.get(d2_id, {})
                     res_cr_rules = self.conn.execute(f"""
                         MATCH (c:Concept {{id: '{c_id}'}})<-[:GOVERNS_CONCEPT]-(p2:Provision)-[:BELONGS_TO_ANNEX]->(a2:Annex)<-[:CONTAINS_ANNEX]-(d2:RegulationDocument {{id: '{d2_id}'}})
                         RETURN p2.id, p2.code, p2.title, p2.content_type, p2.legal_force, a2.code, p2.text
-                        LIMIT 30;
+                        LIMIT 50;
                     """)
-                    cr_rules = []
+                    cr_raw = []
                     while res_cr_rules.has_next():
-                        cp_id, cp_code, cp_title, cp_ctype, cp_force, ca_code, cp_text = res_cr_rules.get_next()
-                        snippet = (cp_text[:280] + "...") if cp_text and len(cp_text) > 280 else (cp_text or "")
-                        cr_rules.append({
-                            "id": cp_id,
-                            "code": cp_code,
-                            "title": cp_title,
-                            "content_type": cp_ctype,
-                            "legal_force": cp_force,
-                            "annex": ca_code or "",
-                            "text_snippet": snippet
+                        cr_raw.append(res_cr_rules.get_next())
+                    cr_rules = self._score_and_rank_provisions(cr_raw, patterns, top_n=20)
+                    if cr_rules:
+                        reg_meta = all_regs.get(d2_id, {})
+                        candidate_bridges.append({
+                            "id": d2_id,
+                            "code": reg_meta.get("code") or d2_id.replace("DOC_", "").split("__")[0],
+                            "title": reg_meta.get("title") or d2_title,
+                            "shared_rules": len(cr_rules),
+                            "raw_shared_rules": ocnt,
+                            "rules": cr_rules
                         })
-                    c["connected_regulations"].append({
-                        "id": d2_id,
-                        "code": reg_meta.get("code") or d2_id.replace("DOC_", "").split("__")[0],
-                        "title": d2_title,
-                        "shared_rules": ocnt,
-                        "rules": cr_rules
-                    })
+
+                # Sort bridges by verified high-relevance rules count and total score
+                candidate_bridges.sort(
+                    key=lambda x: (x["shared_rules"], sum(r["relevance_score"] for r in x["rules"])),
+                    reverse=True
+                )
+                c["connected_regulations"] = candidate_bridges[:4]
             else:
                 # Custom concept rules from provisions_by_annex
                 try:
                     raw_cc = mgr.get_concept(c_id)
-                    custom_rules = []
+                    raw_custom_provs = []
                     if raw_cc:
                         for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
                             for p in provs:
                                 pid = p.get("id", "")
                                 if pid.startswith(doc_prefix) or (doc_id in pid):
-                                    txt = p.get("text") or p.get("text_snippet") or ""
-                                    snippet = (txt[:280] + "...") if txt and len(txt) > 280 else txt
-                                    custom_rules.append({
-                                        "id": pid,
-                                        "code": p.get("code", ""),
-                                        "title": p.get("title", ""),
-                                        "content_type": p.get("content_type", "IR"),
-                                        "legal_force": p.get("legal_force", "BINDING"),
-                                        "annex": annex,
-                                        "text_snippet": snippet
-                                    })
-                    c["rules"] = custom_rules[:40]
+                                    raw_custom_provs.append((
+                                        pid,
+                                        p.get("code", ""),
+                                        p.get("title", ""),
+                                        p.get("content_type", "IR"),
+                                        p.get("legal_force", "BINDING"),
+                                        annex,
+                                        p.get("text") or p.get("text_snippet") or ""
+                                    ))
+                    ranked_custom = self._score_and_rank_provisions(raw_custom_provs, patterns, top_n=25)
+                    c["rules"] = ranked_custom
+                    c["rule_count"] = len(ranked_custom)
                 except Exception:
                     c["rules"] = []
 
@@ -916,41 +988,43 @@ class EasaGraphEngine:
                 try:
                     raw_cc = mgr.get_concept(c_id)
                     if raw_cc:
-                        doc_counts = {}
+                        by_other_doc: Dict[str, List[Any]] = {}
                         for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
                             for p in provs:
                                 pid = p.get("id", "")
                                 if pid.startswith("DOC_"):
                                     extracted_doc = pid.split("_ERULES-")[0]
                                     if extracted_doc != doc_id:
-                                        doc_counts[extracted_doc] = doc_counts.get(extracted_doc, 0) + 1
+                                        if extracted_doc not in by_other_doc:
+                                            by_other_doc[extracted_doc] = []
+                                        by_other_doc[extracted_doc].append((
+                                            pid,
+                                            p.get("code", ""),
+                                            p.get("title", ""),
+                                            p.get("content_type", "IR"),
+                                            p.get("legal_force", "BINDING"),
+                                            annex,
+                                            p.get("text") or p.get("text_snippet") or ""
+                                        ))
 
-                        top_other = sorted(doc_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-                        for other_doc_id, cnt in top_other:
-                            reg_meta = all_regs.get(other_doc_id, {})
-                            cr_custom_rules = []
-                            for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
-                                for p in provs:
-                                    pid = p.get("id", "")
-                                    if other_doc_id in pid:
-                                        txt = p.get("text") or p.get("text_snippet") or ""
-                                        snippet = (txt[:280] + "...") if txt and len(txt) > 280 else txt
-                                        cr_custom_rules.append({
-                                            "id": pid,
-                                            "code": p.get("code", ""),
-                                            "title": p.get("title", ""),
-                                            "content_type": p.get("content_type", "IR"),
-                                            "legal_force": p.get("legal_force", "BINDING"),
-                                            "annex": annex,
-                                            "text_snippet": snippet
-                                        })
-                            c["connected_regulations"].append({
-                                "id": other_doc_id,
-                                "code": reg_meta.get("code") or other_doc_id.replace("DOC_", "").split("__")[0],
-                                "title": reg_meta.get("title") or other_doc_id,
-                                "shared_rules": cnt,
-                                "rules": cr_custom_rules[:30]
-                            })
+                        cand_custom_bridges = []
+                        for other_doc_id, p_rows in by_other_doc.items():
+                            cr_rules = self._score_and_rank_provisions(p_rows, patterns, top_n=20)
+                            if cr_rules:
+                                reg_meta = all_regs.get(other_doc_id, {})
+                                cand_custom_bridges.append({
+                                    "id": other_doc_id,
+                                    "code": reg_meta.get("code") or other_doc_id.replace("DOC_", "").split("__")[0],
+                                    "title": reg_meta.get("title") or other_doc_id,
+                                    "shared_rules": len(cr_rules),
+                                    "raw_shared_rules": len(p_rows),
+                                    "rules": cr_rules
+                                })
+                        cand_custom_bridges.sort(
+                            key=lambda x: (x["shared_rules"], sum(r["relevance_score"] for r in x["rules"])),
+                            reverse=True
+                        )
+                        c["connected_regulations"] = cand_custom_bridges[:4]
                 except Exception:
                     pass
 

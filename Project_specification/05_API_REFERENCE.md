@@ -211,3 +211,179 @@ Authors, chunks, and ingests a custom regulation, standard operating procedure (
 
 ### 2.9. `GET /search/origin-options`
 Returns the list of supported regulatory origins (`all`, `eu`, `easa`, `faa`, `manual`).
+
+---
+
+## 3. Regulatory Knowledge Graph & GraphRAG Endpoints (`/graph/*`)
+
+The Knowledge Graph API provides interactive access to the Kùzu property graph engine (`api/graph.py`), supporting D3 force-directed visual subgraphs, blast radius impact tracing, concept ontology navigation, and federated multi-source search.
+
+---
+
+### 3.1. `GET /graph/stats`
+Returns global topology metrics for the Kùzu graph database.
+
+#### Response:
+```json
+{
+  "total_provisions": 48215,
+  "total_documents": 536,
+  "total_annexes": 1284,
+  "total_concepts": 17,
+  "sources_breakdown": {
+    "EASA": 42,
+    "FAA": 82,
+    "EU": 316,
+    "EUROCAE": 12,
+    "SKYBRARY": 84
+  }
+}
+```
+
+---
+
+### 3.2. `GET /graph/regulations`
+Returns the catalog of all primary regulation documents and technical frameworks in the graph.
+
+#### Response:
+```json
+[
+  {
+    "id": "DOC_02_AIR_OPERATIONS",
+    "name": "Air Operations (Reg 965/2012)",
+    "code": "AIR-OPS (965/2012)",
+    "title": "Easy Access Rules for Air Operations (Regulation (EU) No 965/2012)",
+    "source": "EASA",
+    "total_topics": 412,
+    "annex_count": 8
+  },
+  {
+    "id": "DOC_FAA_PART_121",
+    "name": "14 CFR Part 121: Operating Requirements: Domestic, Flag, And Supplemental Operations",
+    "code": "FAR Part 121",
+    "title": "Title 14 CFR Part 121",
+    "source": "FAA",
+    "total_topics": 284,
+    "annex_count": 1
+  }
+]
+```
+
+---
+
+### 3.3. `GET /graph/regulation/concepts`
+Retrieves the applicable concepts in a target regulation and computes cross-regulatory bridges to other jurisdictions.
+
+#### Parameters:
+- `name` (string, default: `Air Operations`): Regulation title, code, or alias.
+
+#### Response:
+```json
+{
+  "regulation": { "id": "DOC_02_AIR_OPERATIONS", "code": "AIR-OPS (965/2012)", "title": "..." },
+  "nodes": [
+    { "id": "DOC_02_AIR_OPERATIONS", "label": "AIR-OPS (965/2012)", "type": "REGULATION", "is_anchor": true },
+    { "id": "CONCEPT_SAFETY_MANAGEMENT_SYSTEM__SMS", "label": "Safety Management System (SMS)", "type": "CONCEPT", "rule_count": 25 },
+    { "id": "CROSS_REG_DOC_08_CONTINUING_AIRWORTHINESS", "label": "AIRWORTHINESS (1321/2014)", "type": "CROSS_REGULATION", "shared_rules": 20 }
+  ],
+  "links": [
+    {
+      "source": "DOC_02_AIR_OPERATIONS",
+      "target": "CONCEPT_SAFETY_MANAGEMENT_SYSTEM__SMS",
+      "type": "COVERS_CONCEPT",
+      "label": "Governs (25 rules)",
+      "rule_count": 25,
+      "rules": [ ... ]
+    },
+    {
+      "source": "CONCEPT_SAFETY_MANAGEMENT_SYSTEM__SMS",
+      "target": "CROSS_REG_DOC_08_CONTINUING_AIRWORTHINESS",
+      "type": "BRIDGES_TO",
+      "label": "Bridges (20 rules)",
+      "shared_rules": 20,
+      "rule_count": 20,
+      "rules": [ ... ]
+    }
+  ],
+  "total_concepts": 14
+}
+```
+
+---
+
+### 3.4. `GET /graph/concepts`
+Returns the list of all available aviation concepts (17 core concepts + custom user concepts).
+
+---
+
+### 3.5. `GET /graph/concept`
+Generates a D3 force-directed subgraph for a specific concept showing its governing regulations and key provisions across frameworks.
+
+#### Parameters:
+- `name` (string, required): Canonical concept name (e.g. `Fuel Planning & Energy Schemes`, `Safety Management System (SMS)`).
+
+---
+
+### 3.6. `POST /graph/concept/generate`
+Dynamically proposes, extracts provisions for, and persists a new custom aviation concept mesh.
+
+#### Request Body:
+```json
+{
+  "name": "Cabin Lithium Battery Thermal Runaway Mitigation",
+  "category": "Cabin Safety & Fire Protection",
+  "description": "Procedures, containment bags, and firefighting protocols for personal electronic device battery fires."
+}
+```
+
+---
+
+### 3.7. `POST /graph/concept/narrative`
+Generates an executive regulatory narrative synthesizing how a concept is governed across EU, EASA, and FAA frameworks.
+
+#### Request Body:
+```json
+{
+  "concept_name": "Safety Management System (SMS)",
+  "provider": "gemini",
+  "force_refresh": false
+}
+```
+
+---
+
+### 3.8. `GET /graph/chain`
+Retrieves the interactive Compliance Chain for any provision code: maps parent annex, governing Implementing Rule (Hard Law), satisfying AMCs/GMs (Soft Law), and cross-referenced requirements.
+
+#### Parameters:
+- `code` (string, required): Statutory provision code (e.g. `ORO.GEN.200`, `CAT.OP.MPA.175`).
+
+---
+
+### 3.9. `GET /graph/blast`
+Performs Blast Radius impact analysis for a changed or proposed clause: traces dependent AMCs, similar provisions across other domains, and affected stakeholder groups.
+
+#### Parameters:
+- `code` (string, required): Statutory provision code.
+
+---
+
+### 3.10. `GET /graph/node`
+Fetches a complete 360° Inspection Dossier for any node ID or statutory code in the graph.
+
+---
+
+### 3.11. `GET /graph/hyde`
+Executes multi-source Hypothetical Document Embeddings (HyDE) discovery across federated knowledge bases.
+
+#### Parameters:
+- `q` (string, required): Operational intent or regulatory question.
+- `sources` (string, default: `EASA,EU,FAA,SKYBRARY,EUROCAE`): Comma-separated active sources.
+- `skybrary_topics` (string, optional): Specific SKYbrary sub-categories.
+- `top_k` (integer, default: 12): Maximum candidate provisions to return.
+
+---
+
+### 3.12. `GET /graph/search`
+Direct keyword and code search across Kùzu graph and secondary sources.
+

@@ -93,3 +93,28 @@ Located under the **Ask Assistant** tab (`AskAssistant.tsx`):
 3. **Referenced Regulatory Standards**: Displays user-friendly, descriptive regulation titles (rather than cryptic database IDs) with direct access to open the full document and jump straight to the cited clause.
 4. **HTML Chat Report Export**: Export the conversation thread into a standalone interactive HTML report with expandable sections, mouseover citation cards, and referenced regulatory standards summaries.
 
+---
+
+### 2.7. Knowledge Graph Explorer & Regulation Concepts Workspace
+Located under the **Knowledge Graph** tab (`KnowledgeGraphExplorer.tsx`):
+1. **Multi-Mode Topology Exploration**:
+   - **Compliance Chain (`chain`)**: Trace statutory authority from parent annex down through Implementing Rules (Hard Law) and satisfying AMC/GM clauses (Soft Law).
+   - **Blast Radius (`blast`)**: Assess downstream regulatory impact for any proposed clause revision across dependent rules and stakeholder domains.
+   - **Concept View (`concept`)**: Map out provisions and governing bodies for any of the 17 core or custom aviation concepts.
+   - **Regulation Concepts View (`reg_concept`)**: Select any regulation framework to see its applicable concepts and discover cross-regulatory bridges to other jurisdictions.
+2. **Target Framework Selector & Source Filtering**:
+   - Filter 536 regulations using categorized source tabs: **`ALL (536)`**, **`EASA (42)`**, **`FAA (82)`**, **`EU (316)`**, **`EUROCAE (12)`**, and **`SKYBRARY (84)`**.
+   - Instant search filter by framework name, statutory code, or document title.
+   - Clear topic and annex count badges for each regulation.
+3. **Interactive D3 Force Simulation Engine**:
+   - Dynamically scaled link distances based on node density to eliminate overlapping clusters.
+   - Color-coded edge links by semantic relationship (`COVERS_CONCEPT`, `BRIDGES_TO`, `SATISFIES`, `CROSS_REFERENCES`, `SIMILAR_TO`).
+   - Drag, zoom, pan, and one-click auto-fit controls.
+4. **Interactive Edge Clicking & Rule Parity Drawer**:
+   - Clicking any edge line opens a dedicated slide-out drawer detailing the regulatory relationship between the connected nodes.
+   - **Exact Count Parity**: The rule count rendered directly on the edge label (e.g. `Bridges (20 rules)`) strictly matches the count of associated rules displayed in the drawer.
+   - Each rule item includes statutory code, title, legal force badge (`HARD_LAW`, `SOFT_LAW`), annex, and expandable text snippet.
+5. **AI Concept Narratives & Custom Ontology Generation**:
+   - **Executive Concept Narrative**: One-click synthesis of regulatory interactions across EU, EASA, and FAA frameworks powered by local or cloud LLMs.
+   - **Custom Concept Builder**: Propose and extract custom domain ontologies with automated provision extraction and persistent storage in the knowledge graph.
+

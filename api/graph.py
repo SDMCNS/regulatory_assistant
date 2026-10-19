@@ -424,7 +424,7 @@ def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
 
         # Link REGULATION -> CONCEPT
         c_rules = c.get("rules", [])
-        c_cnt = c.get("rule_count", len(c_rules))
+        c_cnt = len(c_rules)
         links.append({
             "source": anchor_id,
             "target": cid,
@@ -437,6 +437,8 @@ def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
         # Connected other regulations
         for cr in c.get("connected_regulations", []):
             crid = f"CROSS_REG_{cr['id']}"
+            cr_rules = cr.get("rules", [])
+            cr_cnt = len(cr_rules)
             if crid not in seen:
                 seen.add(crid)
                 nodes.append({
@@ -445,11 +447,9 @@ def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
                     "label": cr.get("code") or cr["id"].replace("DOC_", "").split("__")[0],
                     "type": "CROSS_REGULATION",
                     "title": cr["title"],
-                    "shared_rules": cr.get("shared_rules", 0)
+                    "shared_rules": cr_cnt
                 })
 
-            cr_rules = cr.get("rules", [])
-            cr_cnt = cr.get("shared_rules", len(cr_rules))
             links.append({
                 "source": cid,
                 "target": crid,

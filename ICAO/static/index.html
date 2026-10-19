@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICAO Document Intelligence & Search Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=3">
+</head>
+<body>
+    <div class="glow-bg"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo-badge">
+                    <svg class="radar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <circle cx="12" cy="12" r="6"></circle>
+                        <circle cx="12" cy="12" r="2"></circle>
+                        <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="app-title">ICAO Document Intelligence</h1>
+                    <p class="app-subtitle">Semantic & Lexical Hybrid Search over ICAO Standard Manuals</p>
+                </div>
+            </div>
+            <div class="header-right">
+                <div id="statsBadge" class="stats-pill">
+                    <span class="status-indicator"></span>
+                    <span id="statsSummary">Loading index...</span>
+                </div>
+                <button id="importBtn" class="btn btn-secondary import-btn-wrapper" title="Manage imported PDFs">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    Import PDFs
+                    <span id="importDot" class="notification-dot hidden"></span>
+                </button>
+                <button id="reindexBtn" class="btn btn-secondary" title="Re-index all documents">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                    Re-index
+                </button>
+                <a href="/docs" target="_blank" class="btn btn-glass" title="Open Swagger API Docs">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    API Docs
+                </a>
+            </div>
+        </header>
+
+        <!-- New/Updated PDFs Alert Banner -->
+        <div id="importAlertBanner" class="alert-banner hidden">
+            <div class="alert-content">
+                <span class="alert-icon">🔔</span>
+                <div>
+                    <span id="alertMessage" class="alert-message">New or updated ICAO PDFs detected in import folder!</span>
+                    <span id="alertDetails" class="alert-details"></span>
+                </div>
+            </div>
+            <div class="alert-actions">
+                <button id="openImportModalBtn" class="btn btn-sm btn-primary">Review & Reparse</button>
+                <button id="dismissAlertBtn" class="btn-icon" title="Dismiss">&times;</button>
+            </div>
+        </div>
+
+        <!-- Main Search Section -->
+        <main class="main-content">
+            <section class="search-card">
+                <form id="searchForm" class="search-box-wrapper">
+                    <div class="search-input-group">
+                        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input 
+                            type="text" 
+                            id="queryInput" 
+                            placeholder="Ask or search (e.g. 'Airport charging principles', 'CNS/ATM satellite navigation', 'Single-till vs Dual-till')..." 
+                            autocomplete="off"
+                            required
+                        />
+                        <button type="submit" id="searchBtn" class="btn btn-primary">
+                            <span>Search</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                                <polyline points="12 5 19 12 12 19"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Quick Suggestions -->
+                    <div class="quick-tags">
+                        <span class="tags-label">Quick topics:</span>
+                        <button type="button" class="tag-chip" data-query="air traffic services unit FIR search and rescue action">PANS-ATM FIR & Search & Rescue</button>
+                        <button type="button" class="tag-chip" data-query="Airport charging principles and Article 15">Airport Charges (Art. 15)</button>
+                        <button type="button" class="tag-chip" data-query="right of way rules overtaking aircraft">Rules of the Air (Right-of-Way)</button>
+                        <button type="button" class="tag-chip" data-query="CNS/ATM global air navigation plan transition">CNS/ATM Transition</button>
+                        <button type="button" class="tag-chip" data-query="Single-till versus dual-till approaches">Single-till vs Dual-till</button>
+                    </div>
+                </form>
+
+                <!-- Advanced Filters Panel -->
+                <div class="filters-panel">
+                    <div class="filters-header" id="filtersToggle">
+                        <span class="filters-title">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                            </svg>
+                            Filters & Hybrid Weights
+                        </span>
+                        <span id="filterToggleIcon" class="toggle-icon">▼</span>
+                    </div>
+
+                    <div id="filtersBody" class="filters-body collapsed">
+                        <div class="filter-grid">
+                            <div class="filter-item">
+                                <label for="docFilter">Target Document</label>
+                                <select id="docFilter">
+                                    <option value="">All Documents</option>
+                                </select>
+                            </div>
+
+                            <div class="filter-item">
+                                <label for="chapterFilter">Chapter Keyword</label>
+                                <input type="text" id="chapterFilter" placeholder="e.g. Charges, Planning, Revenue" />
+                            </div>
+
+                            <div class="filter-item">
+                                <label for="minPage">Page Range (Min / Max)</label>
+                                <div class="page-range-inputs">
+                                    <input type="number" id="minPage" placeholder="Min" min="1" />
+                                    <span class="range-sep">—</span>
+                                    <input type="number" id="maxPage" placeholder="Max" min="1" />
+                                </div>
+                            </div>
+
+                            <div class="filter-item">
+                                <label for="topK">Result Count</label>
+                                <select id="topK">
+                                    <option value="5" selected>Top 5 results</option>
+                                    <option value="10">Top 10 results</option>
+                                    <option value="20">Top 20 results</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Hybrid Weights Slider -->
+                        <div class="weight-controls">
+                            <div class="weight-label-row">
+                                <span>Hybrid Retrieval Balance:</span>
+                                <span id="weightDisplay" class="weight-display">Dense: 65% | BM25: 35%</span>
+                            </div>
+                            <div class="slider-row">
+                                <span class="slider-end-label">Sparse (BM25 Keywords)</span>
+                                <input type="range" id="weightSlider" min="0" max="100" value="65" />
+                                <span class="slider-end-label">Dense (Semantic Vectors)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Meta & Header -->
+            <div id="resultsMeta" class="results-meta hidden">
+                <div class="results-stats">
+                    Found <strong id="resCount">0</strong> matches for "<span id="resQuery"></span>"
+                    <span id="resTime" class="time-badge">0ms</span>
+                </div>
+                <div id="resMode" class="mode-badge">Hybrid</div>
+            </div>
+
+            <!-- Results Feed -->
+            <section id="resultsFeed" class="results-feed">
+                <!-- Empty state shown initially -->
+                <div class="empty-state">
+                    <div class="empty-icon">✈</div>
+                    <h3>Ready to Search ICAO Documentation</h3>
+                    <p>Enter a query above or choose a quick topic chip to retrieve verified passages with page citations.</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Import Management Modal -->
+        <div id="importModal" class="modal-backdrop hidden">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <h3 class="modal-title">PDF Import & Reparsing Manager</h3>
+                        <p class="modal-subtitle">Sync and re-parse documents from <code>import_pdfs/</code></p>
+                    </div>
+                    <button id="closeImportModalBtn" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Dropzone -->
+                    <div id="dropzone" class="dropzone-area">
+                        <svg class="dropzone-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <p class="dropzone-text">Drop ICAO PDF files here to import, or <span class="browse-link" id="browseLink">browse files</span></p>
+                        <p class="dropzone-subtext">Files are automatically uploaded to <code>c:\Projects\ICAO\import_pdfs\</code></p>
+                        <input type="file" id="fileUploadInput" accept=".pdf" multiple style="display: none;" />
+                    </div>
+
+                    <!-- Files status list -->
+                    <div class="import-files-section">
+                        <div class="section-subhead">
+                            <span class="subhead-title">Detected Documents in Import & Workspace Folder</span>
+                            <button id="refreshImportBtn" class="btn btn-sm btn-glass">↻ Refresh</button>
+                        </div>
+                        <div id="importFileList" class="import-file-list">
+                            <!-- Populated dynamically -->
+                            <div class="loading-placeholder">Checking import directory...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="syncReparseBtn" class="btn btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                        </svg>
+                        Reparse & Sync Pending (<span id="pendingBtnCount">0</span>)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chunk Detail Modal -->
+        <div id="chunkModal" class="modal-backdrop hidden">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div>
+                        <h3 id="modalTitle" class="modal-title">Chunk Details</h3>
+                        <p id="modalSubtitle" class="modal-subtitle"></p>
+                    </div>
+                    <button id="closeModalBtn" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="context-pill" id="modalContext"></div>
+                    <div class="chunk-full-text" id="modalText"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="copyCitationBtn" class="btn btn-secondary">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Copy Citation
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>ICAO Document Intelligence Engine &bull; Modular Python Library & REST API &bull; PyMuPDF + SentenceTransformers + BM25</p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js?v=3"></script>
+</body>
+</html>

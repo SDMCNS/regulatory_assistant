@@ -370,6 +370,7 @@ function updateIndicators() {
     easa: 'EASA',
     eu: 'EU (EUR-Lex)',
     faa: 'FAA',
+    icao: 'ICAO',
     skybrary: 'SKYbrary',
     manual: 'Manuals',
     note: 'Notes',

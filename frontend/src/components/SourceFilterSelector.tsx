@@ -13,6 +13,7 @@ export const ALL_SOURCES: SourceOption[] = [
   { id: 'easa', label: 'EASA', shortLabel: 'EASA', badge: 'Rules & CS', description: 'EASA Easy Access Rules, Certification Specifications, AMC & GM' },
   { id: 'eu', label: 'EU (EUR-Lex)', shortLabel: 'EU', badge: 'Regulations', description: 'European Union Aviation Regulations, Directives & Decisions' },
   { id: 'faa', label: 'FAA', shortLabel: 'FAA', badge: '14 CFR', description: 'FAA Title 14 CFR Regulations and Advisory Circulars' },
+  { id: 'icao', label: 'ICAO', shortLabel: 'ICAO', badge: 'Standards & SARPs', description: 'ICAO Chicago Convention, Annexes (1-19), Doc Manuals & PANS-ATM' },
   { id: 'skybrary', label: 'SKYbrary', shortLabel: 'SKYbrary', badge: 'Safety Library', description: 'SKYbrary Bookshelf, Safety Articles & Accident Reports' },
   { id: 'manual', label: 'Manuals', shortLabel: 'Manuals', badge: 'OEM / Ops', description: 'Internal Company Operations & Maintenance Manuals' },
   { id: 'note', label: 'Notes', shortLabel: 'Notes', badge: 'Engineering', description: 'Internal Engineering Project Notes & Meeting Journals' },
@@ -78,7 +79,7 @@ export const SourceFilterSelector: React.FC<SourceFilterSelectorProps> = ({
         <button
           type="button"
           onClick={handleSelectAll}
-          title={isAllSelected ? 'All 7 sources currently included' : 'Include all sources'}
+          title={isAllSelected ? `All ${ALL_SOURCES.length} sources currently included` : 'Include all sources'}
           className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer flex items-center gap-1 ${
             isAllSelected
               ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50 shadow-sm'
@@ -155,7 +156,7 @@ export const SourceFilterSelector: React.FC<SourceFilterSelectorProps> = ({
             {isAllSelected ? (
               <span className="text-sky-400 flex items-center gap-1.5">
                 <CheckCheck className="w-3.5 h-3.5 text-sky-400" />
-                All 7 Sources Included
+                All {ALL_SOURCES.length} Sources Included
               </span>
             ) : (
               <span className="flex items-center gap-1.5">

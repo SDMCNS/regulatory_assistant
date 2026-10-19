@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="Limit number of documents to process for each pipeline")
     parser.add_argument("--reset", action="store_true", help="Reset the environment before running")
     parser.add_argument("--download_easa", action="store_true", help="Run the EASA XML downloader step (optional)")
+    parser.add_argument("--ingest_icao", action="store_true", help="Run the ICAO PDF ingestion pipeline")
+    parser.add_argument("--icao_dir", type=str, default=str(_project_root / "ICAO" / "import_pdfs"), help="Directory containing ICAO PDF documents")
     args = parser.parse_args()
 
     # Pre-flight checks and counting
@@ -102,6 +104,19 @@ def main():
     if args.limit:
         cmd_easa_chunk.extend(["--limit", str(args.limit)])
     subprocess.run(cmd_easa_chunk, check=False)
+
+    # 4b. ICAO Ingestion Pipeline
+    if args.ingest_icao:
+        print("\n" + "="*80)
+        print("4b. RUNNING ICAO INGESTION PIPELINE")
+        print("="*80)
+        
+        cmd_icao = [sys.executable, "-m", "ingestion.pipelines.chunk_icao_pipeline", "--pdf_dir", args.icao_dir, "--skip_fts"]
+        if args.limit:
+            cmd_icao.extend(["--limit", str(args.limit)])
+        if args.reset:
+            cmd_icao.append("--reset")
+        subprocess.run(cmd_icao, check=False)
 
     # 5. Generate Embeddings for all new chunks
     print("\n" + "="*80)

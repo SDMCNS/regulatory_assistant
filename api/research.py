@@ -28,7 +28,7 @@ class ResearchJobRequest(BaseModel):
     provider: Optional[str] = Field(default="local", description="LLM provider: 'local' or 'gemini'")
     gemini_api_key: Optional[str] = Field(default=None, description="Optional user Gemini API key")
     gemini_model: Optional[str] = Field(default="gemini-3.5-flash", description="Optional Gemini model name")
-    origins: Optional[List[str]] = Field(default=None, description="Optional list of document origins/sources to include: 'easa', 'eu', 'faa', 'skybrary', 'manual', 'note', 'user'")
+    origins: Optional[List[str]] = Field(default=None, description="Optional list of document origins/sources to include: 'easa', 'eu', 'faa', 'icao', 'skybrary', 'manual', 'note', 'user'")
     document_ids: Optional[List[str]] = Field(default=None, description="Optional list of specific document IDs to restrict search to")
 
 class ResearchGap(BaseModel):

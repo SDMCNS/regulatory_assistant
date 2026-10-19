@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "icao-rag"
+version = "1.0.0"
+description = "Python library and REST API to parse, filter, chunk, embed, and search ICAO documentation with hybrid retrieval."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "ICAO Document Intelligence Team" }
+]
+dependencies = [
+    "PyMuPDF>=1.23.0",
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.2.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "pydantic>=2.0.0"
+]
+
+[project.scripts]
+icao-search = "icao_rag.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["icao_rag*"]

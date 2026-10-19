@@ -175,7 +175,7 @@ def build_fts_query(raw_query: str, expanded_keywords: Optional[List[str]] = Non
             
     return " OR ".join(clauses)
 
-def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool, is_user: bool = False) -> bool:
+def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_manual: bool, is_skybrary: bool, is_note: bool, is_user: bool = False, is_icao: bool = False) -> bool:
     if not origin_filter:
         return True
     if isinstance(origin_filter, (list, tuple, set)):
@@ -184,10 +184,46 @@ def chunk_matches_origin(origin_filter: Any, is_easa: bool, is_faa: bool, is_man
         allowed = {str(o).lower().strip() for o in str(origin_filter).split(",") if str(o).strip()}
     if not allowed or "all" in allowed:
         return True
-    chunk_origin = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
-    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu", "user_docs": "user", "user_supplied": "user"}
+    chunk_origin = "icao" if is_icao else ("user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))))
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu", "user_docs": "user", "user_supplied": "user", "icao_docs": "icao"}
     canonical_allowed = {aliases.get(a, a) for a in allowed}
     return chunk_origin in canonical_allowed
+
+
+def get_origin_sql_clause(origin: Any) -> str:
+    if not origin or origin == "all":
+        return ""
+    if isinstance(origin, (list, tuple, set)):
+        allowed = {str(o).lower().strip() for o in origin if str(o).strip()}
+    else:
+        allowed = {str(o).lower().strip() for o in str(origin).split(",") if str(o).strip()}
+    if not allowed or "all" in allowed:
+        return ""
+    
+    aliases = {"bookshelf": "skybrary", "notes": "note", "eurlex": "eu", "user_docs": "user", "user_supplied": "user", "icao_docs": "icao"}
+    canonical = {aliases.get(a, a) for a in allowed}
+
+    clauses = []
+    if "icao" in canonical:
+        clauses.append("(d.source = 'ICAO PDF' OR d.document_id LIKE 'ICAO%')")
+    if "faa" in canonical:
+        clauses.append("(d.source = 'FAA XML' OR d.document_id LIKE 'FAA%')")
+    if "skybrary" in canonical:
+        clauses.append("(d.source = 'SKYBRARY' OR d.document_id LIKE 'SKYBRARY%')")
+    if "manual" in canonical:
+        clauses.append("(d.source = 'Manual' OR d.document_id LIKE 'MANUAL%')")
+    if "note" in canonical:
+        clauses.append("(d.metadata_json LIKE '%\"origin\": \"note\"%' OR d.document_id LIKE 'NOTE%')")
+    if "user" in canonical:
+        clauses.append("(d.source = 'USER' OR d.metadata_json LIKE '%\"origin\": \"user\"%' OR d.document_id LIKE 'USER%')")
+    if "easa" in canonical:
+        clauses.append("(d.source = 'EASA XML' OR d.metadata_json LIKE '%\"source\": \"EASA XML\"%')")
+    if "eu" in canonical:
+        clauses.append("(d.source NOT IN ('EASA XML', 'FAA XML', 'SKYBRARY', 'Manual', 'USER', 'ICAO PDF') AND d.document_id NOT LIKE 'ICAO%' AND d.document_id NOT LIKE 'FAA%' AND d.document_id NOT LIKE 'SKYBRARY%' AND d.document_id NOT LIKE 'MANUAL%' AND d.document_id NOT LIKE 'USER%' AND d.document_id NOT LIKE 'NOTE%')")
+
+    if not clauses:
+        return ""
+    return " AND (" + " OR ".join(clauses) + ")"
 
 
 def search_keywords(
@@ -222,6 +258,7 @@ def search_keywords(
         # source_text: 1.0, section_path: 3.0, document_id: 2.0
         # In FTS5 bm25(table, weight1, weight2, ...)
         where_extra = " AND c.document_id = ?" if document_id else ""
+        where_origin = get_origin_sql_clause(origin) if not document_id else ""
         sql = f"""
             SELECT 
                 c.chunk_id,
@@ -238,7 +275,7 @@ def search_keywords(
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
             JOIN documents d ON c.document_id = d.document_id
-            WHERE chunks_fts MATCH ?{where_extra}
+            WHERE chunks_fts MATCH ?{where_extra}{where_origin}
             ORDER BY 
                 CASE 
                     WHEN COALESCE(c.is_active, 1) = 0 OR COALESCE(d.is_active, 1) = 0 OR (d.superseded_by IS NOT NULL AND d.superseded_by != '')
@@ -248,7 +285,7 @@ def search_keywords(
             LIMIT ?;
         """
         
-        fetch_limit = top_k * 5 if (origin != "all" or document_id or keyword_filter) else top_k
+        fetch_limit = max(top_k * 4, 25) if (origin != "all" or document_id or keyword_filter) else top_k
         sql_params = [fts_query]
         if document_id:
             sql_params.append(document_id)
@@ -286,8 +323,9 @@ def search_keywords(
             is_skybrary = ('"source": "SKYBRARY"' in meta_json) if meta_json else (doc_id.startswith("SKYBRARY_"))
             is_note = ('"origin": "note"' in meta_json) if meta_json else (doc_id.startswith("NOTE_"))
             is_user = ('"source": "USER"' in meta_json) or ('"origin": "user"' in meta_json) or doc_id.startswith("USER_")
+            is_icao = ('"source": "ICAO PDF"' in meta_json) or ('"origin": "icao"' in meta_json) or doc_id.startswith("ICAO_")
             if not document_id:
-                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note, is_user):
+                if not chunk_matches_origin(origin, is_easa, is_faa, is_manual, is_skybrary, is_note, is_user, is_icao):
                     continue
 
             # Check keyword filter if specified
@@ -322,7 +360,7 @@ def search_keywords(
             meta_dict = json.loads(meta_json) if meta_json else {}
             if doc_title:
                 meta_dict["document_title"] = doc_title
-            meta_dict["origin"] = "user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu")))))
+            meta_dict["origin"] = "icao" if is_icao else ("user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))))
 
             is_suppressed = bool(chunk_active == 0 or doc_active == 0 or superseded_by)
             custom_score = float(score)

@@ -3,7 +3,7 @@
  * Fully aligned with OpenAPI 3.1 schema (SEARCH & LLM operations)
  */
 
-export type RegulationOrigin = 'all' | 'eu' | 'easa' | 'faa' | 'manual' | 'skybrary' | 'note' | 'user';
+export type RegulationOrigin = 'all' | 'eu' | 'easa' | 'faa' | 'icao' | 'manual' | 'skybrary' | 'note' | 'user';
 
 export interface ComparisonMatchItem {
   document_id: string;

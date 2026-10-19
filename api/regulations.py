@@ -259,6 +259,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 origin = "user"
             elif source == "FAA XML" or doc_id.startswith("FAA_") or "14 cfr" in doc_low:
                 origin = "faa"
+            elif source == "ICAO PDF" or doc_id.startswith("ICAO_") or "icao" in doc_low:
+                origin = "icao"
             elif source in ("Manual", "Custom") or doc_id.startswith("MANUAL_"):
                 origin = "manual"
             elif "easy access" in doc_low or "cs-" in doc_low or "amc" in doc_low:
@@ -274,6 +276,8 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                         origin = "note"
                     elif meta_dict.get("origin") == "user":
                         origin = "user"
+                    elif meta_dict.get("origin") == "icao":
+                        origin = "icao"
                 except Exception:
                     pass
 

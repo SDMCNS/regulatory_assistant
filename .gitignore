@@ -16,6 +16,7 @@ env/
 
 # Data and Databases
 ingestion/data/
+!ingestion/data/custom_concepts.json
 *.sqlite
 *.db
 *.sqlite3

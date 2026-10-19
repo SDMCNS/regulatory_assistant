@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import {
   fetchGraphStats, fetchSourcesCatalog, fetchConceptsCatalog, generateCustomConcept, deleteCustomConcept,
+  fetchRegulationsCatalog, fetchRegulationConcepts, RegulationSummary,
   searchGraph, executeHydeSearch, fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
   fetchConceptNarrative, ConceptNarrativeResponse,
   GraphStats, SourcesCatalog, ConceptSummary, GraphSearchResult, HydeResponse, HydeCandidate,
@@ -38,6 +39,8 @@ const NODE_COLORS: Record<string, string> = {
   ANNEX: '#0284c7', // Sky Blue - Regulatory Annex
   CONCEPT: '#f43f5e', // Rose - Ontology Concept
   STAKEHOLDER: '#f97316', // Orange - Actor / Role
+  REGULATION: '#2563eb', // Royal Blue - Central Regulation
+  CROSS_REGULATION: '#0d9488', // Teal - Cross-Regulatory Edge Node
   DEFAULT: '#64748b' // Slate
 };
 
@@ -49,7 +52,8 @@ const LINK_COLORS: Record<string, string> = {
   GOVERNS_CONCEPT: '#f43f5e',
   APPLIES_TO: '#f97316',
   CROSS_REFERENCES: '#8b5cf6',
-  COVERS_CONCEPT: '#38bdf8',
+  COVERS_CONCEPT: '#f43f5e',
+  BRIDGES_TO: '#06b6d4',
   SIMILAR_TO: '#06b6d4',
   DEFAULT: '#475569'
 };
@@ -60,11 +64,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   onSendToAssistant
 }) => {
   // State: View Modes & Entry
-  const [currentMode, setCurrentMode] = useState<'chain' | 'blast' | 'concept'>('chain');
+  const [currentMode, setCurrentMode] = useState<'chain' | 'blast' | 'concept' | 'reg_concept'>('reg_concept');
   const [entryMode, setEntryMode] = useState<'exact' | 'hyde'>('exact');
   const [currentCode, setCurrentCode] = useState<string>('ORO.GEN.200');
   const [currentConcept, setCurrentConcept] = useState<string>('Fuel Planning & Energy Schemes');
+  const [currentRegulation, setCurrentRegulation] = useState<string>('Air Operations');
   const [conceptsList, setConceptsList] = useState<ConceptSummary[]>([]);
+  const [regulationsList, setRegulationsList] = useState<RegulationSummary[]>([]);
+  const [regulationSearchFilter, setRegulationSearchFilter] = useState<string>('');
 
   // Concept Suggestion / Generation Modal State
   const [isGenerateConceptModalOpen, setIsGenerateConceptModalOpen] = useState<boolean>(false);
@@ -147,7 +154,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Load Initial Stats, Sources Catalog & Concepts
+  // Load Initial Stats, Sources Catalog, Concepts & Regulations
   useEffect(() => {
     fetchGraphStats(apiUrl)
       .then(setStats)
@@ -167,11 +174,19 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         }
       })
       .catch((err) => console.warn('Failed to fetch concepts catalog:', err));
+
+    fetchRegulationsCatalog(apiUrl)
+      .then((regs) => {
+        setRegulationsList(regs);
+        if (regs.length > 0 && !currentRegulation) {
+          setCurrentRegulation(regs[0].name);
+        }
+      })
+      .catch((err) => console.warn('Failed to fetch regulations catalog:', err));
   }, [apiUrl]);
 
-
-  // Load Graph Data based on currentMode and currentCode / currentConcept
-  const loadGraph = useCallback(async (mode: 'chain' | 'blast' | 'concept', target: string) => {
+  // Load Graph Data based on currentMode and currentCode / currentConcept / currentRegulation
+  const loadGraph = useCallback(async (mode: 'chain' | 'blast' | 'concept' | 'reg_concept', target: string) => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
@@ -180,8 +195,10 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         data = await fetchComplianceChain(apiUrl, target);
       } else if (mode === 'blast') {
         data = await fetchBlastRadius(apiUrl, target);
-      } else {
+      } else if (mode === 'concept') {
         data = await fetchConceptSubgraph(apiUrl, target);
+      } else {
+        data = await fetchRegulationConcepts(apiUrl, target);
       }
       setGraphData(data);
       // Auto-select anchor if present
@@ -198,7 +215,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
   // Trigger initial graph load
   useEffect(() => {
-    loadGraph(currentMode, currentMode === 'concept' ? currentConcept : currentCode);
+    loadGraph(
+      currentMode,
+      currentMode === 'reg_concept'
+        ? currentRegulation
+        : currentMode === 'concept'
+        ? currentConcept
+        : currentCode
+    );
   }, []); // Run on mount
 
   // Select and inspect a node
@@ -323,17 +347,20 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       .force('link', d3.forceLink<D3GraphNode, D3GraphLink>(links)
         .id(d => d.id)
         .distance(d => {
+          if (d.type === 'BRIDGES_TO') return Math.round(baseLinkDist * 1.45);
+          if (d.type === 'COVERS_CONCEPT') return Math.round(baseLinkDist * 1.2);
           if (d.type === 'BELONGS_TO_ANNEX') return Math.round(baseLinkDist * 1.35);
           if (d.type === 'SIMILAR_TO') return Math.round(baseLinkDist * 1.5);
-          if (d.type === 'GOVERNS_CONCEPT' || d.type === 'COVERS_CONCEPT') return Math.round(baseLinkDist * 1.25);
+          if (d.type === 'GOVERNS_CONCEPT') return Math.round(baseLinkDist * 1.25);
           if (d.type === 'SATISFIES') return Math.round(baseLinkDist * 1.1);
           return baseLinkDist;
         })
-        .strength(d => (d.type === 'BELONGS_TO_ANNEX' ? 0.35 : 0.6))
+        .strength(d => (d.type === 'BRIDGES_TO' ? 0.45 : d.type === 'BELONGS_TO_ANNEX' ? 0.35 : 0.6))
       )
       .force('charge', d3.forceManyBody<D3GraphNode>()
         .strength(d => {
-          if (d.is_anchor) return Math.min(-2000, -width * 1.3);
+          if (d.is_anchor || d.type === 'REGULATION') return Math.min(-2200, -width * 1.4);
+          if (d.type === 'CROSS_REGULATION') return Math.min(-1600, -width * 1.1);
           if (d.type === 'ANNEX') return Math.min(-1500, -width * 1.0);
           if (d.type === 'CONCEPT') return Math.min(-1300, -width * 0.85);
           return Math.min(-900, -width * 0.65);
@@ -349,7 +376,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       .force('center', d3.forceCenter(width / 2, height / 2).strength(0.08))
       // Anti-collision with generous radius to prevent clumping and keep labels readable
       .force('collide', d3.forceCollide<D3GraphNode>()
-        .radius(d => (d.is_anchor ? 65 : d.type === 'ANNEX' ? 55 : 46))
+        .radius(d => (d.is_anchor || d.type === 'REGULATION' ? 68 : d.type === 'CROSS_REGULATION' ? 56 : d.type === 'ANNEX' ? 55 : 46))
         .strength(0.9)
         .iterations(3)
       );
@@ -366,9 +393,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
     const linkPath = link.append('line')
       .attr('stroke', d => LINK_COLORS[d.type] || LINK_COLORS.DEFAULT)
-      .attr('stroke-width', d => (d.type === 'SIMILAR_TO' ? 2 : d.type === 'SATISFIES' ? 2.5 : 1.5))
-      .attr('stroke-dasharray', d => (d.type === 'SIMILAR_TO' ? '4,4' : d.type === 'CROSS_REFERENCES' ? '2,2' : 'none'))
-      .attr('stroke-opacity', 0.65)
+      .attr('stroke-width', d => (d.type === 'BRIDGES_TO' ? 2 : d.type === 'SIMILAR_TO' ? 2 : d.type === 'SATISFIES' ? 2.5 : 1.5))
+      .attr('stroke-dasharray', d => (d.type === 'BRIDGES_TO' ? '4,4' : d.type === 'SIMILAR_TO' ? '4,4' : d.type === 'CROSS_REFERENCES' ? '2,2' : 'none'))
+      .attr('stroke-opacity', 0.7)
       .attr('marker-end', d => `url(#arrow-${d.type in LINK_COLORS ? d.type : 'DEFAULT'})`);
 
     const linkText = link.append('text')
@@ -423,7 +450,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
     // Main Circle
     node.append('circle')
-      .attr('r', d => (d.is_anchor ? 24 : d.type === 'ANNEX' ? 20 : d.type === 'CONCEPT' ? 18 : 15))
+      .attr('r', d => (d.type === 'REGULATION' || d.is_anchor ? 26 : d.type === 'CROSS_REGULATION' ? 20 : d.type === 'ANNEX' ? 20 : d.type === 'CONCEPT' ? 18 : 15))
       .attr('fill', d => NODE_COLORS[d.type] || NODE_COLORS.DEFAULT)
       .attr('stroke', '#0f172a')
       .attr('stroke-width', 2.5)
@@ -433,15 +460,15 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     node.append('text')
       .attr('dy', 4)
       .attr('text-anchor', 'middle')
-      .attr('font-size', d => (d.is_anchor ? '10px' : '8px'))
+      .attr('font-size', d => (d.is_anchor || d.type === 'REGULATION' ? '10px' : '8px'))
       .attr('font-weight', '700')
       .attr('font-family', 'Inter, sans-serif')
       .attr('fill', '#ffffff')
-      .text(d => d.type);
+      .text(d => d.type === 'CROSS_REGULATION' ? 'X-REG' : d.type === 'REGULATION' ? 'REG' : d.type);
 
     // Node Label / Code
     node.append('text')
-      .attr('dy', d => (d.is_anchor ? 38 : 30))
+      .attr('dy', d => (d.is_anchor || d.type === 'REGULATION' ? 40 : 30))
       .attr('text-anchor', 'middle')
       .attr('font-size', '11px')
       .attr('font-weight', '600')
@@ -449,14 +476,23 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       .attr('fill', '#f1f5f9')
       .text(d => d.label);
 
-    // Node Subtitle (Truncated title)
+    // Node Subtitle (Truncated title or metric)
     node.append('text')
-      .attr('dy', d => (d.is_anchor ? 50 : 42))
+      .attr('dy', d => (d.is_anchor || d.type === 'REGULATION' ? 52 : 44))
       .attr('text-anchor', 'middle')
       .attr('font-size', '9px')
       .attr('font-family', 'Inter, sans-serif')
       .attr('fill', '#94a3b8')
       .text(d => {
+        if (d.type === 'CROSS_REGULATION' && d.shared_rules) {
+          return `${d.shared_rules} shared rules`;
+        }
+        if (d.type === 'REGULATION' && d.total_topics) {
+          return `${d.total_topics} topics`;
+        }
+        if (d.type === 'CONCEPT' && d.rule_count) {
+          return `${d.rule_count} rules`;
+        }
         const title = d.title || '';
         return title.length > 22 ? title.slice(0, 20) + '...' : title;
       });
@@ -574,6 +610,23 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       return;
     }
 
+    if (currentMode === 'reg_concept') {
+      // Filter from regulationsList
+      const matches = regulationsList.filter(r =>
+        r.name.toLowerCase().includes(q.toLowerCase()) ||
+        r.title.toLowerCase().includes(q.toLowerCase())
+      ).map(r => ({
+        id: r.id,
+        code: r.name,
+        title: `${r.title} • ${r.annex_count} annexes • ${r.total_topics} topics`,
+        source: 'EASA Kùzu',
+        type: 'REGULATION'
+      }));
+      setSuggestions(matches);
+      setShowSuggestions(matches.length > 0);
+      return;
+    }
+
     if (currentMode === 'concept') {
       // Filter from conceptsList
       const matches = conceptsList.filter(c =>
@@ -605,7 +658,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, entryMode, currentMode, conceptsList, activeSources, selectedSkybraryTopics, apiUrl]);
+  }, [searchQuery, entryMode, currentMode, conceptsList, regulationsList, activeSources, selectedSkybraryTopics, apiUrl]);
 
   // Execute HyDE Search
   const handleRunHyde = async (customQuery?: string) => {
@@ -625,6 +678,15 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     }
   };
 
+  // Select a regulation and load regulation concepts & cross-regulatory bridges
+  const handleSelectRegulation = (regNameOrId: string) => {
+    setCurrentRegulation(regNameOrId);
+    setCurrentMode('reg_concept');
+    loadGraph('reg_concept', regNameOrId);
+    setIsInspectorOpen(false);
+    setIsHydeModalOpen(false);
+  };
+
   // Select a concept and load concept mesh
   const handleSelectConcept = (conceptName: string) => {
     setCurrentConcept(conceptName);
@@ -636,6 +698,10 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
   // Pivot graph to a new anchor rule
   const handlePivotToNode = (code: string) => {
+    if (currentMode === 'reg_concept') {
+      handleSelectRegulation(code);
+      return;
+    }
     if (currentMode === 'concept' || code.startsWith('CONCEPT_')) {
       handleSelectConcept(code);
       return;
@@ -812,7 +878,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     skipNextSearchRef.current = true;
                     setShowSuggestions(false);
                     setSuggestions([]);
-                    if (currentMode === 'concept') {
+                    if (currentMode === 'reg_concept') {
+                      handleSelectRegulation(searchQuery.trim());
+                    } else if (currentMode === 'concept') {
                       handleSelectConcept(searchQuery.trim());
                     } else {
                       handlePivotToNode(searchQuery.trim());
@@ -821,7 +889,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 }
               }}
               placeholder={
-                currentMode === 'concept'
+                currentMode === 'reg_concept'
+                  ? 'Filter or select regulation (e.g. Air Operations, Continuing Airworthiness, CS-25)...'
+                  : currentMode === 'concept'
                   ? 'Filter or select aviation ontology concept (e.g. Fuel, SMS, FTL, Airworthiness)...'
                   : entryMode === 'exact'
                   ? 'Search code or rule title (e.g. ORO.GEN.200)...'
@@ -851,7 +921,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     skipNextSearchRef.current = true;
                     setShowSuggestions(false);
                     setSuggestions([]);
-                    if (currentMode === 'concept' || item.type === 'CONCEPT') {
+                    if (currentMode === 'reg_concept' || item.type === 'REGULATION') {
+                      handleSelectRegulation(item.code);
+                    } else if (currentMode === 'concept' || item.type === 'CONCEPT') {
                       handleSelectConcept(item.code);
                     } else {
                       handlePivotToNode(item.code);
@@ -892,13 +964,44 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       {/* Quick Presets Ribbon */}
       <div className="flex items-center gap-2 px-5 py-1.5 bg-slate-950 border-b border-slate-800/60 text-xs text-slate-400 overflow-x-auto shrink-0">
         <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider shrink-0">
-          {currentMode === 'concept'
+          {currentMode === 'reg_concept'
+            ? 'Regulation Presets:'
+            : currentMode === 'concept'
             ? 'Ontology Concepts:'
             : entryMode === 'exact'
             ? 'Exact Presets:'
             : 'HyDE Scenarios:'}
         </span>
-        {currentMode === 'concept' ? (
+        {currentMode === 'reg_concept' ? (
+          <>
+            {[
+              { name: 'Air Operations', label: '✈️ Air Operations (965/2012)' },
+              { name: 'Continuing Airworthiness', label: '🔧 Airworthiness (1321/2014)' },
+              { name: 'Aircrew', label: '👨‍✈️ Aircrew Licensing (1178/2011)' },
+              { name: 'Aerodromes', label: '🛫 Aerodromes (139/2014)' },
+              { name: 'ATM/ANS', label: '🌐 ATM/ANS Airspace (2017/373)' },
+              { name: 'CS-25', label: '📐 CS-25 Large Aeroplanes' },
+              { name: 'Part-IS', label: '🔒 Part-IS Cybersecurity (2023/203)' },
+              { name: 'Drones', label: '🛸 Drones & UAS (2019/947)' },
+              { name: 'SERA', label: '📡 SERA Rules of Air (923/2012)' }
+            ].map(rp => {
+              const isActive = currentRegulation.toLowerCase().includes(rp.name.toLowerCase()) || rp.name.toLowerCase().includes(currentRegulation.toLowerCase());
+              return (
+                <button
+                  key={rp.name}
+                  onClick={() => handleSelectRegulation(rp.name)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors shrink-0 ${
+                    isActive
+                      ? 'bg-blue-950 text-blue-300 border border-blue-700/60'
+                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {rp.label}
+                </button>
+              );
+            })}
+          </>
+        ) : currentMode === 'concept' ? (
           <>
             <button
               onClick={() => {
@@ -1007,6 +1110,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
             </h3>
             <div className="flex flex-col gap-1">
               {[
+                { id: 'reg_concept', label: 'Regulation Concepts', sub: 'Regulation to concepts & cross-regulatory bridges' },
                 { id: 'chain', label: 'Compliance Chain', sub: 'IR + AMC + GM hierarchy' },
                 { id: 'blast', label: 'Blast Radius', sub: 'Dependencies & citations' },
                 { id: 'concept', label: 'Concept Ontology', sub: 'Cross-Annex concept mesh' }
@@ -1015,7 +1119,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                   key={m.id}
                   onClick={() => {
                     setCurrentMode(m.id as any);
-                    loadGraph(m.id as any, m.id === 'concept' ? currentConcept : currentCode);
+                    loadGraph(
+                      m.id as any,
+                      m.id === 'reg_concept'
+                        ? currentRegulation
+                        : m.id === 'concept'
+                        ? currentConcept
+                        : currentCode
+                    );
                   }}
                   className={`text-left px-2.5 py-1.5 rounded-md transition-all ${
                     currentMode === m.id
@@ -1028,6 +1139,53 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 </button>
               ))}
             </div>
+
+            {/* Regulation Picker when in reg_concept mode */}
+            {currentMode === 'reg_concept' && (
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-blue-400">
+                  <span>Target Regulation:</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950 border border-blue-800 text-blue-300 font-mono">
+                    {regulationsList.length} In Kùzu
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={regulationSearchFilter}
+                  onChange={(e) => setRegulationSearchFilter(e.target.value)}
+                  placeholder="Filter 42 regulations..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-200 placeholder-slate-500 outline-none focus:border-blue-500"
+                />
+                <select
+                  value={currentRegulation}
+                  onChange={(e) => handleSelectRegulation(e.target.value)}
+                  className="w-full bg-slate-900 border border-blue-900/50 rounded px-2 py-1.5 text-xs text-blue-200 outline-none focus:border-blue-500 transition-colors"
+                >
+                  {regulationsList
+                    .filter(r => !regulationSearchFilter || r.name.toLowerCase().includes(regulationSearchFilter.toLowerCase()) || r.title.toLowerCase().includes(regulationSearchFilter.toLowerCase()))
+                    .map((r) => (
+                      <option key={r.id} value={r.name} className="bg-slate-900 text-slate-200">
+                        {r.name} ({r.total_topics} topics)
+                      </option>
+                    ))}
+                </select>
+                {(() => {
+                  const sel = regulationsList.find(r => r.name === currentRegulation || r.id === currentRegulation);
+                  if (!sel) return null;
+                  return (
+                    <div className="flex flex-col gap-1 text-[10px] text-slate-400 px-1 pt-1">
+                      <div className="text-slate-300 font-medium line-clamp-2" title={sel.title}>
+                        {sel.title}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/60">
+                        <span>Structure:</span>
+                        <span className="text-blue-300 font-mono">{sel.annex_count} Annexes • {sel.total_topics} Topics</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Concept Ontology Picker when in concept mode */}
             {currentMode === 'concept' && (
@@ -1103,6 +1261,20 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               Ontology Legend
             </h3>
             <div className="flex flex-col gap-1.5 text-[11px]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+                  <span>Regulation Anchor</span>
+                </div>
+                <span className="text-[9px] px-1 bg-blue-950 text-blue-300 rounded font-mono">Governing</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-teal-600" />
+                  <span>Cross-Regulation</span>
+                </div>
+                <span className="text-[9px] px-1 bg-teal-950 text-teal-300 rounded font-mono">Edge Bridge</span>
+              </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
@@ -1276,14 +1448,43 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 </span>
               </div>
               <div className="flex items-center gap-1.5 ml-2 border-l border-slate-700/60 pl-3">
-                <button
-                  onClick={() => handlePivotToNode(selectedNode.label)}
-                  className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
-                  title="Regenerate the entire graph view around this node as central anchor"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Regenerate View Here</span>
-                </button>
+                {selectedNode.type === 'CROSS_REGULATION' ? (
+                  <button
+                    onClick={() => handleSelectRegulation(selectedNode.label)}
+                    className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                    title="Pivot graph to view this regulation's concept ecosystem"
+                  >
+                    <ArrowUpRight className="w-3 h-3" />
+                    <span>Pivot to this Regulation</span>
+                  </button>
+                ) : selectedNode.type === 'REGULATION' ? (
+                  <button
+                    onClick={() => handleSelectRegulation(selectedNode.label)}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                    title="Regenerate the entire graph view around this regulation"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Regenerate View Here</span>
+                  </button>
+                ) : selectedNode.type === 'CONCEPT' ? (
+                  <button
+                    onClick={() => handleSelectConcept(selectedNode.label)}
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                    title="Explore concept mesh across all European aviation regulations"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Concept Mesh</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handlePivotToNode(selectedNode.label)}
+                    className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-semibold flex items-center gap-1 transition-colors shadow-sm"
+                    title="Regenerate the entire graph view around this node as central anchor"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Regenerate View Here</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setIsInspectorOpen(true);
@@ -1346,6 +1547,77 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               </div>
             </div>
 
+            {/* Regulation Anchor Card */}
+            {selectedNode.type === 'REGULATION' && (
+              <div className="p-3 bg-blue-950/40 border border-blue-900/50 rounded-lg flex flex-col gap-2">
+                <div className="text-[10px] uppercase font-bold text-blue-400">Anchor Regulation</div>
+                <div className="text-xs text-blue-200 font-semibold">
+                  {selectedNode.title || selectedNode.label}
+                </div>
+                <div className="text-[11px] text-slate-300">
+                  Central regulatory framework governing aviation operations, continuing airworthiness, certification, or licensing.
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-center mt-1">
+                  <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                    <div className="text-sm font-bold text-blue-300 font-mono">
+                      {selectedNode.total_topics || '100+'}
+                    </div>
+                    <div className="text-[9px] text-slate-400">Total Topics</div>
+                  </div>
+                  <div className="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                    <div className="text-sm font-bold text-cyan-300 font-mono">
+                      {selectedNode.annex_count || '1+'}
+                    </div>
+                    <div className="text-[9px] text-slate-400">Annexes</div>
+                  </div>
+                </div>
+                {onSendToAssistant && (
+                  <button
+                    onClick={() => onSendToAssistant(`Provide a comprehensive overview of ${selectedNode.title || selectedNode.label} and how its core operational requirements are structured across its annexes.`)}
+                    className="w-full mt-1 py-1.5 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Ask AI Assistant</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Cross-Regulation Bridge Card */}
+            {selectedNode.type === 'CROSS_REGULATION' && (
+              <div className="p-3 bg-teal-950/40 border border-teal-900/50 rounded-lg flex flex-col gap-2.5">
+                <div className="text-[10px] uppercase font-bold text-teal-400">Cross-Regulatory Bridge</div>
+                <div className="text-xs text-teal-200 font-semibold">
+                  {selectedNode.title || selectedNode.label}
+                </div>
+                <div className="text-[11px] text-slate-300">
+                  Strongly connected to this regulation through shared conceptual mandates:
+                </div>
+                <div className="p-2 bg-slate-950 rounded border border-teal-800/40 text-center">
+                  <div className="text-base font-bold text-teal-300 font-mono">
+                    {selectedNode.shared_rules || 'Multiple'}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Shared Conceptual Provisions</div>
+                </div>
+                <button
+                  onClick={() => handleSelectRegulation(selectedNode.label)}
+                  className="w-full py-1.5 px-3 bg-teal-600 hover:bg-teal-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  <span>Pivot Knowledge Graph to This Regulation</span>
+                </button>
+                {onSendToAssistant && (
+                  <button
+                    onClick={() => onSendToAssistant(`Explain the regulatory cross-connection and compliance bridge between ${currentRegulation} and ${selectedNode.title || selectedNode.label}, specifically highlighting where operational mandates and certification/maintenance obligations overlap.`)}
+                    className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Analyze Cross-Compliance with AI</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Concept Specific Summary Card */}
             {selectedNode.type === 'CONCEPT' && (
               <div className="flex flex-col gap-2">
@@ -1381,7 +1653,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
             )}
 
             {/* Regulatory Annex */}
-            {nodeDetails?.annex && selectedNode.type !== 'CONCEPT' && (
+            {nodeDetails?.annex && selectedNode.type !== 'CONCEPT' && selectedNode.type !== 'REGULATION' && selectedNode.type !== 'CROSS_REGULATION' && (
               <div>
                 <div className="text-[10px] uppercase font-semibold text-slate-500 mb-0.5">
                   Regulatory Annex
@@ -1392,16 +1664,16 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Verbatim Excerpt */}
+            {/* Verbatim Excerpt / Description */}
             <div>
               <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
-                {selectedNode.type === 'CONCEPT' ? 'Concept Scope & Description' : 'Verbatim Excerpt'}
+                {selectedNode.type === 'CONCEPT' ? 'Concept Scope & Description' : (selectedNode.type === 'REGULATION' || selectedNode.type === 'CROSS_REGULATION' ? 'Regulation Scope & Context' : 'Verbatim Excerpt')}
               </div>
               <div className="p-2.5 bg-slate-950 rounded border border-slate-800 text-xs text-slate-300 leading-relaxed font-serif max-h-48 overflow-y-auto">
                 {isDetailsLoading ? (
                   <div className="text-slate-500 italic">Fetching regulatory details...</div>
                 ) : (
-                  nodeDetails?.text_snippet || nodeDetails?.full_text || selectedNode.text || 'No text snippet recorded.'
+                  nodeDetails?.text_snippet || nodeDetails?.full_text || selectedNode.text || selectedNode.title || 'No text snippet recorded.'
                 )}
               </div>
             </div>

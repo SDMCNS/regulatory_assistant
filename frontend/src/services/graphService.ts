@@ -84,6 +84,11 @@ export interface D3GraphNode {
   annex?: string;
   similarity_score?: number;
   similarity_reason?: string;
+  shared_rules?: number;
+  rule_count?: number;
+  total_topics?: number;
+  annex_count?: number;
+  target_doc_id?: string;
   // D3 force simulation attributes
   x?: number;
   y?: number;
@@ -250,6 +255,24 @@ export interface ConceptSummary {
   total_provisions: number;
   is_custom?: boolean;
   description?: string;
+}
+
+export interface RegulationSummary {
+  id: string;
+  code: string;
+  title: string;
+  source: string;
+  total_topics: number;
+  annex_count: number;
+}
+
+export async function fetchRegulationsCatalog(apiUrl: string): Promise<RegulationSummary[]> {
+  return request<RegulationSummary[]>(`${apiUrl}/graph/regulations`);
+}
+
+export async function fetchRegulationConcepts(apiUrl: string, name: string): Promise<D3GraphData> {
+  const params = new URLSearchParams({ name });
+  return request<D3GraphData>(`${apiUrl}/graph/regulation/concepts?${params.toString()}`);
 }
 
 export async function fetchComplianceChain(apiUrl: string, code: string): Promise<D3GraphData> {

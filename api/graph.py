@@ -319,6 +319,85 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Converts regulation concepts subgraph to D3 nodes and links.
+    - Anchor Node: The selected RegulationDocument (type: REGULATION, is_anchor: True)
+    - Orbit Nodes: Applicable Concepts (type: CONCEPT)
+    - Edge Nodes: Strongly connected Other Regulations (type: CROSS_REGULATION)
+    """
+    nodes = []
+    links = []
+    seen = set()
+
+    doc = res["regulation"]
+    anchor_id = doc["id"]
+    seen.add(anchor_id)
+    nodes.append({
+        "id": anchor_id,
+        "label": doc.get("code") or doc["id"].replace("DOC_", "").split("__")[0],
+        "type": "REGULATION",
+        "title": doc["title"],
+        "total_topics": doc.get("total_topics", 0),
+        "source": doc.get("source", "EASA"),
+        "annex_count": doc.get("annex_count", 0),
+        "is_anchor": True
+    })
+
+    for c in res.get("applicable_concepts", []):
+        cid = c.get("id") or f"CONCEPT_{c['name']}"
+        if cid not in seen:
+            seen.add(cid)
+            nodes.append({
+                "id": cid,
+                "label": c["name"],
+                "type": "CONCEPT",
+                "category": c.get("category", "General"),
+                "rule_count": c.get("rule_count", 0),
+                "is_custom": c.get("is_custom", False)
+            })
+
+        # Link REGULATION -> CONCEPT
+        links.append({
+            "source": anchor_id,
+            "target": cid,
+            "type": "COVERS_CONCEPT",
+            "label": f"Governs ({c.get('rule_count', 0)} rules)",
+            "rule_count": c.get("rule_count", 0)
+        })
+
+        # Connected other regulations
+        for cr in c.get("connected_regulations", []):
+            crid = f"CROSS_REG_{cr['id']}"
+            if crid not in seen:
+                seen.add(crid)
+                nodes.append({
+                    "id": crid,
+                    "target_doc_id": cr["id"],
+                    "label": cr.get("code") or cr["id"].replace("DOC_", "").split("__")[0],
+                    "type": "CROSS_REGULATION",
+                    "title": cr["title"],
+                    "shared_rules": cr.get("shared_rules", 0)
+                })
+
+            links.append({
+                "source": cid,
+                "target": crid,
+                "type": "BRIDGES_TO",
+                "label": f"Bridges ({cr.get('shared_rules', 0)} rules)",
+                "shared_rules": cr.get("shared_rules", 0)
+            })
+
+    return {
+        "regulation": doc,
+        "nodes": nodes,
+        "links": links,
+        "total_concepts": res.get("total_concepts", len(res.get("applicable_concepts", []))),
+        "all_regulations": res.get("all_regulations", [])
+    }
+
+
+
 
 def check_graph_engine():
     if _graph_import_error:
@@ -506,6 +585,39 @@ def get_concept_subgraph_graph(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/regulations")
+def get_regulations_catalog():
+    """Returns the catalog of all primary regulation documents and frameworks in the graph."""
+    check_graph_engine()
+    try:
+        eng = get_engine()
+        return eng.get_all_regulations()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/regulation/concepts")
+def get_regulation_concepts_graph(
+    name: str = Query("Air Operations", description="Regulation title, code, or alias (e.g. Air Operations, Continuing Airworthiness, Part-CAT, CS-25)")
+):
+    """
+    Retrieves the applicable concepts in a selected regulation mapped out with
+    edge nodes for other regulations that strongly connect to those concepts.
+    """
+    check_graph_engine()
+    try:
+        eng = get_engine()
+        sub = eng.get_regulation_concepts_subgraph(name)
+        if "error" in sub:
+            raise HTTPException(status_code=404, detail=sub["error"])
+        return build_regulation_concept_graph(sub)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/concept/generate")

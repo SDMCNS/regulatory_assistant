@@ -489,6 +489,276 @@ class EasaGraphEngine:
             "is_custom": False
         }
 
+    def get_all_regulations(self) -> List[Dict[str, Any]]:
+        """
+        Returns all primary Regulation Documents and Annexes available in the graph.
+        """
+        res = self.conn.execute("""
+            MATCH (d:RegulationDocument)
+            OPTIONAL MATCH (d)-[:CONTAINS_ANNEX]->(a:Annex)
+            RETURN d.id, d.title, d.source, d.total_topics, count(DISTINCT a) as annex_count
+            ORDER BY d.total_topics DESC;
+        """)
+        regs = []
+        while res.has_next():
+            row = res.get_next()
+            doc_id, title, src, topics, annexes = row
+            short_code = doc_id.replace("DOC_", "").split("__")[0]
+            if "AIR_OPERATIONS" in doc_id:
+                short_code = "AIR-OPS (965/2012)"
+            elif "CONTINUING_AIRWORTHINESS" in doc_id:
+                short_code = "AIRWORTHINESS (1321/2014)"
+            elif "AIRCREW" in doc_id:
+                short_code = "AIRCREW (1178/2011)"
+            elif "AERODROMES" in doc_id:
+                short_code = "AERODROMES (139/2014)"
+            elif "AIR_TRAFFIC_MANAGEMENT" in doc_id:
+                short_code = "ATM/ANS (2017/373)"
+            elif "LARGE_AEROPLANES" in doc_id:
+                short_code = "CS-25 (Large Aeroplanes)"
+            elif "INFORMATION_SECURITY" in doc_id:
+                short_code = "PART-IS (Cybersecurity)"
+            elif "UNMANNED" in doc_id:
+                short_code = "UAS (Drones 2019/947)"
+            elif "STANDARDISED_EUROPEAN_RULES_OF_THE_AIR" in doc_id:
+                short_code = "SERA (923/2012)"
+            elif "GROUND_HANDLING" in doc_id:
+                short_code = "GROUND HANDLING (2025/23)"
+            elif "INITIAL_AIRWORTHINESS" in doc_id:
+                short_code = "PART-21 (Design/Production)"
+            elif "CS_MMEL" in doc_id:
+                short_code = "CS-MMEL (Master MEL)"
+            elif "CS_AWO" in doc_id:
+                short_code = "CS-AWO (All-Weather)"
+            elif "CS_ACNS" in doc_id:
+                short_code = "CS-ACNS (Comms/Nav/Surv)"
+            elif "CS_ETSO" in doc_id:
+                short_code = "CS-ETSO (Technical Orders)"
+            elif "U_SPACE" in doc_id:
+                short_code = "U-SPACE (2021/664)"
+            elif "BASIC_REGULATION" in doc_id:
+                short_code = "BASIC REG (2018/1139)"
+            elif "OCCURRENCE_REPORTING" in doc_id:
+                short_code = "OCCURRENCE (376/2014)"
+
+            regs.append({
+                "id": doc_id,
+                "code": short_code,
+                "title": title,
+                "source": src or "EASA",
+                "total_topics": topics or 0,
+                "annex_count": annexes or 0
+            })
+        return regs
+
+    def resolve_regulation(self, query: str) -> Optional[Dict[str, Any]]:
+        """
+        Resolves any user-provided query, code, or alias to a canonical RegulationDocument.
+        """
+        q = (query or "").strip()
+        if not q:
+            return None
+        q_lower = q.lower()
+        all_regs = self.get_all_regulations()
+
+        # 1. Exact ID or Code match
+        for r in all_regs:
+            if r["id"].lower() == q_lower or r["code"].lower() == q_lower:
+                return r
+
+        # 2. Domain aliases
+        alias_map = {
+            "air operations": "DOC_02_AIR_OPERATIONS",
+            "air ops": "DOC_02_AIR_OPERATIONS",
+            "part-cat": "DOC_02_AIR_OPERATIONS",
+            "part-oro": "DOC_02_AIR_OPERATIONS",
+            "part-spa": "DOC_02_AIR_OPERATIONS",
+            "part-ncc": "DOC_02_AIR_OPERATIONS",
+            "part-nco": "DOC_02_AIR_OPERATIONS",
+            "part-spo": "DOC_02_AIR_OPERATIONS",
+            "part-aro": "DOC_02_AIR_OPERATIONS",
+            "cat": "DOC_02_AIR_OPERATIONS",
+            "oro": "DOC_02_AIR_OPERATIONS",
+            "continuing airworthiness": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "airworthiness": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-m": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-145": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-camo": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-66": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-147": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-cao": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "part-ml": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "camo": "DOC_08_CONTINUING_AIRWORTHINESS",
+            "aircrew": "DOC_03_AIRCREW__REGULATION__EU__NO_1178_2011",
+            "part-fcl": "DOC_03_AIRCREW__REGULATION__EU__NO_1178_2011",
+            "part-med": "DOC_03_AIRCREW__REGULATION__EU__NO_1178_2011",
+            "part-cc": "DOC_03_AIRCREW__REGULATION__EU__NO_1178_2011",
+            "fcl": "DOC_03_AIRCREW__REGULATION__EU__NO_1178_2011",
+            "aerodromes": "DOC_06_AERODROMES",
+            "aerodrome": "DOC_06_AERODROMES",
+            "part-adr": "DOC_06_AERODROMES",
+            "adr": "DOC_06_AERODROMES",
+            "atm": "DOC_05_AIR_TRAFFIC_MANAGEMENT_AIR_NAVIGATION_SERVICES___PROVISION_OF_SERVICES",
+            "ans": "DOC_05_AIR_TRAFFIC_MANAGEMENT_AIR_NAVIGATION_SERVICES___PROVISION_OF_SERVICES",
+            "atm/ans": "DOC_05_AIR_TRAFFIC_MANAGEMENT_AIR_NAVIGATION_SERVICES___PROVISION_OF_SERVICES",
+            "cs-25": "DOC_01_LARGE_AEROPLANES__CS_25",
+            "cs25": "DOC_01_LARGE_AEROPLANES__CS_25",
+            "large aeroplanes": "DOC_01_LARGE_AEROPLANES__CS_25",
+            "cybersecurity": "DOC_09_INFORMATION_SECURITY__REGULATIONS__EU__2023_203_AND_2022_1645",
+            "part-is": "DOC_09_INFORMATION_SECURITY__REGULATIONS__EU__2023_203_AND_2022_1645",
+            "information security": "DOC_09_INFORMATION_SECURITY__REGULATIONS__EU__2023_203_AND_2022_1645",
+            "uas": "DOC_10_UNMANNED_AIRCRAFT_SYSTEMS",
+            "drone": "DOC_10_UNMANNED_AIRCRAFT_SYSTEMS",
+            "drones": "DOC_10_UNMANNED_AIRCRAFT_SYSTEMS",
+            "u-space": "DOC_25_U_SPACE__REGULATION__EU__2021_664",
+            "sera": "DOC_15_STANDARDISED_EUROPEAN_RULES_OF_THE_AIR",
+            "rules of the air": "DOC_15_STANDARDISED_EUROPEAN_RULES_OF_THE_AIR",
+            "ground handling": "DOC_30_GROUND_HANDLING__GH___REGULATIONS__EU__2025_23_AND_2025_20",
+            "part-gh": "DOC_30_GROUND_HANDLING__GH___REGULATIONS__EU__2025_23_AND_2025_20",
+            "part-21": "DOC_13_INITIAL_AIRWORTHINESS_AND_ENVIRONMENTAL_PROTECTION__REGULATION__EU__NO_748_2012",
+            "initial airworthiness": "DOC_13_INITIAL_AIRWORTHINESS_AND_ENVIRONMENTAL_PROTECTION__REGULATION__EU__NO_748_2012",
+            "mmel": "DOC_16_MASTER_MINIMUM_EQUIPMENT_LIST__EAR_FOR_CS_MMEL",
+            "cs-mmel": "DOC_16_MASTER_MINIMUM_EQUIPMENT_LIST__EAR_FOR_CS_MMEL",
+            "basic regulation": "DOC_40_THE_BASIC_REGULATION__REGULATION__EU__2018_1139",
+            "occurrence reporting": "DOC_36_OCCURRENCE_REPORTING__REGULATION__EU__NO_376_2014"
+        }
+        for alias, target_id in alias_map.items():
+            if alias in q_lower or q_lower in alias:
+                for r in all_regs:
+                    if r["id"] == target_id:
+                        return r
+
+        # 3. Substring match on title
+        for r in all_regs:
+            if q_lower in r["title"].lower():
+                return r
+
+        return all_regs[0] if all_regs else None
+
+    def get_regulation_concepts_subgraph(self, regulation_query: str) -> Dict[str, Any]:
+        """
+        Maps out applicable concepts covered by a regulation and identifies
+        strongly connected cross-regulatory edge nodes bridging those concepts.
+        """
+        doc = self.resolve_regulation(regulation_query)
+        if not doc:
+            return {"error": f"Regulation '{regulation_query}' could not be identified."}
+
+        doc_id = doc["id"]
+        doc_prefix = doc_id
+
+        # 1. Query Native Kùzu Concepts
+        res_concepts = self.conn.execute(f"""
+            MATCH (d:RegulationDocument {{id: '{doc_id}'}})-[:CONTAINS_ANNEX]->(a:Annex)<-[:BELONGS_TO_ANNEX]-(p:Provision)-[:GOVERNS_CONCEPT]->(c:Concept)
+            RETURN c.id, c.name, c.category, count(DISTINCT p) as rule_count
+            ORDER BY rule_count DESC
+            LIMIT 16;
+        """)
+
+        concept_map: Dict[str, Dict[str, Any]] = {}
+        while res_concepts.has_next():
+            row = res_concepts.get_next()
+            c_id, c_name, c_cat, r_count = row
+            concept_map[c_id] = {
+                "id": c_id,
+                "name": c_name,
+                "category": c_cat or "General",
+                "rule_count": r_count,
+                "is_custom": False,
+                "connected_regulations": []
+            }
+
+        # 2. Blend in Custom Concepts that have rules in this regulation
+        try:
+            from ingestion.graph.custom_concepts import get_custom_concept_manager
+            mgr = get_custom_concept_manager()
+            custom_list = mgr.load_all()
+            for cc in custom_list:
+                c_info = cc.get("concept", cc)
+                c_id = c_info.get("id") or cc.get("id", "")
+                c_name = c_info.get("name", "")
+                c_cat = c_info.get("category", "Custom Concept")
+
+                matching_rules = 0
+                for annex, provs in cc.get("provisions_by_annex", {}).items():
+                    for p in provs:
+                        pid = p.get("id", "")
+                        if pid.startswith(doc_prefix) or (doc_id in pid):
+                            matching_rules += 1
+
+                if matching_rules > 0:
+                    if c_id not in concept_map:
+                        concept_map[c_id] = {
+                            "id": c_id,
+                            "name": c_name,
+                            "category": c_cat,
+                            "rule_count": matching_rules,
+                            "is_custom": True,
+                            "connected_regulations": []
+                        }
+                    else:
+                        concept_map[c_id]["rule_count"] = max(concept_map[c_id]["rule_count"], matching_rules)
+        except Exception:
+            pass
+
+        # Sort concepts by rule count and keep top 14
+        sorted_concepts = sorted(concept_map.values(), key=lambda x: x["rule_count"], reverse=True)[:14]
+
+        all_regs = {r["id"]: r for r in self.get_all_regulations()}
+
+        # 3. For each applicable concept, find top connected OTHER regulations
+        for c in sorted_concepts:
+            c_id = c["id"]
+            if not c["is_custom"]:
+                res_cross = self.conn.execute(f"""
+                    MATCH (c:Concept {{id: '{c_id}'}})<-[:GOVERNS_CONCEPT]-(p2:Provision)-[:BELONGS_TO_ANNEX]->(a2:Annex)<-[:CONTAINS_ANNEX]-(d2:RegulationDocument)
+                    WHERE d2.id <> '{doc_id}'
+                    RETURN d2.id, d2.title, count(DISTINCT p2) as other_count
+                    ORDER BY other_count DESC
+                    LIMIT 3;
+                """)
+                while res_cross.has_next():
+                    d2_id, d2_title, ocnt = res_cross.get_next()
+                    reg_meta = all_regs.get(d2_id, {})
+                    c["connected_regulations"].append({
+                        "id": d2_id,
+                        "code": reg_meta.get("code") or d2_id.replace("DOC_", "").split("__")[0],
+                        "title": d2_title,
+                        "shared_rules": ocnt
+                    })
+            else:
+                # Custom concept cross-regulations from provisions_by_annex
+                try:
+                    raw_cc = mgr.get_concept(c_id)
+                    if raw_cc:
+                        doc_counts = {}
+                        for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
+                            for p in provs:
+                                pid = p.get("id", "")
+                                if pid.startswith("DOC_"):
+                                    extracted_doc = pid.split("_ERULES-")[0]
+                                    if extracted_doc != doc_id:
+                                        doc_counts[extracted_doc] = doc_counts.get(extracted_doc, 0) + 1
+
+                        top_other = sorted(doc_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+                        for other_doc_id, cnt in top_other:
+                            reg_meta = all_regs.get(other_doc_id, {})
+                            c["connected_regulations"].append({
+                                "id": other_doc_id,
+                                "code": reg_meta.get("code") or other_doc_id.replace("DOC_", "").split("__")[0],
+                                "title": reg_meta.get("title") or other_doc_id,
+                                "shared_rules": cnt
+                            })
+                except Exception:
+                    pass
+
+        return {
+            "regulation": doc,
+            "applicable_concepts": sorted_concepts,
+            "total_concepts": len(sorted_concepts),
+            "all_regulations": [r for r in all_regs.values()][:15]
+        }
+
 
     def get_node_details(self, node_id_or_code: str) -> Dict[str, Any]:
         """

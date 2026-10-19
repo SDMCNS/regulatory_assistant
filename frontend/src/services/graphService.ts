@@ -243,6 +243,13 @@ export async function executeHydeSearch(
   };
 }
 
+export interface ConceptSummary {
+  id: string;
+  name: string;
+  category: string;
+  total_provisions: number;
+}
+
 export async function fetchComplianceChain(apiUrl: string, code: string): Promise<D3GraphData> {
   const params = new URLSearchParams({ code });
   return request<D3GraphData>(`${apiUrl}/graph/chain?${params.toString()}`);
@@ -258,7 +265,12 @@ export async function fetchConceptSubgraph(apiUrl: string, name: string): Promis
   return request<D3GraphData>(`${apiUrl}/graph/concept?${params.toString()}`);
 }
 
+export async function fetchConceptsCatalog(apiUrl: string): Promise<ConceptSummary[]> {
+  return request<ConceptSummary[]>(`${apiUrl}/graph/concepts`);
+}
+
 export async function fetchNodeDetails(apiUrl: string, idOrCode: string): Promise<NodeInspectionDetails> {
   const params = new URLSearchParams({ id: idOrCode });
   return request<NodeInspectionDetails>(`${apiUrl}/graph/node?${params.toString()}`);
 }
+

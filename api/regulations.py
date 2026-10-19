@@ -841,16 +841,18 @@ def api_ai_obsolescence_scan(req: AiObsolescenceScanRequest):
     llm_findings: List[ObsolescenceCandidateFinding] = []
     llm_summary = ""
 
-    prompt_docs = [
-        {
+    prompt_docs = []
+    for d in docs_to_scan:
+        hf = heuristic_findings.get(d.document_id)
+        det_yr = hf.detected_year if hf else None
+        prompt_docs.append({
             "document_id": d.document_id,
             "title": d.title,
             "origin": d.origin,
             "subtopic": d.subtopic,
-            "year": d.year or heuristic_findings.get(d.document_id, {}).detected_year
-        }
-        for d in docs_to_scan
-    ]
+            "year": d.year or det_yr
+        })
+
 
     system_prompt = (
         "You are an expert Senior Aviation Regulatory Specialist and EASA/EU/FAA Legal Archivist. "

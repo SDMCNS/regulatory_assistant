@@ -302,14 +302,35 @@ class EasaGraphEngine:
             "attached_soft_law": soft_law
         }
 
+    def get_all_concepts(self) -> List[Dict[str, Any]]:
+        """Returns all aviation ontology concepts with category and governing provision counts."""
+        res = self.conn.execute("""
+            MATCH (c:Concept)
+            OPTIONAL MATCH (p:Provision)-[:GOVERNS_CONCEPT]->(c)
+            WHERE p.content_type IN ['IR', 'AMC', 'GM', 'CS']
+            RETURN c.id, c.name, c.category, count(p)
+            ORDER BY count(p) DESC;
+        """)
+        concepts = []
+        while res.has_next():
+            row = res.get_next()
+            concepts.append({
+                "id": row[0],
+                "name": row[1],
+                "category": row[2],
+                "total_provisions": row[3]
+            })
+        return concepts
+
     def get_concept_subgraph(self, concept_name: str) -> Dict[str, Any]:
         """
         Finds all regulatory provisions governing a specific aviation concept,
         grouped by Annex and legal force.
         """
+        clean_name = concept_name.replace("CONCEPT_", "").replace("CON_", "").replace("_", " ").strip()
         res_concept = self.conn.execute(f"""
             MATCH (c:Concept)
-            WHERE c.name =~ '(?i).*{concept_name}.*'
+            WHERE c.name =~ '(?i).*{clean_name}.*' OR c.id = '{concept_name}'
             RETURN c.id, c.name, c.category
             LIMIT 1;
         """)
@@ -320,29 +341,36 @@ class EasaGraphEngine:
 
         res_provs = self.conn.execute(f"""
             MATCH (p:Provision)-[g:GOVERNS_CONCEPT]->(c:Concept {{id: '{concept_id}'}})
-            RETURN p.code, p.title, p.subject, p.content_type, p.legal_force, g.relevance
+            WHERE p.content_type IN ['IR', 'AMC', 'GM', 'CS']
+            OPTIONAL MATCH (p)-[:BELONGS_TO_ANNEX]->(a:Annex)
+            RETURN p.id, p.code, p.title, p.subject, p.content_type, p.legal_force, g.relevance, a.code, a.name
         """)
 
         provisions_by_annex: Dict[str, List[Dict[str, Any]]] = {}
         while res_provs.has_next():
             row = res_provs.get_next()
-            annex = row[2] or "General"
+            p_id, p_code, p_title, p_subj, p_ctype, p_force, g_rel, a_code, a_name = row
+            # Use clean annex identifier
+            annex = (a_code if a_code and a_code != "n/a" else None) or (p_subj if p_subj and p_subj != "n/a" else None) or "General"
             if annex not in provisions_by_annex:
                 provisions_by_annex[annex] = []
             provisions_by_annex[annex].append({
-                "code": row[0],
-                "title": row[1],
-                "content_type": row[3],
-                "legal_force": row[4],
-                "relevance": row[5]
+                "id": p_id,
+                "code": p_code,
+                "title": p_title,
+                "content_type": p_ctype,
+                "legal_force": p_force,
+                "relevance": g_rel,
+                "annex_name": a_name or annex
             })
 
         total_provisions = sum(len(v) for v in provisions_by_annex.values())
         return {
-            "concept": {"name": c_name, "category": c_cat},
+            "concept": {"name": c_name, "category": c_cat, "id": concept_id},
             "total_governing_provisions": total_provisions,
             "provisions_by_annex": provisions_by_annex
         }
+
 
     def get_node_details(self, node_id_or_code: str) -> Dict[str, Any]:
         """

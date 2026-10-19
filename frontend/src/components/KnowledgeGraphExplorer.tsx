@@ -14,9 +14,9 @@ import {
   X, Filter, ChevronRight, FileText, Cpu, ArrowUpRight, Radio, Eye, Send
 } from 'lucide-react';
 import {
-  fetchGraphStats, fetchSourcesCatalog, searchGraph, executeHydeSearch,
+  fetchGraphStats, fetchSourcesCatalog, fetchConceptsCatalog, searchGraph, executeHydeSearch,
   fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
-  GraphStats, SourcesCatalog, GraphSearchResult, HydeResponse, HydeCandidate,
+  GraphStats, SourcesCatalog, ConceptSummary, GraphSearchResult, HydeResponse, HydeCandidate,
   D3GraphData, D3GraphNode, D3GraphLink, NodeInspectionDetails
 } from '../services/graphService';
 
@@ -59,7 +59,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   const [currentMode, setCurrentMode] = useState<'chain' | 'blast' | 'concept'>('chain');
   const [entryMode, setEntryMode] = useState<'exact' | 'hyde'>('exact');
   const [currentCode, setCurrentCode] = useState<string>('ORO.GEN.200');
-  const [currentConcept, setCurrentConcept] = useState<string>('Fuel');
+  const [currentConcept, setCurrentConcept] = useState<string>('Fuel Planning & Energy Schemes');
+  const [conceptsList, setConceptsList] = useState<ConceptSummary[]>([]);
+
 
   // Multi-source Federation State
   const [activeSources, setActiveSources] = useState<string[]>(['EASA', 'EU', 'FAA', 'SKYBRARY', 'EUROCAE']);
@@ -116,7 +118,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
-  // Load Initial Stats & Sources Catalog
+  // Load Initial Stats, Sources Catalog & Concepts
   useEffect(() => {
     fetchGraphStats(apiUrl)
       .then(setStats)
@@ -127,7 +129,17 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         setSourcesCatalog(cat);
       })
       .catch((err) => console.warn('Failed to fetch sources catalog:', err));
+
+    fetchConceptsCatalog(apiUrl)
+      .then((cl) => {
+        setConceptsList(cl);
+        if (cl.length > 0 && (!currentConcept || currentConcept === 'Fuel')) {
+          setCurrentConcept(cl[0].name);
+        }
+      })
+      .catch((err) => console.warn('Failed to fetch concepts catalog:', err));
   }, [apiUrl]);
+
 
   // Load Graph Data based on currentMode and currentCode / currentConcept
   const loadGraph = useCallback(async (mode: 'chain' | 'blast' | 'concept', target: string) => {
@@ -423,6 +435,23 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       return;
     }
 
+    if (currentMode === 'concept') {
+      // Filter from conceptsList
+      const matches = conceptsList.filter(c =>
+        c.name.toLowerCase().includes(q.toLowerCase()) ||
+        c.category.toLowerCase().includes(q.toLowerCase())
+      ).map(c => ({
+        id: c.id,
+        code: c.name,
+        title: `Category: ${c.category} • ${c.total_provisions} provisions`,
+        source: 'EASA Ontology',
+        type: 'CONCEPT'
+      }));
+      setSuggestions(matches);
+      setShowSuggestions(matches.length > 0);
+      return;
+    }
+
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
@@ -437,7 +466,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, entryMode, activeSources, selectedSkybraryTopics, apiUrl]);
+  }, [searchQuery, entryMode, currentMode, conceptsList, activeSources, selectedSkybraryTopics, apiUrl]);
 
   // Execute HyDE Search
   const handleRunHyde = async (customQuery?: string) => {
@@ -457,14 +486,28 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     }
   };
 
+  // Select a concept and load concept mesh
+  const handleSelectConcept = (conceptName: string) => {
+    setCurrentConcept(conceptName);
+    setCurrentMode('concept');
+    loadGraph('concept', conceptName);
+    setIsInspectorOpen(false);
+    setIsHydeModalOpen(false);
+  };
+
   // Pivot graph to a new anchor rule
   const handlePivotToNode = (code: string) => {
+    if (currentMode === 'concept' || code.startsWith('CONCEPT_')) {
+      handleSelectConcept(code);
+      return;
+    }
     setCurrentCode(code);
     setCurrentMode('chain');
     loadGraph('chain', code);
     setIsInspectorOpen(false);
     setIsHydeModalOpen(false);
   };
+
 
   // Copy helper
   const handleCopy = (text: string) => {
@@ -529,12 +572,18 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     skipNextSearchRef.current = true;
                     setShowSuggestions(false);
                     setSuggestions([]);
-                    handlePivotToNode(searchQuery.trim());
+                    if (currentMode === 'concept') {
+                      handleSelectConcept(searchQuery.trim());
+                    } else {
+                      handlePivotToNode(searchQuery.trim());
+                    }
                   }
                 }
               }}
               placeholder={
-                entryMode === 'exact'
+                currentMode === 'concept'
+                  ? 'Filter or select aviation ontology concept (e.g. Fuel, SMS, FTL, Airworthiness)...'
+                  : entryMode === 'exact'
                   ? 'Search code or rule title (e.g. ORO.GEN.200)...'
                   : 'Ask operational scenario via HyDE vector search...'
               }
@@ -562,7 +611,11 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     skipNextSearchRef.current = true;
                     setShowSuggestions(false);
                     setSuggestions([]);
-                    handlePivotToNode(item.code);
+                    if (currentMode === 'concept' || item.type === 'CONCEPT') {
+                      handleSelectConcept(item.code);
+                    } else {
+                      handlePivotToNode(item.code);
+                    }
                     setSearchQuery(item.code);
                   }}
                   className="px-3 py-2 hover:bg-slate-800/80 cursor-pointer border-b border-slate-800/40 last:border-0"
@@ -573,6 +626,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                       {item.source} • {item.type}
                     </span>
                   </div>
+
                   <div className="text-[11px] text-slate-300 truncate mt-0.5">{item.title}</div>
                 </div>
               ))}
@@ -598,9 +652,42 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       {/* Quick Presets Ribbon */}
       <div className="flex items-center gap-2 px-5 py-1.5 bg-slate-950 border-b border-slate-800/60 text-xs text-slate-400 overflow-x-auto shrink-0">
         <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider shrink-0">
-          {entryMode === 'exact' ? 'Exact Presets:' : 'HyDE Scenarios:'}
+          {currentMode === 'concept'
+            ? 'Ontology Concepts:'
+            : entryMode === 'exact'
+            ? 'Exact Presets:'
+            : 'HyDE Scenarios:'}
         </span>
-        {entryMode === 'exact' ? (
+        {currentMode === 'concept' ? (
+          <>
+            {[
+              { name: 'Fuel Planning & Energy Schemes', label: '⛽ Fuel Schemes' },
+              { name: 'Safety Management System (SMS)', label: '🛡️ Safety Mgmt (SMS)' },
+              { name: 'Flight Time Limitations & Fatigue (FTL)', label: '⏱️ FTL & Fatigue' },
+              { name: 'Continuing Airworthiness & Maintenance', label: '🔧 Airworthiness' },
+              { name: 'All-Weather & Low Visibility Operations (LVO/AWO)', label: '⚡ Low Visibility (LVO)' },
+              { name: 'Dangerous Goods (DG)', label: '📦 Dangerous Goods' },
+              { name: 'Information Security & Cybersecurity (Part-IS)', label: '🔒 Cybersecurity (Part-IS)' },
+              { name: 'Air Traffic Management & Airspace (ATM/ANS/SERA)', label: '🌐 ATM/ANS Airspace' },
+              { name: 'Sterile Flight Deck Procedure', label: '✈️ Sterile Cockpit' }
+            ].map(cp => {
+              const isActive = currentConcept.toLowerCase().includes(cp.name.toLowerCase()) || cp.name.toLowerCase().includes(currentConcept.toLowerCase());
+              return (
+                <button
+                  key={cp.name}
+                  onClick={() => handleSelectConcept(cp.name)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors shrink-0 ${
+                    isActive
+                      ? 'bg-rose-950 text-rose-300 border border-rose-700/60'
+                      : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                >
+                  {cp.label}
+                </button>
+              );
+            })}
+          </>
+        ) : entryMode === 'exact' ? (
           <>
             {[
               { code: 'ORO.GEN.200', label: 'ORO.GEN.200 (SMS)', mode: 'chain' },
@@ -683,7 +770,41 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 </button>
               ))}
             </div>
+
+            {/* Concept Ontology Picker when in concept mode */}
+            {currentMode === 'concept' && (
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-rose-400">
+                  <span>Selected Concept:</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono">
+                    {conceptsList.length} In Taxonomy
+                  </span>
+                </div>
+                <select
+                  value={currentConcept}
+                  onChange={(e) => handleSelectConcept(e.target.value)}
+                  className="w-full bg-slate-900 border border-rose-900/50 rounded px-2 py-1.5 text-xs text-rose-200 outline-none focus:border-rose-500 transition-colors"
+                >
+                  {conceptsList.map((c) => (
+                    <option key={c.id} value={c.name} className="bg-slate-900 text-slate-200">
+                      {c.name} ({c.total_provisions} rules)
+                    </option>
+                  ))}
+                </select>
+                {(() => {
+                  const sel = conceptsList.find(c => c.name === currentConcept);
+                  if (!sel) return null;
+                  return (
+                    <div className="text-[10px] text-slate-400 flex items-center justify-between px-1">
+                      <span>Category:</span>
+                      <span className="text-slate-300 font-medium">{sel.category}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
+
 
           {/* Graph Legend */}
           <div className="bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
@@ -934,8 +1055,42 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               </div>
             </div>
 
+            {/* Concept Specific Summary Card */}
+            {selectedNode.type === 'CONCEPT' && (
+              <div className="flex flex-col gap-2">
+                <div className="p-2.5 bg-rose-950/40 border border-rose-900/50 rounded-lg">
+                  <div className="text-[10px] uppercase font-bold text-rose-400">Ontology Domain</div>
+                  <div className="text-xs text-rose-200 font-semibold mt-0.5">
+                    {nodeDetails?.category || (selectedNode as any).category || 'Flight Operations & Compliance'}
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-1">
+                    Governed across European air operations by <strong className="text-rose-300">{nodeDetails?.total_provisions || '80+'}</strong> codifications.
+                  </div>
+                </div>
+
+                {nodeDetails?.provisions_by_annex && Object.keys(nodeDetails.provisions_by_annex).length > 0 && (
+                  <div>
+                    <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                      <span>Governing Annexes</span>
+                      <span className="text-rose-400 font-mono text-[10px]">{Object.keys(nodeDetails.provisions_by_annex).length} Annexes</span>
+                    </div>
+                    <div className="flex flex-col gap-1 max-h-36 overflow-y-auto">
+                      {Object.entries(nodeDetails.provisions_by_annex).map(([annex, provs]) => (
+                        <div key={annex} className="px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[11px] flex items-center justify-between">
+                          <span className="font-mono text-cyan-300 font-medium">{annex}</span>
+                          <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 text-[10px] font-mono">
+                            {(provs as any[]).length} rules
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Regulatory Annex */}
-            {nodeDetails?.annex && (
+            {nodeDetails?.annex && selectedNode.type !== 'CONCEPT' && (
               <div>
                 <div className="text-[10px] uppercase font-semibold text-slate-500 mb-0.5">
                   Regulatory Annex
@@ -949,16 +1104,17 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
             {/* Verbatim Excerpt */}
             <div>
               <div className="text-[10px] uppercase font-semibold text-slate-500 mb-1">
-                Verbatim Excerpt
+                {selectedNode.type === 'CONCEPT' ? 'Concept Scope & Description' : 'Verbatim Excerpt'}
               </div>
               <div className="p-2.5 bg-slate-950 rounded border border-slate-800 text-xs text-slate-300 leading-relaxed font-serif max-h-48 overflow-y-auto">
                 {isDetailsLoading ? (
-                  <div className="text-slate-500 italic">Fetching regulatory text...</div>
+                  <div className="text-slate-500 italic">Fetching regulatory details...</div>
                 ) : (
                   nodeDetails?.text_snippet || nodeDetails?.full_text || selectedNode.text || 'No text snippet recorded.'
                 )}
               </div>
             </div>
+
 
             {/* Attached Soft Law */}
             {nodeDetails && (nodeDetails.acceptable_means_of_compliance?.length || nodeDetails.guidance_material?.length) ? (
@@ -1144,76 +1300,137 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     </div>
                   )}
 
-                  {/* Tab 2: Legal Hierarchy & Soft Law */}
+                  {/* Tab 2: Legal Hierarchy & Soft Law / Concept Provisions */}
                   {inspectorTab === 'hierarchy' && (
                     <div className="flex flex-col gap-5">
-                      <div>
-                        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                          Upstream Implementing Rule (Hard Law)
-                        </h3>
-                        {(nodeDetails?.upstream_rules?.length || nodeDetails?.upstream?.length) ? (
-                          <div className="flex flex-col gap-2">
-                            {(nodeDetails?.upstream_rules || nodeDetails?.upstream || []).map(u => (
-                              <div
-                                key={u.id}
-                                onClick={() => handlePivotToNode(u.code)}
-                                className="p-3 bg-slate-950 border border-purple-900/40 rounded-lg hover:border-purple-600/80 cursor-pointer transition-colors"
-                              >
-                                <span className="text-xs font-mono font-bold text-purple-400">{u.code}</span>
-                                <div className="text-xs text-slate-300 mt-0.5">{u.title}</div>
-                              </div>
-                            ))}
+                      {selectedNode?.type === 'CONCEPT' ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <h3 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                                Cross-Annex Regulatory Codification Mesh
+                              </h3>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Codified provisions across European Air Operations governing this concept. Click any provision to pivot into its compliance hierarchy.
+                              </p>
+                            </div>
+                            <span className="text-xs font-mono text-rose-400 bg-rose-950 px-2.5 py-1 rounded-lg border border-rose-800 shrink-0">
+                              {nodeDetails?.total_provisions || '80+'} Total Provisions
+                            </span>
                           </div>
-                        ) : (
-                          <div className="text-xs text-slate-500 italic">This node is the root hard law implementing rule.</div>
-                        )}
-                      </div>
 
-                      <div>
-                        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                          Downstream Acceptable Means of Compliance (AMC)
-                        </h3>
-                        {((nodeDetails?.acceptable_means_of_compliance?.length || 0) > 0 || (nodeDetails?.downstream_amcs?.length || 0) > 0) ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {(nodeDetails?.acceptable_means_of_compliance || nodeDetails?.downstream_amcs || []).map(amc => (
-                              <div
-                                key={amc.id}
-                                onClick={() => handlePivotToNode(amc.code)}
-                                className="p-2.5 bg-slate-950 border border-emerald-900/40 rounded-lg hover:border-emerald-600/80 cursor-pointer transition-colors"
-                              >
-                                <span className="text-xs font-mono font-bold text-emerald-400">{amc.code}</span>
-                                <div className="text-xs text-slate-300 truncate mt-0.5">{amc.title}</div>
+                          {nodeDetails?.provisions_by_annex && Object.keys(nodeDetails.provisions_by_annex).length > 0 ? (
+                            <div className="flex flex-col gap-4">
+                              {Object.entries(nodeDetails.provisions_by_annex).map(([annex, provs]) => (
+                                <div key={annex} className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl">
+                                  <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800/80">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                                      <span className="text-xs font-bold text-cyan-300 font-mono">{annex}</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 font-mono">
+                                      {(provs as any[]).length} governing rules
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {(provs as any[]).map((p: any) => (
+                                      <div
+                                        key={p.id || p.code}
+                                        onClick={() => handlePivotToNode(p.code)}
+                                        className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800/80 hover:border-cyan-500/60 rounded-lg cursor-pointer transition-colors group"
+                                      >
+                                        <div className="flex items-center justify-between text-xs font-mono">
+                                          <span className="text-cyan-400 font-semibold group-hover:text-cyan-300">{p.code}</span>
+                                          <span
+                                            className="text-[9px] px-1.5 py-0.2 rounded text-white font-mono font-bold"
+                                            style={{ backgroundColor: NODE_COLORS[p.content_type] || '#64748b' }}
+                                          >
+                                            {p.content_type}
+                                          </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-300 truncate mt-1">{p.title}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 italic">No specific annex provisions retrieved for this concept.</div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              Upstream Implementing Rule (Hard Law)
+                            </h3>
+                            {(nodeDetails?.upstream_rules?.length || nodeDetails?.upstream?.length) ? (
+                              <div className="flex flex-col gap-2">
+                                {(nodeDetails?.upstream_rules || nodeDetails?.upstream || []).map(u => (
+                                  <div
+                                    key={u.id}
+                                    onClick={() => handlePivotToNode(u.code)}
+                                    className="p-3 bg-slate-950 border border-purple-900/40 rounded-lg hover:border-purple-600/80 cursor-pointer transition-colors"
+                                  >
+                                    <span className="text-xs font-mono font-bold text-purple-400">{u.code}</span>
+                                    <div className="text-xs text-slate-300 mt-0.5">{u.title}</div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            ) : (
+                              <div className="text-xs text-slate-500 italic">This node is the root hard law implementing rule.</div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-xs text-slate-500 italic">No associated Acceptable Means of Compliance (AMC).</div>
-                        )}
-                      </div>
 
-                      <div>
-                        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                          Downstream Guidance Material (GM)
-                        </h3>
-                        {((nodeDetails?.guidance_material?.length || 0) > 0 || (nodeDetails?.downstream_gms?.length || 0) > 0) ? (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                            {(nodeDetails?.guidance_material || nodeDetails?.downstream_gms || []).map(gm => (
-                              <div
-                                key={gm.id}
-                                onClick={() => handlePivotToNode(gm.code)}
-                                className="p-2.5 bg-slate-950 border border-amber-900/40 rounded-lg hover:border-amber-600/80 cursor-pointer transition-colors"
-                              >
-                                <span className="text-xs font-mono font-bold text-amber-400">{gm.code}</span>
-                                <div className="text-xs text-slate-300 truncate mt-0.5">{gm.title}</div>
+                          <div>
+                            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              Downstream Acceptable Means of Compliance (AMC)
+                            </h3>
+                            {((nodeDetails?.acceptable_means_of_compliance?.length || 0) > 0 || (nodeDetails?.downstream_amcs?.length || 0) > 0) ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {(nodeDetails?.acceptable_means_of_compliance || nodeDetails?.downstream_amcs || []).map(amc => (
+                                  <div
+                                    key={amc.id}
+                                    onClick={() => handlePivotToNode(amc.code)}
+                                    className="p-2.5 bg-slate-950 border border-emerald-900/40 rounded-lg hover:border-emerald-600/80 cursor-pointer transition-colors"
+                                  >
+                                    <span className="text-xs font-mono font-bold text-emerald-400">{amc.code}</span>
+                                    <div className="text-xs text-slate-300 truncate mt-0.5">{amc.title}</div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            ) : (
+                              <div className="text-xs text-slate-500 italic">No associated Acceptable Means of Compliance (AMC).</div>
+                            )}
                           </div>
-                        ) : (
-                          <div className="text-xs text-slate-500 italic">No associated Guidance Material (GM).</div>
-                        )}
-                      </div>
+
+                          <div>
+                            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                              Downstream Guidance Material (GM)
+                            </h3>
+                            {((nodeDetails?.guidance_material?.length || 0) > 0 || (nodeDetails?.downstream_gms?.length || 0) > 0) ? (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {(nodeDetails?.guidance_material || nodeDetails?.downstream_gms || []).map(gm => (
+                                  <div
+                                    key={gm.id}
+                                    onClick={() => handlePivotToNode(gm.code)}
+                                    className="p-2.5 bg-slate-950 border border-amber-900/40 rounded-lg hover:border-amber-600/80 cursor-pointer transition-colors"
+                                  >
+                                    <span className="text-xs font-mono font-bold text-amber-400">{gm.code}</span>
+                                    <div className="text-xs text-slate-300 truncate mt-0.5">{gm.title}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-500 italic">No associated Guidance Material (GM).</div>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
+
 
                   {/* Tab 3: Semantic Parallels */}
                   {inspectorTab === 'similar' && (
@@ -1333,16 +1550,35 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
                       <div>
                         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                          Governed Aviation Concepts
+                          {selectedNode?.type === 'CONCEPT' ? 'Related Aviation Concepts in Taxonomy' : 'Governed Aviation Concepts'}
                         </h3>
-                        {nodeDetails?.concepts?.length ? (
+                        {selectedNode?.type === 'CONCEPT' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {conceptsList.filter(c => c.name !== selectedNode.label).slice(0, 8).map(c => (
+                              <div
+                                key={c.id}
+                                onClick={() => handleSelectConcept(c.name)}
+                                className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-rose-900/40 hover:border-rose-600/80 rounded-lg cursor-pointer transition-colors"
+                              >
+                                <span className="text-xs font-bold text-rose-400">{c.name}</span>
+                                <div className="text-[10px] text-slate-400 mt-0.5">{c.category} • {c.total_provisions} rules</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : nodeDetails?.concepts?.length ? (
                           <div className="flex flex-col gap-2">
                             {nodeDetails.concepts.map(c => (
-                              <div key={c.name} className="p-2.5 bg-slate-950 border border-rose-900/40 rounded-lg">
-                                <span className="text-xs font-bold text-rose-400">{c.name}</span>
-                                <span className="ml-2 text-[10px] px-1 bg-rose-950 text-rose-300 rounded font-mono">
-                                  {c.category}
-                                </span>
+                              <div
+                                key={c.name}
+                                onClick={() => handleSelectConcept(c.name)}
+                                className="p-2.5 bg-slate-950 hover:bg-slate-800 border border-rose-900/40 hover:border-rose-600/80 rounded-lg cursor-pointer transition-colors"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-rose-400">{c.name}</span>
+                                  <span className="text-[10px] px-1 bg-rose-950 text-rose-300 rounded font-mono">
+                                    {c.category}
+                                  </span>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -1352,6 +1588,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                       </div>
                     </div>
                   )}
+
 
                   {/* Tab 6: GraphRAG Context Export */}
                   {inspectorTab === 'rag' && (

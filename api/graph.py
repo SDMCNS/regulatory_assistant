@@ -179,30 +179,64 @@ def build_blast_graph(blast: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
-    """Converts concept subgraph to D3 nodes and links."""
+    """Converts concept subgraph to D3 nodes and links with rich cross-annex hierarchy."""
     nodes = []
     links = []
     seen = set()
 
     c = sub["concept"]
     cid = f"CONCEPT_{c['name']}"
-    nodes.append({"id": cid, "label": c["name"], "type": "CONCEPT", "category": c["category"], "is_anchor": True})
+    nodes.append({
+        "id": cid,
+        "label": c["name"],
+        "type": "CONCEPT",
+        "category": c.get("category", "General"),
+        "is_anchor": True,
+        "title": f"Aviation Concept: {c['name']} ({c.get('category', 'General')})"
+    })
     seen.add(cid)
 
-    for annex_name, provs in sub.get("provisions_by_annex", {}).items():
+    provisions_by_annex = sub.get("provisions_by_annex", {})
+    # Sort annexes by provision count descending
+    sorted_annexes = sorted(provisions_by_annex.items(), key=lambda x: len(x[1]), reverse=True)
+
+    for annex_name, provs in sorted_annexes[:8]:
         annex_id = f"ANNEX_{annex_name}"
         if annex_id not in seen:
             seen.add(annex_id)
-            nodes.append({"id": annex_id, "label": annex_name, "type": "ANNEX"})
+            full_annex_name = provs[0].get("annex_name") if provs else annex_name
+            nodes.append({
+                "id": annex_id,
+                "label": annex_name,
+                "type": "ANNEX",
+                "title": full_annex_name or f"Annex {annex_name}"
+            })
             links.append({"source": annex_id, "target": cid, "type": "COVERS_CONCEPT", "label": "COVERS"})
 
-        for p in provs[:6]:
-            pid = f"PROV_{p['code']}"
+        # Prioritize IRs (hard law) first, then AMCs, then GMs
+        def _prov_sort_key(p: Dict[str, Any]) -> int:
+            ct = p.get("content_type", "")
+            if ct == "IR":
+                return 0
+            if ct == "AMC":
+                return 1
+            if ct == "GM":
+                return 2
+            return 3
+
+        sorted_provs = sorted(provs, key=_prov_sort_key)
+        for p in sorted_provs[:5]:
+            pid = p.get("id") or f"PROV_{p['code']}"
             if pid not in seen:
                 seen.add(pid)
+                lbl = p["code"]
+                if p.get("title") and any(tag in p["title"] for tag in ("AMC", "GM")):
+                    parts = p["title"].split()
+                    if len(parts) >= 2 and any(tag in parts[0] for tag in ("AMC", "GM")):
+                        lbl = f"{parts[0]} {parts[1]}"
                 nodes.append({
                     "id": pid,
-                    "label": p["code"],
+                    "label": lbl,
                     "type": p["content_type"],
                     "title": p["title"],
                     "legal_force": p["legal_force"]
@@ -215,6 +249,7 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
         "nodes": nodes,
         "links": links
     }
+
 
 
 def check_graph_engine():
@@ -377,10 +412,22 @@ def get_blast_radius_graph(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/concepts")
+def get_concepts_catalog():
+    """Returns the full catalog of aviation ontology concepts with category and rule counts."""
+    check_graph_engine()
+    try:
+        eng = get_engine()
+        return eng.get_all_concepts()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/concept")
 def get_concept_subgraph_graph(
     name: str = Query("Fuel", description="Aviation Concept name or substring (e.g. Fuel, SMS, FTL)")
 ):
+
     """Retrieves concept subgraph across Annexes formatted as D3 graph."""
     try:
         eng = get_engine()

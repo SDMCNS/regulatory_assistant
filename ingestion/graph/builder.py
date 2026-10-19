@@ -475,10 +475,19 @@ def build_all_easa_graphs(
     conn.execute(f"COPY CROSS_REFERENCES FROM '{(staging_dir / 'rel_cross_references.csv').as_posix()}' (HEADER=TRUE);")
     conn.execute(f"COPY GOVERNS_CONCEPT FROM '{(staging_dir / 'rel_governs_concept.csv').as_posix()}' (HEADER=TRUE);")
     conn.execute(f"COPY APPLIES_TO FROM '{(staging_dir / 'rel_applies_to.csv').as_posix()}' (HEADER=TRUE);")
+    del conn
+    del db
+
+    # Bulk-ingest secondary sources (FAA, EU, EUROCAE, SKYBRARY) into Kuzu
+    try:
+        from .ingest_secondary_sources import ingest_secondary_sources
+        ingest_secondary_sources(db_path)
+    except Exception as e:
+        print(f"[WARN] Failed to ingest secondary sources: {e}")
 
     total_elapsed = round(time.time() - start_time, 2)
     print(f"\n==================================================")
-    print(f" [+] Full EASA Regulatory Knowledge Graph Successfully Built!")
+    print(f" [+] Full Multi-Source Aviation Knowledge Graph Successfully Built!")
     print(f" [+] Total Elapsed Time: {total_elapsed}s")
     print(f" [+] Database Stored At: {db_path}")
     print(f"==================================================")

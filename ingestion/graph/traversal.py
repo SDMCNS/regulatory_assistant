@@ -617,6 +617,26 @@ class EasaGraphEngine:
             elif "BALLOONS" in doc_id:
                 short_code = "BALLOONS"
                 clean_name = "Balloons (Part-BFCL & Operations)"
+            elif src == "FAA":
+                part_match = re.search(r'Part\s+(\d+)', title, re.IGNORECASE) or re.search(r'PART_(\d+)', doc_id, re.IGNORECASE)
+                p_num = part_match.group(1) if part_match else doc_id.replace("DOC_FAA_PART_", "")
+                short_code = f"FAR Part {p_num}"
+                clean_name = title.strip()
+            elif src == "EU":
+                reg_m = re.search(r'(Regulation\s*\((?:EU|EC|EEC)\)[^\,\;\(\)]+)', title, re.IGNORECASE)
+                if reg_m:
+                    short_code = reg_m.group(1).replace("Regulation (EU) No ", "Reg ").replace("Regulation (EU) ", "Reg ").replace("Regulation (EC) No ", "Reg ").strip()[:24]
+                else:
+                    short_code = doc_id.replace("DOC_EU_", "")[:20]
+                clean_name = title.strip()
+            elif src == "EUROCAE":
+                dom = doc_id.replace("DOC_EUROCAE_", "").replace("_", " ").title()
+                short_code = f"EUROCAE {dom[:14]}"
+                clean_name = title.strip()
+            elif src == "SKYBRARY":
+                cat = doc_id.replace("DOC_SKYBRARY_", "").replace("_", " ").title()
+                short_code = f"SKYbrary {cat[:14]}"
+                clean_name = title.strip()
 
             regs.append({
                 "id": doc_id,
@@ -632,6 +652,7 @@ class EasaGraphEngine:
     def resolve_regulation(self, query: str) -> Optional[Dict[str, Any]]:
         """
         Resolves any user-provided query, code, or alias to a canonical RegulationDocument.
+        Supports EASA, FAA (Title 14 CFR), EU (EUR-Lex), EUROCAE, and SKYBRARY.
         """
         q = (query or "").strip()
         if not q:
@@ -648,7 +669,24 @@ class EasaGraphEngine:
             ):
                 return r
 
-        # 2. Domain aliases
+        # 2. FAA Part matching (e.g. "Part 25", "14 CFR 25", "FAR 25", "Part 121")
+        faa_m = re.search(r'(?:part|far|cfr)\s*(\d+)', q_lower)
+        if faa_m:
+            p_num = faa_m.group(1)
+            target_id = f"DOC_FAA_PART_{p_num}"
+            for r in all_regs:
+                if r["id"] == target_id or r["code"].lower() == f"far part {p_num}".lower():
+                    return r
+
+        # 3. EU number matching (e.g. "2018/1139", "965/2012", "376/2014")
+        eu_num_m = re.search(r'(\d{2,4}/\d{2,4})', q_lower)
+        if eu_num_m:
+            num_str = eu_num_m.group(1)
+            for r in all_regs:
+                if num_str in r["title"].lower() or num_str in r["code"].lower() or num_str in r["id"].lower():
+                    return r
+
+        # 4. Domain aliases
         alias_map = {
             "air operations": "DOC_02_AIR_OPERATIONS",
             "air ops": "DOC_02_AIR_OPERATIONS",
@@ -710,9 +748,9 @@ class EasaGraphEngine:
                     if r["id"] == target_id:
                         return r
 
-        # 3. Substring match on title
+        # 5. Substring match on name or title
         for r in all_regs:
-            if q_lower in r["title"].lower():
+            if q_lower in r.get("name", "").lower() or q_lower in r["title"].lower():
                 return r
 
         return all_regs[0] if all_regs else None

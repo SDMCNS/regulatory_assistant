@@ -72,6 +72,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   const [conceptsList, setConceptsList] = useState<ConceptSummary[]>([]);
   const [regulationsList, setRegulationsList] = useState<RegulationSummary[]>([]);
   const [regulationSearchFilter, setRegulationSearchFilter] = useState<string>('');
+  const [regSourceFilter, setRegSourceFilter] = useState<'ALL' | 'EASA' | 'FAA' | 'EU' | 'EUROCAE' | 'SKYBRARY'>('ALL');
 
   // Concept Suggestion / Generation Modal State
   const [isGenerateConceptModalOpen, setIsGenerateConceptModalOpen] = useState<boolean>(false);
@@ -1083,15 +1084,17 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         {currentMode === 'reg_concept' ? (
           <>
             {[
-              { name: 'Air Operations', label: '✈️ Air Operations (965/2012)' },
-              { name: 'Continuing Airworthiness', label: '🔧 Airworthiness (1321/2014)' },
-              { name: 'Aircrew', label: '👨‍✈️ Aircrew Licensing (1178/2011)' },
-              { name: 'Aerodromes', label: '🛫 Aerodromes (139/2014)' },
-              { name: 'ATM/ANS', label: '🌐 ATM/ANS Airspace (2017/373)' },
-              { name: 'CS-25', label: '📐 CS-25 Large Aeroplanes' },
-              { name: 'Part-IS', label: '🔒 Part-IS Cybersecurity (2023/203)' },
-              { name: 'Drones', label: '🛸 Drones & UAS (2019/947)' },
-              { name: 'SERA', label: '📡 SERA Rules of Air (923/2012)' }
+              { name: 'Air Operations', label: '🇪🇺 EASA Air-Ops (965/2012)' },
+              { name: 'Part 25', label: '🇺🇸 FAA Part 25 (Transport Airplanes)' },
+              { name: 'Part 121', label: '🇺🇸 FAA Part 121 (Air Carriers)' },
+              { name: '2018/1139', label: '🇪🇺 EU 2018/1139 (Basic Reg)' },
+              { name: 'EUROCAE Avionics', label: '🌐 EUROCAE Avionics' },
+              { name: 'SKYbrary Accident Reports', label: '🛡️ SKYbrary Accidents' },
+              { name: 'Part 117', label: '🇺🇸 FAA Part 117 (Crew Fatigue)' },
+              { name: 'Continuing Airworthiness', label: '🇪🇺 EASA Airworthiness' },
+              { name: 'CS-25', label: '🇪🇺 EASA CS-25' },
+              { name: 'SKYbrary Human Factors', label: '🛡️ SKYbrary Human Factors' },
+              { name: 'Part-IS', label: '🇪🇺 EASA Part-IS' }
             ].map(rp => {
               const isActive = currentRegulation.toLowerCase().includes(rp.name.toLowerCase()) || rp.name.toLowerCase().includes(currentRegulation.toLowerCase());
               return (
@@ -1252,16 +1255,40 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
             {currentMode === 'reg_concept' && (
               <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-[11px] font-semibold text-blue-400">
-                  <span>Target Regulation:</span>
+                  <span>Target Framework:</span>
                   <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950 border border-blue-800 text-blue-300 font-mono">
                     {regulationsList.length} In Kùzu
                   </span>
                 </div>
+
+                {/* Source Filter Tabs */}
+                <div className="flex items-center gap-1 overflow-x-auto py-0.5">
+                  {(['ALL', 'EASA', 'FAA', 'EU', 'EUROCAE', 'SKYBRARY'] as const).map(s => {
+                    const count = s === 'ALL'
+                      ? regulationsList.length
+                      : regulationsList.filter(r => (r.source || 'EASA').toUpperCase() === s).length;
+                    const isActive = regSourceFilter === s;
+                    return (
+                      <button
+                        key={s}
+                        onClick={() => setRegSourceFilter(s)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0 transition-colors ${
+                          isActive
+                            ? 'bg-blue-600 text-white font-semibold'
+                            : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                        }`}
+                      >
+                        {s} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <input
                   type="text"
                   value={regulationSearchFilter}
                   onChange={(e) => setRegulationSearchFilter(e.target.value)}
-                  placeholder="Filter 42 regulations..."
+                  placeholder={`Search ${regulationsList.filter(r => regSourceFilter === 'ALL' || (r.source || 'EASA').toUpperCase() === regSourceFilter).length} frameworks...`}
                   className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-slate-200 placeholder-slate-500 outline-none focus:border-blue-500"
                 />
                 <select
@@ -1271,6 +1298,9 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 >
                   {regulationsList
                     .filter(r => {
+                      if (regSourceFilter !== 'ALL' && (r.source || 'EASA').toUpperCase() !== regSourceFilter) {
+                        return false;
+                      }
                       if (!regulationSearchFilter) return true;
                       const f = regulationSearchFilter.toLowerCase();
                       const name = (r.name || '').toLowerCase();
@@ -1279,10 +1309,11 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                       return name.includes(f) || code.includes(f) || title.includes(f);
                     })
                     .map((r) => {
+                      const srcTag = r.source ? `[${r.source}] ` : '';
                       const displayName = r.name || r.code || r.title || r.id;
                       return (
                         <option key={r.id} value={r.name || r.id} className="bg-slate-900 text-slate-200">
-                          {displayName} ({r.total_topics} topics)
+                          {srcTag}{displayName} ({r.total_topics} rules/topics)
                         </option>
                       );
                     })}
@@ -1299,11 +1330,12 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                   return (
                     <div className="flex flex-col gap-1 text-[10px] text-slate-400 px-1 pt-1">
                       <div className="text-slate-300 font-medium line-clamp-2" title={sel.title}>
+                        <span className="text-blue-400 font-semibold mr-1">[{sel.source || 'EASA'}]</span>
                         {sel.title}
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/60">
                         <span>Structure:</span>
-                        <span className="text-blue-300 font-mono">{sel.annex_count} Annexes • {sel.total_topics} Topics</span>
+                        <span className="text-blue-300 font-mono">{sel.annex_count} Annexes • {sel.total_topics} Rules/Topics</span>
                       </div>
                     </div>
                   );

@@ -90,6 +90,7 @@ class ResearchJobDetail(BaseModel):
     comprehensive_status: Optional[str] = "NOT_STARTED"
     skybrary_reading_materials: Optional[List[SkybraryReadingMaterial]] = None
     user_notes_reading_materials: Optional[List[UserNoteReadingMaterial]] = None
+    eurocae_standards: Optional[List[Dict[str, Any]]] = None
     provider: Optional[str] = None
     model: Optional[str] = None
     origins: Optional[List[str]] = None
@@ -205,6 +206,7 @@ def init_research_db():
                 ("comprehensive_status", "TEXT"),
                 ("skybrary_reading_materials", "TEXT"),
                 ("user_notes_reading_materials", "TEXT"),
+                ("eurocae_standards", "TEXT"),
                 ("origins", "TEXT"),
                 ("document_ids", "TEXT")
             ]:
@@ -241,6 +243,7 @@ def update_job_status(
     comprehensive_status: Optional[str] = None,
     skybrary_materials: Optional[list] = None,
     user_notes_materials: Optional[list] = None,
+    eurocae_standards: Optional[list] = None,
     provider: Optional[str] = None,
     model: Optional[str] = None
 ):
@@ -279,6 +282,9 @@ def update_job_status(
         if user_notes_materials is not None:
             updates.append("user_notes_reading_materials = ?")
             params.append(json.dumps(user_notes_materials))
+        if eurocae_standards is not None:
+            updates.append("eurocae_standards = ?")
+            params.append(json.dumps(eurocae_standards))
         if provider is not None:
             updates.append("provider = ?")
             params.append(provider)
@@ -1142,6 +1148,16 @@ INSTRUCTIONS FOR THE REPORT:
         else:
             user_notes_materials = []
 
+        # Step 9: Match Relevant EUROCAE / European Industry Standards for Supporting Follow-up Reading
+        update_job_status(job_id, "RUNNING", progress="Matching applicable EUROCAE industry standards...")
+        try:
+            from ingestion.EUROCAE.matcher import find_supporting_standards
+            eurocae_standards_raw = find_supporting_standards(query, top_k=5)
+            eurocae_standards_list = [s.model_dump() for s in eurocae_standards_raw]
+        except Exception as e:
+            print(f"Error matching EUROCAE standards: {e}")
+            eurocae_standards_list = []
+
         update_job_status(
             job_id,
             "COMPLETED",
@@ -1154,6 +1170,7 @@ INSTRUCTIONS FOR THE REPORT:
             comprehensive_status="NOT_STARTED",
             skybrary_materials=skybrary_materials,
             user_notes_materials=user_notes_materials,
+            eurocae_standards=eurocae_standards_list,
             provider=active_provider,
             model=active_model
         )
@@ -1489,6 +1506,7 @@ def get_research_job(job_id: str):
         d["research_gaps"] = json.loads(d["research_gaps"]) if d.get("research_gaps") else None
         d["skybrary_reading_materials"] = json.loads(d["skybrary_reading_materials"]) if d.get("skybrary_reading_materials") else None
         d["user_notes_reading_materials"] = json.loads(d["user_notes_reading_materials"]) if d.get("user_notes_reading_materials") else None
+        d["eurocae_standards"] = json.loads(d["eurocae_standards"]) if d.get("eurocae_standards") else None
         d["origins"] = json.loads(d["origins"]) if d.get("origins") else None
         d["document_ids"] = json.loads(d["document_ids"]) if d.get("document_ids") else None
 

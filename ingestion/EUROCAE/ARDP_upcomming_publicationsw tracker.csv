@@ -1,0 +1,83 @@
+Domains,SDO Reference Number,Title,Organisation,Working Arrangements,Status,Date of publication,Master Plan Reference,CPs AF,SDM Deployment Plan Families,Comment,Creation Date,Last Update Date,Unique A-RDP Identifier
+ACAS,ED-275A,Minimum Operational Performance Standard for ACAS Xu - Volumes 1 and 2,,WG-75,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_001
+ACAS,ED-XXX,MOPS for ACAS Xr,EUROCAE,WG-75,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_002
+ADS-B,ED-129D,Technical Specification for an ADS-B Ground System,EUROCAE,WG-51,Ongoing,Q2/2029,STD-174,,,"ED-129B is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (AMC1 for GE.DEC.ADSB.310, GE.DEC.ADSB.315, GE.DEC.ADSB.320, GE.DEC.ADSB.330)",01-Dec-25,,A-RDP_2025_003
+ADS-B ground station,EUROCONTROL-SPEC-147 Edition 2.0,EUROCONTROL Specification for ATM Surveillance System Performance (ESASSP),EUROCONTROL,Surveillance Standard TF (SSTF),Ongoing,Q4/2026,,,,"Edition 1.2 of this standard is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (AMC1 for GE.CER.SDP.520)
+
+Consultation in Q2/2026",01-Dec-25,11-Mar-26,A-RDP_2025_004
+ADS-B ground station,ED-129C Change 1,Technical Specification for a 1090 MHz Extended Squitter ADS-B Surveillance System,EUROCAE,WG-51,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_005
+Aeronautical information exchange,EUROCONTROL -SPEC-XXX,EUROCONTROL Specification for Obstacle Data Set Coding using AIXM 5.1.1,EUROCONTROL,None,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_008
+Aeronautical information exchange,EUROCONTROL -SPEC-XXX,EUROCONTROL Specification for AIP Data Set Coding using AIXM 5.1.1,EUROCONTROL,None,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_010
+Aeronautical information exchange,EUROCONTROL -SPEC-XXX,EUROCONTROL Specification for Digital NOTAM Data Set Coding using AIXM 5.1.1,EUROCONTROL,None,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_011
+Aeronautical information exchange,EUROCONTROL -SPEC-XXX,EUROCONTROL Specification for Instrument Flight Procedures Design Data Set Coding using AIXM 5.2,EUROCONTROL,None,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_012
+Aeronautical information exchange,ED-119D,"Interchange Standards for Terrain, Obstacle and Aerodrome Mapping Data  ED-119D",EUROCAE,WG-44,Ongoing,Q2/2029,,,,,01-Dec-25,,A-RDP_2025_014
+Airborne applications,ED-XXX,MOPS for Cooperative Surveillance Systems,EUROCAE,WG-75,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_015
+Airborne capability,ED-75G,MASPS: Required Navigation Performance for Area Navigation,EUROCAE,WG-85,Ongoing,Q1/2027,,,,,01-Dec-25,,A-RDP_2025_016
+AIS - Database,ED-98D,User Requirements for Terrain and Obstacle Data  ED-98D,EUROCAE,WG-44,Ongoing,Q2/2029,,,,,01-Dec-25,,A-RDP_2025_018
+AIS - Database,ED-99E,User Requirements for Aerodrome Mapping Information  ED-99E,EUROCAE,WG-44,Ongoing,Q2/2029,,,,,01-Dec-25,,A-RDP_2025_019
+AMAN SWIM services,ED-254A,Arrival Sequence Service Performance Standard  ED-254A,EUROCAE,WG-104,Published,24/04/2026,,,,,01-Dec-25,,A-RDP_2025_020
+Architecture,ED-XXX,Interoperability Standard for ATM Data Services for Virtual Centres,EUROCAE,WG-122,Ongoing,Q4/2026,STD-186,,,,01-Dec-25,,A-RDP_2025_021
+A-SMGCS,EUROCONTROL -SPEC-XXX,EUROCONTROL Specification for Surface Movement Awareness System (SMAS) Services,EUROCONTROL,None,Ongoing,Q2/2026,,,,"Describes the Services (Surveillance, Alerting) and requirements for Surface Movement Awareness System (SMAS) to support their implementation at an aerodrome",01-Dec-25,,A-RDP_2025_023
+A-SMGCS,EUROCONTROL-SPEC-171 Edition 3.0,EUROCONTROL Specification for Advanced-Surface Movement Guidance and Control System (A-SMGCS) ,EUROCONTROL,A-SMGCS TF,Ongoing,Q1/2027,STD-164,AF2,"2.1.1, 2.3.1","Edition 2.0 of this standard is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (GM1 for GE.CER.ASMGCS.310 and GE.CER.ASMGCS.330)",01-Dec-25,,A-RDP_2025_024
+A-SMGCS,ED-XXX,Interoperability Standard for Data Exchange for A-SMGCS ,EUROCAE,WG-41,Ongoing,Q2/2026,STD-166,,,,01-Dec-25,,A-RDP_2025_025
+A-SMGCS,ED-XXX,MOPS for supporting sensor systems for use in A-SMGCS ED-xxx,EUROCAE,WG-41,Planned,,,,,,01-Dec-25,,A-RDP_2025_026
+A-SMGCS,ED-116A,MOPS for Surface Movement Radar Sensor Systems for Use in A-SMGCS,EUROCAE,WG-41,Ongoing,Q2/2028,ASMGCS-0113,,,,01-Dec-25,,A-RDP_2025_027
+A-SMGCS,ED-XXX,MASPS for Surface Movement Awareness System,,WG-41,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_028
+ATM ground system,EN 301 489-1 V2.3.1,ElectroMagnetic Compatibility (EMC) standard for radio equipment and services;Part 1: Common technical requirements    ,ETSI,ERM WGEMC / ERM TGAERO,Ongoing,Q4/2026,,,,title will be changed and DME equipment will be included,01-Dec-25,,A-RDP_2025_029
+ATM ground system,EN 301 489-22 V2.2.1,ElectroMagnetic Compatibility (EMC) standard for radio equipment and services; Part 22: Specific conditions for ground based aeronautical mobile and fixed radio equipment; Harmonised Standard for ElectroMagnetic Compatibility,ETSI,ERM WGEMC / ERM TGAERO,Planned,Q4/2026,,,,,01-Dec-25,,A-RDP_2025_030
+ATN B1 & ATS B2,EN 303 214 (V1.3.1),Data Link Services (DLS) System; Community Specification ; Requirements for ground constituents and system testing,ETSI,ERM TGAERO,Ongoing,Q2/2027,,,,CS are no longer valid. The traceability against the legislation is now part of the EASA system; to be checked if (part of) the spec can be transferred in a TS/EN such as end-to-end testing,01-Dec-25,,A-RDP_2025_038
+ATN B1 & ATS B2,ED-XXX, ATS Data Communications Verification Test Standard,EUROCAE,WG-78,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_040
+Counter UAS,ED-286A,OSED for Counter UAS Systems in Controlled Airspace  ,EUROCAE,WG-115,Ongoing,Q4/2026,,,,,01-Dec-25,11-Mar-26,A-RDP_2025_041
+Counter UAS,ED-XXX,Interoperability Requirements for Counter-UAS systems  ,EUROCAE,WG-115,Ongoing,Q4/2027,,,,"Referring to ED-286 ""OSED for Counter-UAS in controlled airspace """,01-Dec-25,11-Mar-26,A-RDP_2025_042
+DMAN & A-CDM,ED-XXX,Airport Collaborative Decision Making Data Model Specification  ED-XXX,EUROCAE,WG-111,Ongoing,Q3/2026,,,,,01-Dec-25,,A-RDP_2025_043
+DMAN & A-CDM,ED-145A,Airport Collaborative Decision Making (A-CDM) Interface Specification,EUROCAE,WG-111,Ongoing,Q2/2027,,AF2,"2.1.1, 2.2.1","ED-145 is referenced by EASA ""DS-GE.SoC"" (DS SoC.006)",01-Dec-25,,A-RDP_2025_044
+DMAN and A-CDM,ED-XXX,AOP and TAM Data Model Specification  ED-XXX,EUROCAE,WG-111,Planned,,,,,,01-Dec-25,,A-RDP_2025_045
+EVS/SVS,ED-XXX,MASPS for Vision systems for Innovative Aerial Services / Advanced Air Mobility (IAS/AAM) and Helicopters in low visibility and night operations,EUROCAE,WG-79,Ongoing,Q2/2028,,,,,01-Dec-25,,A-RDP_2025_047
+Flight data exchanges - OLDI,"EUROCONTROL-SPEC-106, Edition 6.0",EUROCONTROL Specification for On-Line Data Interchange,EUROCONTROL,OLDI Group / NETOPS,Ongoing,Q3/2026,,,,,01-Dec-25,,A-RDP_2025_048
+GNSS,ED-259B,Minimum Operational Performance Standard for Dual-Frequency Multi-Constellation Satellite-Based Augmentation System Airborne Equipment,EUROCAE,WG-62,Ongoing,Q2/2027,,,,Current ED-259A A-RDP entry is referencing Master Plan reference STD-023,01-Dec-25,,A-RDP_2025_050
+GNSS Contingency,ED-57A,"MOPS for Distance Measuring Equipment (DME/N and DME/P) (ground equipment)
+",EUROCAE,WG-107,Ongoing,Q2/2026,"STD-092, STD-123",,,,01-Dec-25,,A-RDP_2025_051
+GNSS Contingency,ED-XXX,MASPS for DME Infrastructure supporting PBN Positioning,EUROCAE,WG-107,Ongoing,Q2/2026,STD-091,,,,01-Dec-25,,A-RDP_2025_052
+Interface,ED-XXX,OSED for ATC Systems - VCS Interoperability for ATM Information Exchange,EUROCAE,WG-126,Ongoing,Q1/2027,,,,,01-Dec-25,,A-RDP_2025_053
+Interface,ED-XXX,ATC Systems - VCS Interoperability Standard for ATM Information Exchange,EUROCAE,WG-126,Ongoing,Q1/2027,,,,,01-Dec-25,,A-RDP_2025_054
+LDACS,,Harmonised Standard for L Band Air Ground Communication System Ground segment,ETSI,None,Planned,,,,,Task is pending mature technology,01-Dec-25,,A-RDP_2025_056
+LDACS,ED-XXX,MASPS for L-band Digital Aeronautical Communications System (LDACS),EUROCAE,WG-82,Ongoing,Q4/2026,STD-159,,,,01-Dec-25,,A-RDP_2025_057
+LDACS,ED-XXX,MOPS for L-band Digital Aeronautical Communications System (LDACS) for Data and Voice Communication ED-XXX,EUROCAE,WG-82,Ongoing,Q4/2026,STD-160,,,,01-Dec-25,,A-RDP_2025_058
+Mode S,EUROCONTROL-SPEC-153 Edition 3.0,EUROCONTROL Specification for the Mode S IC Allocation Coordination and IC Conflict Management (MICA) ,EUROCONTROL,MICA FP,Ongoing,Q3/2026,,,,,01-Dec-25,11-Mar-26,A-RDP_2025_059
+PBN and AWO operations,ED-323A,MOPS: Required Navigation Performance for Area Navigation,EUROCAE,WG-85,Ongoing,Q1/2027,,,,,01-Dec-25,,A-RDP_2025_060
+PSR in L Band,EN 303 364-1-2,Primary Surveillance Radar (PSR); Harmonised Standard for access to radio spectrum; Part 1: Air Traffic Control (ATC) PSR Sensors operating in 1 215 MHz to 1 400 MHz frequency band (L band); Sub part 2: radar systems using phased array antennas,ETSI,ERM TGAERO,Ongoing,Q4/2027,STD-083,,,,01-Dec-25,,A-RDP_2025_062
+Remote tower,ED-240C,MASPS for Remote Tower Optical Systems ED-240C,EUROCAE,WG-100,Ongoing,Q4/2028,,,,,01-Dec-25,11-Mar-26,A-RDP_2025_063
+Runway system,ED-292A ,MASPS for Runway Weather Information Systems,EUROCAE,WG-109,Ongoing,Q3/2026,,,,Supporting ICAO GRF,01-Dec-25,,A-RDP_2025_064
+Satcom, ED-242E,MASPS for AMS(R)S Data and Voice Communications Supporting Required Communications Performance (RCP) and Required Surveillance Performance (RSP),EUROCAE,WG-82,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_067
+Satcom,ED-243E,MOPS  for Avionics Supporting Next Generation Satellite Systems (NGSS) ,EUROCAE,WG-82,Ongoing,Q2/2027,,,,,01-Dec-25,,A-RDP_2025_068
+TBS for final approach,EUROCONTROL SPEC-167 Edition 1.1,"EUROCONTROL Specification for Time-Based Separation
+(TBS) ",EUROCONTROL,None,Planned,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_071
+VDL Mode 2,ED-XXX,Signal-in-Space Minimum Aviation System Performance Standards (MASPS) for Advanced VHF Digital Data Communications,EUROCAE,WG-92,Ongoing,Q3/2026,,AF6,6.1.1,Joint with RTCA SC-214  for alignment with existing MASPS DO-224D,01-Dec-25,,A-RDP_2025_072
+VDL Mode 2,ED-276A,Guidance on Air to Ground VDL Mode 2 Interoperability ,EUROCAE,WG-92,Ongoing,Q1/2027,,AF6,"6.1.1, 6.1.2","ED-276 is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (GM1 for GE.CER.AGDC.120)",01-Dec-25,,A-RDP_2025_073
+VDL Mode 2,EN 301 841-1 (V 1.5.1),VHF air-ground Digital Link (VDL) Mode 2; Technical characteristics and methods of measurement for ground-based equipment; Part 1: Physical layer and MAC sub-layer ,ETSI,ERM TGAERO,Ongoing,Q4/2026,,AF6,"6.1.1, 6.1.2","Version 1.4.1 of this standard is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (AMC1 for GE.CER.AGDC.110)",01-Dec-25,,A-RDP_2025_074
+VDL Mode 2,EN 301 841-3 (V2.2.1)," VHF air-ground Digital Link (VDL) Mode 2, Part 3: Harmonized standard for access to radio spectrum ",ETSI,ERM TGAERO,Ongoing,Q4/2026,,AF6,"6.1.1, 6.1.2","Version 2.1.1 of this standard is referenced by EASA ""DS-GE.CER/DEC — Issue 1"" (AMC1 for GE.CER.AGDC.120)",01-Dec-25,,A-RDP_2025_075
+VDL Mode 2,ED-92D,VDL 2 Airborne MOPS,EUROCAE,WG-92,Ongoing,Q3/2026,,AF6,6.1.1,,01-Dec-25,,A-RDP_2025_076
+VoIP,ED-136/1A,Voice over Internet Protocol (VoIP) Air Traffic Management (ATM) System Operational and Technical Requirements Volume 1: Operational Services and Environment Definition (OSED),EUROCAE,WG-67,Ongoing,Q2/2026,STD-180,,,AMC1 GE.CER.AGVC.210   AMC2 GE.CER.AGVC.220   AMC 3 GE.CER.AGVC.220   AMC1 GE.CER.AGVC.240,01-Dec-25,,A-RDP_2025_077
+VoIP,ED-138A,Network Requirements and Performances for VoIP ATM Systems ,EUROCAE,WG-67,Ongoing,Q2/2026,,,,,01-Dec-25,,A-RDP_2025_078
+VoIP,ED-136/2A,Voice over Internet Protocol (VoIP) Air Traffic Management (ATM) System Operational and Technical Requirements Volume 2: Safety and Performance Requirements (SPR) standard.,EUROCAE,WG-67,Ongoing,Q2/2026,STD-181,,,AMC1 GE.CER.AGVC.210   AMC2 GE.CER.AGVC.220   AMC 3 GE.CER.AGVC.220   AMC1 GE.CER.AGVC.240,01-Dec-25,,A-RDP_2025_079
+WAM/ADS-B composite,ED-142B,Technical Specification for WAM Ground System with Composite Surveillance Functionality,EUROCAE,WG-51,Ongoing,Q2/2030,,,,Will be progressed after completion of ED-142A,01-Dec-25,,A-RDP_2025_080
+WAM/ADS-B composite,ED-142A,Technical Specification for WAM Ground System with Composite Surveillance Functionality,EUROCAE,WG-51,Ongoing,Q2/2026,"STD-070, STD-173",,,,01-Dec-25,,A-RDP_2025_081
+A-SMGCS,ED-87F,MASPS for A-SMGCS,EUROCAE,WG-41,Planned,,STD-165,,,Pending advice of requirements for deployment timing objectives from the ATM MP.,11-Mar-26,,A-RDP_2026_001
+Air/ground data-link services,ED-228C ,Safety and Performance Requirements Standard for ATS Data Communications ,EUROCAE,WG-78,Ongoing,Q4/2028,,,,,11-Mar-26,,A-RDP_2026_002
+Air/ground data-link services - ATN B2,ED-229C ,Interoperability Requirements Standard for Baseline 2 ATS Data Communications ,EUROCAE,WG-78,Ongoing,Q4/2028,,,,,11-Mar-26,,A-RDP_2026_003
+Air/ground data-link services - ATN B2,ED-230C ,"Interoperability Requirements Standard for Baseline 2 ATS Data Communications, FANS 1/A Accommodation ",EUROCAE,WG-78,Ongoing,Q4/2028,,,,,11-Mar-26,,A-RDP_2026_004
+Air/ground data-link services - ATN B2,ED-231C ,"Interoperability Requirements Standard for Baseline 2 ATS Data Communications, ATN Baseline 1 Accommodation ",EUROCAE,WG-78,Ongoing,Q4/2028,,,,,11-Mar-26,,A-RDP_2026_005
+Air/ground communication technical enablers,ED-137/6C,Interoperability Standards for VOIP ATM Components – Volume 6: Cybersecurity,EUROCAE,WG-67,Ongoing,Q4/2027,,,,,11-Mar-26,,A-RDP_2026_006
+Flight data exchanges - OLDI,,"EUROCONTROL Specification for ATS Data Exchange Presentation (ADEXP)
+EUROCONTROL SPEC 107 ed.4.0",EUROCONTROL,NETOPS / NETSYS ,under consulation,Q2/2026,,,,Update is supporting the OLDI spec update.,11-Mar-26,,A-RDP_2026_007
+Cybersecurity,,EUROCONTROL Specification defining the Scheme for the cyber maturity assessment of the aviation supply chain,EUROCONTROL,Cyber Team ,ongoing ,Q3/2026,,,,Also referred to ECSCG for C-RDP,11-Mar-26,,A-RDP_2026_008
+Flight data - safety nets,EUROCONTROL SPEC-108,EUROCONTROL Specification for Short Term Conflict Alert - STCA,EUROCONTROL,Safety Team / SNAP ,ongoing ,Q2/2027,,,,update version 1.0 to version 2.0,11-Mar-26,,A-RDP_2026_009
+Flight data - safety nets,,EUROCONTROL Specification for Minimum Safe Altitude Warning - MSAW,EUROCONTROL,Safety Team / SNAP ,ongoing ,Q3/2027,,,,Version 1.0 based on existing draft ,11-Mar-26,,A-RDP_2026_010
+Flight data - safety nets,,EUROCONTROL Specification for Area Proximity Warning - APW,EUROCONTROL,Safety Team / SNAP ,ongoing ,Q3/2027,,,,Version 1.0 based on existing draft ,11-Mar-26,,A-RDP_2026_011
+Flight data - safety nets,,EUROCONTROL Specification for Approach path Monitor - APM,EUROCONTROL,Safety Team / SNAP ,ongoing ,Q3/2027,,,,Version 1.0 based on existing draft ,11-Mar-26,,A-RDP_2026_012
+Navigation technical enablers - GNSS,ED-XXX,Minimum Operational Performance Standards (MOPS) for Dual-Frequency Multi-Constellation (DFMC) GNSS Aided Inertial Systems,EUROCAE,WG-62,ongoing ,Q3/2028,,,,,15-Jun-26,,A-RDP_2026_013
+SWIM,,EUROCONTROL Specification for the Aeronautical Information Request Service,EUROCONTROL,IMT,ongoing,Q2/2027,,,,Creation of version 1 based on existing service definition,15-Jun-26,,A-RDP_2026_014
+SWIM,,EUROCONTROL Specification for the Digital NOTAM Subscription and Request Service,EUROCONTROL,IMT,ongoing,Q2/2027,,,,Creation of version 1 based on existing service definition,15-Jun-26,,A-RDP_2026_015
+SWIM,,EUROCONTROL-SPEC-169  Specification for SWIM Information Definition,EUROCONTROL,IMT,ongoing,Q2/2027,,,,,15-Jun-26,,A-RDP_2026_016
+Navigation technical enablers - GNSS,,EUROCONTROL EASA Specification for GNSS interference monitoring tools,"EUROCONTROL 
+EASA",JCSP,ongoing,Q2/2027,,,,GNSS RFI Action Plan ,15-Jun-26,,A-RDP_2026_017

@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--download_easa", action="store_true", help="Run the EASA XML downloader step (optional)")
     parser.add_argument("--ingest_icao", action="store_true", help="Run the ICAO PDF ingestion pipeline")
     parser.add_argument("--icao_dir", type=str, default=str(_project_root / "ICAO" / "import_pdfs"), help="Directory containing ICAO PDF documents")
+    parser.add_argument("--ingest_eurocae", action="store_true", help="Run the EUROCAE and European standards ingestion pipeline")
+    parser.add_argument("--eurocae_dir", type=str, default=str(_project_root / "ingestion" / "EUROCAE"), help="Directory containing EUROCAE standards CSVs")
     args = parser.parse_args()
 
     # Pre-flight checks and counting
@@ -117,6 +119,15 @@ def main():
         if args.reset:
             cmd_icao.append("--reset")
         subprocess.run(cmd_icao, check=False)
+
+    # 4c. EUROCAE Ingestion Pipeline
+    if args.ingest_eurocae:
+        print("\n" + "="*80)
+        print("4c. RUNNING EUROCAE STANDARDS INGESTION PIPELINE")
+        print("="*80)
+        
+        cmd_eurocae = [sys.executable, "-m", "ingestion.EUROCAE.pipeline", "--eurocae_dir", args.eurocae_dir]
+        subprocess.run(cmd_eurocae, check=False)
 
     # 5. Generate Embeddings for all new chunks
     print("\n" + "="*80)

@@ -314,6 +314,7 @@ export function generateResearchReportHtml(
   const consultedRegs = job.consulted_regulations || [];
   const readingMaterials = job.skybrary_reading_materials || [];
   const userNotes = job.user_notes_reading_materials || [];
+  const eurocaeStandards = job.eurocae_standards || [];
   const researchGaps = job.research_gaps || [];
 
   return `<!DOCTYPE html>
@@ -1580,7 +1581,7 @@ export function generateResearchReportHtml(
           ${researchGaps.length > 0 ? `<a href="#appendix-gaps" class="toc-quick-link">🔍 Self-Critique & Gaps (${researchGaps.length})</a>` : ''}
           ${consultedRegs.length > 0 ? `<a href="#appendix-regulations" class="toc-quick-link">📋 Appendix A: Regulations (${consultedRegs.length})</a>` : ''}
           <a href="#appendix-chunks" class="toc-quick-link">📚 Appendix B: Evidence Chunks (${chunkMetaMap.size})</a>
-          ${(readingMaterials.length > 0 || userNotes.length > 0) ? `<a href="#appendix-materials" class="toc-quick-link">📖 Appendix C: Materials</a>` : ''}
+          ${(readingMaterials.length > 0 || userNotes.length > 0 || eurocaeStandards.length > 0) ? `<a href="#appendix-materials" class="toc-quick-link">📖 Appendix C: Materials (${readingMaterials.length + userNotes.length + eurocaeStandards.length})</a>` : ''}
         </div>
       </div>
     </details>
@@ -1710,18 +1711,18 @@ export function generateResearchReportHtml(
       </div>
     </details>
 
-    <!-- Appendix C: Reading Materials (Skybrary & Notes) -->
-    ${(readingMaterials.length > 0 || userNotes.length > 0) ? `
+    <!-- Appendix C: Reading Materials (Skybrary, Notes, EUROCAE) -->
+    ${(readingMaterials.length > 0 || userNotes.length > 0 || eurocaeStandards.length > 0) ? `
     <details class="appendix-accordion" id="appendix-materials" open>
       <summary class="appendix-header">
         <div class="ah-left">
           <span class="accordion-chevron">
             <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </span>
-          <span class="appendix-header-title">📖 Appendix C: Supplementary Technical Materials</span>
+          <span class="appendix-header-title">📖 Appendix C: Supplementary Technical Materials & Standards</span>
         </div>
         <div class="ah-right">
-          <span class="pill">${readingMaterials.length + userNotes.length} Items</span>
+          <span class="pill">${readingMaterials.length + userNotes.length + eurocaeStandards.length} Items</span>
         </div>
       </summary>
       <div class="appendix-body">
@@ -1750,7 +1751,7 @@ export function generateResearchReportHtml(
           <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--color-cyan);">
             Internal Project Notes & Operational Journals (${userNotes.length})
           </h3>
-          <div style="display: grid; gap: 10px;">
+          <div style="display: grid; gap: 10px; margin-bottom: 24px;">
             ${userNotes.map(note => `
               <div class="chunk-card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
@@ -1761,6 +1762,36 @@ export function generateResearchReportHtml(
                   Type: ${escapeHtml(note.note_type)} · Project: ${escapeHtml(note.project || 'General')} · Date: ${escapeHtml(note.date || 'N/A')}
                 </div>
                 ${note.match_rationale ? `<div style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(note.match_rationale)}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        ${eurocaeStandards.length > 0 ? `
+          <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #14b8a6;">
+            Applicable Industry Standards · EUROCAE / EUROCONTROL (${eurocaeStandards.length})
+          </h3>
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">
+            Supporting technical performance specifications (MOPS/MASPS) and ongoing working group standards (reference only; bodies not included in report text).
+          </div>
+          <div style="display: grid; gap: 10px;">
+            ${eurocaeStandards.map(std => `
+              <div class="chunk-card" style="border-left: 3px solid #14b8a6;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
+                  <div>
+                    <span class="pill" style="background: rgba(20, 184, 166, 0.15); color: #2dd4bf; border: 1px solid rgba(20, 184, 166, 0.4); margin-right: 6px;">${escapeHtml(std.reference)}</span>
+                    <span class="pill">${escapeHtml(std.status)}</span>
+                    ${std.working_group ? `<span class="pill">${escapeHtml(std.working_group)}</span>` : ''}
+                  </div>
+                  <span class="pill pill-accent">${Math.round((std.relevance_score || 0) * 100)}% Match</span>
+                </div>
+                <div style="font-weight: 700; color: var(--text-heading); font-size: 13px; margin-top: 6px;">${escapeHtml(std.title)}</div>
+                ${std.expanded_title && std.expanded_title !== std.title ? `<div style="font-size: 11px; font-style: italic; color: var(--text-muted); margin: 3px 0 6px 0;">${escapeHtml(std.expanded_title)}</div>` : ''}
+                <div style="font-size: 11px; color: var(--text-muted); margin: 4px 0 6px 0;">
+                  Domain: ${escapeHtml(std.domain || 'General')} · ${std.publication_date ? `Date: ${escapeHtml(std.publication_date)}` : escapeHtml(std.organization)}
+                </div>
+                ${std.match_rationale ? `<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">Rationale: ${escapeHtml(std.match_rationale)}</div>` : ''}
+                ${std.easa_reference ? `<div style="font-size: 11px; color: #a5b4fc; background: rgba(99, 102, 241, 0.1); padding: 4px 8px; border-radius: 4px; margin-top: 4px;">Regulatory Link: ${escapeHtml(std.easa_reference)}</div>` : ''}
               </div>
             `).join('')}
           </div>

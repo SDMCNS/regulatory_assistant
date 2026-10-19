@@ -947,6 +947,7 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
   const [reportType, setReportType] = useState<'initial' | 'comprehensive'>('initial');
   const [showSkybrary, setShowSkybrary] = useState(true);
   const [showUserNotes, setShowUserNotes] = useState(true);
+  const [showEurocae, setShowEurocae] = useState(true);
   const [viewMode, setViewMode] = useState<'sections' | 'continuous'>('sections');
   const [sectionFilter, setSectionFilter] = useState('');
   const [openSectionIds, setOpenSectionIds] = useState<Record<string, boolean>>({});
@@ -2319,6 +2320,143 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
                 </p>
                 <p className="text-[11px] text-slate-500">
                   Author notes in the Notes & Journals tab to link internal project progress and meeting minutes with regulatory inquiries.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Collapsible Applicable Industry Standards (EUROCAE / EUROCONTROL) */}
+      <div className="border border-teal-900/50 rounded-2xl bg-gradient-to-br from-slate-900/90 via-teal-955/20 to-slate-900/90 backdrop-blur overflow-hidden shadow-xl">
+        <button
+          onClick={() => setShowEurocae(!showEurocae)}
+          className="w-full flex items-center justify-between p-4 bg-slate-900/80 hover:bg-slate-850 transition-colors text-left"
+        >
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 rounded-lg bg-teal-500/15 text-teal-400 border border-teal-500/30">
+              <BookOpen className="w-4 h-4" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-100 uppercase tracking-wide">
+                  Applicable Industry Standards · EUROCAE / EUROCONTROL
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-teal-950 text-teal-300 border border-teal-800/80 font-semibold">
+                  {job.eurocae_standards?.length || 0} Industry Standard{(job.eurocae_standards?.length || 0) === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Published technical specifications (MOPS/MASPS) and ongoing working group standards matched as supporting follow-up reading.
+              </p>
+            </div>
+          </div>
+          {showEurocae ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronRight className="w-4 h-4 text-slate-400" />}
+        </button>
+
+        {showEurocae && (
+          <div className="p-5 border-t border-teal-900/40 space-y-4">
+            {job.eurocae_standards && job.eurocae_standards.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {job.eurocae_standards.map((item, idx) => {
+                  const matchPercent = Math.round(item.relevance_score * 100);
+                  const isPublished = item.status.toLowerCase() === 'published';
+                  const isOngoing = item.status.toLowerCase() === 'ongoing';
+                  const statusBadgeClass = isPublished
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-800/80'
+                    : isOngoing
+                    ? 'bg-amber-950 text-amber-300 border-amber-800/80'
+                    : 'bg-purple-950 text-purple-300 border-purple-800/80';
+
+                  return (
+                    <div
+                      key={item.standard_id || idx}
+                      className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-teal-700/60 transition-all duration-200 flex flex-col justify-between space-y-3 group hover:shadow-lg hover:shadow-teal-950/30"
+                    >
+                      <div className="space-y-2">
+                        {/* Header Badges */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 text-teal-300 border border-slate-700">
+                              {item.reference}
+                            </span>
+                            <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase border ${statusBadgeClass}`}>
+                              {item.status}
+                            </span>
+                            {item.working_group && (
+                              <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-slate-900 text-slate-300 border border-slate-800" title={item.working_group_desc || item.working_group}>
+                                {item.working_group}
+                              </span>
+                            )}
+                            {item.domain && (
+                              <span className="text-[9px] px-2 py-0.5 rounded-full bg-slate-900 text-slate-400 border border-slate-800">
+                                {item.domain}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Relevance Score Badge */}
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-12 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-400"
+                                style={{ width: `${matchPercent}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-teal-950 text-teal-300 border border-teal-800/80">
+                              {matchPercent}%
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        <h4 className="text-sm font-semibold text-white group-hover:text-teal-300 transition-colors leading-snug">
+                          {item.title}
+                        </h4>
+
+                        {/* Interpreted Acronyms */}
+                        {item.expanded_title && item.expanded_title !== item.title && (
+                          <p className="text-[11px] text-slate-400 italic leading-relaxed border-l-2 border-teal-700/60 pl-2">
+                            {item.expanded_title}
+                          </p>
+                        )}
+
+                        {/* Match Rationale */}
+                        {item.match_rationale && (
+                          <p className="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                            {item.match_rationale}
+                          </p>
+                        )}
+
+                        {/* EASA Linkage */}
+                        {item.easa_reference && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-indigo-300 bg-indigo-950/40 px-2 py-1 rounded border border-indigo-900/60">
+                            <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
+                            <span>{item.easa_reference}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer Info & Notice */}
+                      <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500">
+                        <span className="font-mono">
+                          {item.publication_date ? `${isPublished ? 'Published: ' : 'Target: '}${item.publication_date}` : item.organization}
+                        </span>
+                        <span className="text-teal-400/80 font-medium">
+                          Supporting Standard Reference
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-2">
+                <p className="text-xs text-slate-400">
+                  No dedicated EUROCAE or EUROCONTROL standards were matched for this topic.
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  EUROCAE standards are surfaced as follow-up reading when equipment specifications (MOPS) or system performance standards (MASPS) apply.
                 </p>
               </div>
             )}

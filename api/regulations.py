@@ -2366,3 +2366,74 @@ def api_search_skybrary(
         )
 
 
+# ============================================================================
+# EUROCAE & European Industry Standards API Endpoints
+# ============================================================================
+
+@router.get("/eurocae/standards", response_model=Dict[str, Any])
+def api_get_eurocae_standards(
+    query: Optional[str] = Query(None, description="Search term for standard title, acronym, or reference"),
+    domain: Optional[str] = Query(None, description="Filter by technical domain (e.g. Avionics, IAS, Air Traffic Management)"),
+    status: Optional[str] = Query(None, description="Filter by status (e.g. Published, Ongoing, Planned)"),
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Searches or lists EUROCAE standards, interpreting acronyms (MASPS, MOPS, SPR, etc.)
+    and displaying current publication/development status.
+    """
+    from ingestion.EUROCAE.storage import search_standards, get_all_standards, get_eurocae_stats
+
+    if query and query.strip():
+        items = search_standards(query.strip(), top_k=limit, domain=domain, status=status)
+        total = len(items)
+    else:
+        items = get_all_standards(limit=limit, offset=offset, domain=domain, status=status)
+        stats = get_eurocae_stats()
+        total = stats.get("total_standards", len(items))
+
+    return {
+        "total": total,
+        "count": len(items),
+        "limit": limit,
+        "offset": offset,
+        "standards": items
+    }
+
+
+@router.get("/eurocae/standards/{reference}", response_model=Dict[str, Any])
+def api_get_eurocae_standard_detail(reference: str):
+    """
+    Retrieves full details for a specific EUROCAE standard by reference or ID.
+    """
+    from ingestion.EUROCAE.storage import get_standard_by_reference
+    std = get_standard_by_reference(reference)
+    if not std:
+        raise HTTPException(status_code=404, detail=f"Standard '{reference}' not found")
+    return std
+
+
+@router.get("/eurocae/stats", response_model=Dict[str, Any])
+def api_get_eurocae_stats():
+    """
+    Returns summary statistics for the EUROCAE and European standards catalog.
+    """
+    from ingestion.EUROCAE.storage import get_eurocae_stats
+    return get_eurocae_stats()
+
+
+@router.get("/eurocae/supporting", response_model=List[Dict[str, Any]])
+def api_get_supporting_standards(
+    query: str = Query(..., min_length=2, description="User query or regulatory topic to match standards for"),
+    top_k: int = Query(4, ge=1, le=10)
+):
+    """
+    Surfaces applicable published and upcoming EUROCAE standards as supporting follow-up reading.
+    (Note: standard bodies are not used as factual source text for answers).
+    """
+    from ingestion.EUROCAE.matcher import find_supporting_standards
+    matches = find_supporting_standards(query, top_k=top_k)
+    return [m.model_dump() for m in matches]
+
+
+

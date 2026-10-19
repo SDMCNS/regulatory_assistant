@@ -347,6 +347,24 @@ export interface ResearchJobDetail extends ResearchJobSummary {
   comprehensive_report_markdown?: string | null;
   skybrary_reading_materials?: SkybraryReadingMaterial[] | null;
   user_notes_reading_materials?: UserNoteReadingMaterial[] | null;
+  eurocae_standards?: EurocaeReadingMaterial[] | null;
+}
+
+export interface EurocaeReadingMaterial {
+  standard_id: string;
+  reference: string;
+  title: string;
+  expanded_title: string;
+  status: string;
+  organization: string;
+  working_group?: string | null;
+  working_group_desc?: string | null;
+  domain?: string | null;
+  publication_date?: string | null;
+  easa_reference?: string | null;
+  relevance_score: number;
+  match_rationale?: string | null;
+  is_supporting_only: boolean;
 }
 
 export interface UserNoteReadingMaterial {

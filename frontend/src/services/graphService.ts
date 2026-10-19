@@ -248,6 +248,8 @@ export interface ConceptSummary {
   name: string;
   category: string;
   total_provisions: number;
+  is_custom?: boolean;
+  description?: string;
 }
 
 export async function fetchComplianceChain(apiUrl: string, code: string): Promise<D3GraphData> {
@@ -269,8 +271,49 @@ export async function fetchConceptsCatalog(apiUrl: string): Promise<ConceptSumma
   return request<ConceptSummary[]>(`${apiUrl}/graph/concepts`);
 }
 
+export async function generateCustomConcept(
+  apiUrl: string,
+  payload: { name: string; category?: string; description?: string }
+): Promise<D3GraphData> {
+  const res = await fetch(`${apiUrl}/graph/concept/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    let errorDetail = `HTTP ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.detail) errorDetail = errJson.detail;
+    } catch {
+      errorDetail = await res.text();
+    }
+    throw new Error(errorDetail || `Failed to generate concept: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteCustomConcept(apiUrl: string, id: string): Promise<{ status: string; id: string }> {
+  const params = new URLSearchParams({ id });
+  const res = await fetch(`${apiUrl}/graph/concept/custom?${params.toString()}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    let errorDetail = `HTTP ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.detail) errorDetail = errJson.detail;
+    } catch {
+      errorDetail = await res.text();
+    }
+    throw new Error(errorDetail || `Failed to delete custom concept: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchNodeDetails(apiUrl: string, idOrCode: string): Promise<NodeInspectionDetails> {
   const params = new URLSearchParams({ id: idOrCode });
   return request<NodeInspectionDetails>(`${apiUrl}/graph/node?${params.toString()}`);
 }
+
 

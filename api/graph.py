@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
@@ -23,13 +24,21 @@ try:
     from ingestion.graph.traversal import get_engine, EasaGraphEngine
     from ingestion.graph.sources import get_source_manager, MultiSourceManager
     from ingestion.graph.hyde import get_hyde_engine, HydeEngine
+    from ingestion.graph.custom_concepts import get_custom_concept_manager, CustomConceptManager
 except Exception as e:
     _graph_import_error = str(e)
     get_engine = None
     get_source_manager = None
     get_hyde_engine = None
+    get_custom_concept_manager = None
 
 router = APIRouter()
+
+
+class GenerateConceptRequest(BaseModel):
+    name: str
+    category: Optional[str] = None
+    description: Optional[str] = None
 
 
 def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
@@ -185,13 +194,19 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
     seen = set()
 
     c = sub["concept"]
-    cid = f"CONCEPT_{c['name']}"
+    cid = c.get("id") or f"CONCEPT_{c['name']}"
+    is_custom = c.get("is_custom", sub.get("is_custom", False))
+    total_provs = sub.get("total_governing_provisions", 0)
+
     nodes.append({
         "id": cid,
         "label": c["name"],
         "type": "CONCEPT",
         "category": c.get("category", "General"),
         "is_anchor": True,
+        "is_custom": is_custom,
+        "description": c.get("description", ""),
+        "total_provisions": total_provs,
         "title": f"Aviation Concept: {c['name']} ({c.get('category', 'General')})"
     })
     seen.add(cid)
@@ -246,6 +261,8 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "concept": c,
+        "total_provisions": total_provs,
+        "is_custom": is_custom,
         "nodes": nodes,
         "links": links
     }
@@ -427,7 +444,6 @@ def get_concepts_catalog():
 def get_concept_subgraph_graph(
     name: str = Query("Fuel", description="Aviation Concept name or substring (e.g. Fuel, SMS, FTL)")
 ):
-
     """Retrieves concept subgraph across Annexes formatted as D3 graph."""
     try:
         eng = get_engine()
@@ -435,6 +451,62 @@ def get_concept_subgraph_graph(
         if "error" in sub:
             raise HTTPException(status_code=404, detail=sub["error"])
         return build_concept_graph(sub)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/concept/generate")
+def generate_custom_concept_api(request: GenerateConceptRequest):
+    """
+    Suggest and generate a new aviation concept ontology mesh.
+    Discovers governing provisions across EASA regulations,
+    persists the concept for future sessions, and formats as D3 force-directed graph.
+    """
+    check_graph_engine()
+    clean_name = request.name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Concept name cannot be empty")
+
+    try:
+        eng = get_engine()
+        hyde = None
+        try:
+            hyde = get_hyde_engine()
+        except Exception:
+            pass
+
+        if get_custom_concept_manager is None:
+            raise HTTPException(status_code=500, detail="Custom concept manager is not available")
+
+        mgr = get_custom_concept_manager()
+        generated = mgr.generate_concept(
+            name=clean_name,
+            category=request.category,
+            description=request.description,
+            eng=eng,
+            hyde=hyde
+        )
+
+        return build_concept_graph(generated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/concept/custom")
+def delete_custom_concept_api(id: str = Query(..., description="Custom Concept ID or Name")):
+    """Deletes a user-generated custom concept by ID or name."""
+    if get_custom_concept_manager is None:
+        raise HTTPException(status_code=500, detail="Custom concept manager is not available")
+    try:
+        mgr = get_custom_concept_manager()
+        deleted = mgr.delete_concept(id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Custom concept '{id}' not found")
+        return {"status": "deleted", "id": id}
     except HTTPException:
         raise
     except Exception as e:

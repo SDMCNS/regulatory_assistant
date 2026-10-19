@@ -11,11 +11,12 @@ import * as d3 from 'd3';
 import {
   Compass, Search, Sparkles, Layers, RefreshCw, ZoomIn, ZoomOut,
   Maximize2, Shield, AlertCircle, BookOpen, ExternalLink, Copy, Check,
-  X, Filter, ChevronRight, FileText, Cpu, ArrowUpRight, Radio, Eye, Send
+  X, Filter, ChevronRight, FileText, Cpu, ArrowUpRight, Radio, Eye, Send,
+  Plus, Trash2, CheckCircle2, Lightbulb
 } from 'lucide-react';
 import {
-  fetchGraphStats, fetchSourcesCatalog, fetchConceptsCatalog, searchGraph, executeHydeSearch,
-  fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
+  fetchGraphStats, fetchSourcesCatalog, fetchConceptsCatalog, generateCustomConcept, deleteCustomConcept,
+  searchGraph, executeHydeSearch, fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
   GraphStats, SourcesCatalog, ConceptSummary, GraphSearchResult, HydeResponse, HydeCandidate,
   D3GraphData, D3GraphNode, D3GraphLink, NodeInspectionDetails
 } from '../services/graphService';
@@ -62,6 +63,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   const [currentConcept, setCurrentConcept] = useState<string>('Fuel Planning & Energy Schemes');
   const [conceptsList, setConceptsList] = useState<ConceptSummary[]>([]);
 
+  // Concept Suggestion / Generation Modal State
+  const [isGenerateConceptModalOpen, setIsGenerateConceptModalOpen] = useState<boolean>(false);
+  const [newConceptName, setNewConceptName] = useState<string>('');
+  const [newConceptCategory, setNewConceptCategory] = useState<string>('');
+  const [newConceptDescription, setNewConceptDescription] = useState<string>('');
+  const [isGeneratingConcept, setIsGeneratingConcept] = useState<boolean>(false);
+  const [conceptGenerateError, setConceptGenerateError] = useState<string | null>(null);
+  const [conceptSuccessMessage, setConceptSuccessMessage] = useState<string | null>(null);
 
   // Multi-source Federation State
   const [activeSources, setActiveSources] = useState<string[]>(['EASA', 'EU', 'FAA', 'SKYBRARY', 'EUROCAE']);
@@ -509,6 +518,65 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   };
 
 
+  // Handle Custom Concept Generation
+  const handleGenerateConceptSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const name = newConceptName.trim();
+    if (!name) {
+      setConceptGenerateError('Please enter a concept name.');
+      return;
+    }
+    setIsGeneratingConcept(true);
+    setConceptGenerateError(null);
+    try {
+      const generatedGraph = await generateCustomConcept(apiUrl, {
+        name,
+        category: newConceptCategory.trim() || undefined,
+        description: newConceptDescription.trim() || undefined
+      });
+      // Refresh concepts catalog
+      const updatedCatalog = await fetchConceptsCatalog(apiUrl);
+      setConceptsList(updatedCatalog);
+
+      const conceptData = (generatedGraph as any).concept || {};
+      const generatedName = conceptData.name || name;
+      setCurrentConcept(generatedName);
+      setCurrentMode('concept');
+      setGraphData(generatedGraph);
+
+      const anchor = generatedGraph.nodes.find(n => n.is_anchor) || generatedGraph.nodes[0] || null;
+      if (anchor) {
+        handleSelectNode(anchor);
+      }
+
+      setIsGenerateConceptModalOpen(false);
+      setNewConceptName('');
+      setNewConceptCategory('');
+      setNewConceptDescription('');
+      setConceptSuccessMessage(`Concept "${generatedName}" codified with ${(generatedGraph as any).total_provisions || generatedGraph.nodes.length} rules.`);
+      setTimeout(() => setConceptSuccessMessage(null), 5000);
+    } catch (err: any) {
+      setConceptGenerateError(err.message || 'Failed to generate concept mesh.');
+    } finally {
+      setIsGeneratingConcept(false);
+    }
+  };
+
+  const handleDeleteCustomConcept = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Are you sure you want to remove the custom concept "${name}"?`)) return;
+    try {
+      await deleteCustomConcept(apiUrl, id);
+      const updated = await fetchConceptsCatalog(apiUrl);
+      setConceptsList(updated);
+      if (currentConcept === name && updated.length > 0) {
+        handleSelectConcept(updated[0].name);
+      }
+    } catch (err: any) {
+      alert('Failed to delete concept: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   // Copy helper
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -660,6 +728,16 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         </span>
         {currentMode === 'concept' ? (
           <>
+            <button
+              onClick={() => {
+                setConceptGenerateError(null);
+                setIsGenerateConceptModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition-colors shrink-0"
+            >
+              <Plus className="w-3 h-3" />
+              <span>Suggest Concept</span>
+            </button>
             {[
               { name: 'Fuel Planning & Energy Schemes', label: '⛽ Fuel Schemes' },
               { name: 'Safety Management System (SMS)', label: '🛡️ Safety Mgmt (SMS)' },
@@ -776,28 +854,61 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-[11px] font-semibold text-rose-400">
                   <span>Selected Concept:</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-rose-950 border border-rose-800 text-rose-300 font-mono">
-                    {conceptsList.length} In Taxonomy
-                  </span>
+                  <button
+                    onClick={() => {
+                      setConceptGenerateError(null);
+                      setIsGenerateConceptModalOpen(true);
+                    }}
+                    className="flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-rose-950 hover:bg-rose-900 border border-rose-800 text-rose-300 transition-colors"
+                  >
+                    <Plus className="w-2.5 h-2.5" />
+                    <span>Suggest New</span>
+                  </button>
                 </div>
                 <select
                   value={currentConcept}
                   onChange={(e) => handleSelectConcept(e.target.value)}
                   className="w-full bg-slate-900 border border-rose-900/50 rounded px-2 py-1.5 text-xs text-rose-200 outline-none focus:border-rose-500 transition-colors"
                 >
-                  {conceptsList.map((c) => (
-                    <option key={c.id} value={c.name} className="bg-slate-900 text-slate-200">
-                      {c.name} ({c.total_provisions} rules)
-                    </option>
-                  ))}
+                  {conceptsList.some(c => c.is_custom) && (
+                    <optgroup label="✨ User-Suggested Concepts">
+                      {conceptsList.filter(c => c.is_custom).map((c) => (
+                        <option key={c.id} value={c.name} className="bg-slate-900 text-rose-300">
+                          ✨ {c.name} ({c.total_provisions} rules)
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Standard EASA Taxonomy">
+                    {conceptsList.filter(c => !c.is_custom).map((c) => (
+                      <option key={c.id} value={c.name} className="bg-slate-900 text-slate-200">
+                        {c.name} ({c.total_provisions} rules)
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
                 {(() => {
-                  const sel = conceptsList.find(c => c.name === currentConcept);
+                  const sel = conceptsList.find(c => c.name === currentConcept || c.id === currentConcept);
                   if (!sel) return null;
                   return (
-                    <div className="text-[10px] text-slate-400 flex items-center justify-between px-1">
-                      <span>Category:</span>
-                      <span className="text-slate-300 font-medium">{sel.category}</span>
+                    <div className="flex flex-col gap-1 text-[10px] text-slate-400 px-1 pt-1">
+                      <div className="flex items-center justify-between">
+                        <span>Category:</span>
+                        <span className="text-slate-300 font-medium truncate max-w-[120px]">{sel.category}</span>
+                      </div>
+                      {sel.is_custom && (
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                          <span className="text-rose-400 font-medium">✨ Custom Concept</span>
+                          <button
+                            onClick={(e) => handleDeleteCustomConcept(sel.id, sel.name, e)}
+                            className="flex items-center gap-1 text-[9px] text-red-400 hover:text-red-300 bg-red-950/60 hover:bg-red-900/80 px-1.5 py-0.5 rounded transition-colors"
+                            title="Delete this custom concept"
+                          >
+                            <Trash2 className="w-2.5 h-2.5" />
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -1855,6 +1966,165 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 Apply Sources
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification Banner */}
+      {conceptSuccessMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 bg-emerald-950 border border-emerald-600/70 text-emerald-200 rounded-xl shadow-2xl backdrop-blur animate-in fade-in slide-in-from-bottom-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="text-xs font-medium">{conceptSuccessMessage}</span>
+          <button onClick={() => setConceptSuccessMessage(null)} className="ml-2 text-emerald-400 hover:text-emerald-200">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Suggest / Generate Aviation Concept Modal */}
+      {isGenerateConceptModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-900/50 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-rose-950 border border-rose-800/80 flex items-center justify-center text-rose-400">
+                  <Lightbulb className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">Suggest Aviation Concept</h3>
+                  <p className="text-[11px] text-slate-400">Synthesize & codify a custom regulatory ontology mesh</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsGenerateConceptModalOpen(false)}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form onSubmit={handleGenerateConceptSubmit} className="p-6 flex flex-col gap-4">
+              {conceptGenerateError && (
+                <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-xs text-red-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{conceptGenerateError}</span>
+                </div>
+              )}
+
+              {/* Example Suggestions */}
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Popular Aviation Topics:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { name: 'De-icing and Anti-icing Operations', cat: 'Flight Operations', desc: 'Ground de-icing, anti-icing procedures, holdover times and frost protection' },
+                    { name: 'Electronic Flight Bag (EFB)', cat: 'Flight Operations', desc: 'Hardware, software applications, operational approval and crew training for EFBs' },
+                    { name: 'Wake Turbulence Separation', cat: 'Air Traffic Management', desc: 'Wake turbulence vortex separation minima and arrival spacing' },
+                    { name: 'Wildlife Hazard & Bird Strike', cat: 'Aerodromes & Ground Handling', desc: 'Aerodrome wildlife control, bird strike risk assessment and reporting' },
+                    { name: 'Performance-Based Navigation (PBN)', cat: 'Navigation & Avionics', desc: 'RNAV and RNP navigation specifications, sensor requirements and operational approvals' }
+                  ].map(ex => (
+                    <button
+                      key={ex.name}
+                      type="button"
+                      onClick={() => {
+                        setNewConceptName(ex.name);
+                        setNewConceptCategory(ex.cat);
+                        setNewConceptDescription(ex.desc);
+                      }}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 border border-slate-700/60 transition-colors"
+                    >
+                      {ex.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Concept Name Input */}
+              <div>
+                <label className="text-xs font-semibold text-slate-200 block mb-1">
+                  Concept Name <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newConceptName}
+                  onChange={(e) => setNewConceptName(e.target.value)}
+                  placeholder="e.g. De-icing and Anti-icing Operations, Electronic Flight Bag..."
+                  required
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-rose-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none transition-colors"
+                />
+              </div>
+
+              {/* Regulatory Domain / Category */}
+              <div>
+                <label className="text-xs font-semibold text-slate-200 block mb-1">
+                  Regulatory Domain / Category <span className="text-slate-500 font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  list="category-suggestions"
+                  value={newConceptCategory}
+                  onChange={(e) => setNewConceptCategory(e.target.value)}
+                  placeholder="e.g. Flight Operations, Airworthiness & Maintenance, Aerodromes..."
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-rose-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none transition-colors"
+                />
+                <datalist id="category-suggestions">
+                  <option value="Flight Operations" />
+                  <option value="Continuing Airworthiness & Maintenance" />
+                  <option value="Aerodromes & Ground Handling" />
+                  <option value="Air Traffic Management & Airspace" />
+                  <option value="Safety Management & Compliance" />
+                  <option value="Personnel Licensing & Training" />
+                  <option value="Cybersecurity & Security" />
+                  <option value="Special Authorizations & Approvals" />
+                </datalist>
+              </div>
+
+              {/* Description / Keywords */}
+              <div>
+                <label className="text-xs font-semibold text-slate-200 block mb-1">
+                  Operational Scope & Context <span className="text-slate-500 font-normal">(Optional - guides provision matching)</span>
+                </label>
+                <textarea
+                  value={newConceptDescription}
+                  onChange={(e) => setNewConceptDescription(e.target.value)}
+                  placeholder="Describe operational procedures, relevant systems, or hazards to help the engine accurately map all governing hard and soft laws..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-800 focus:border-rose-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none transition-colors resize-none"
+                />
+              </div>
+
+              {/* Footer Actions */}
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsGenerateConceptModalOpen(false)}
+                  disabled={isGeneratingConcept}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isGeneratingConcept || !newConceptName.trim()}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-lg shadow-rose-950/60 transition-all"
+                >
+                  {isGeneratingConcept ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Synthesizing Mesh...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Generate & Codify Mesh</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

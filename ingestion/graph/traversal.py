@@ -303,7 +303,7 @@ class EasaGraphEngine:
         }
 
     def get_all_concepts(self) -> List[Dict[str, Any]]:
-        """Returns all aviation ontology concepts with category and governing provision counts."""
+        """Returns all aviation ontology concepts (Kùzu taxonomy + user-defined custom concepts)."""
         res = self.conn.execute("""
             MATCH (c:Concept)
             OPTIONAL MATCH (p:Provision)-[:GOVERNS_CONCEPT]->(c)
@@ -312,32 +312,150 @@ class EasaGraphEngine:
             ORDER BY count(p) DESC;
         """)
         concepts = []
+        seen_ids = set()
         while res.has_next():
             row = res.get_next()
+            c_id = row[0]
+            seen_ids.add(c_id.lower())
             concepts.append({
-                "id": row[0],
+                "id": c_id,
                 "name": row[1],
                 "category": row[2],
-                "total_provisions": row[3]
+                "total_provisions": row[3],
+                "is_custom": False
             })
+
+        # Integrate User-Suggested / Generated Custom Concepts
+        try:
+            from ingestion.graph.custom_concepts import get_custom_concept_manager
+            mgr = get_custom_concept_manager()
+            custom_list = mgr.load_all()
+            for cc in custom_list:
+                c_data = cc.get("concept", cc)
+                c_id = c_data.get("id") or cc.get("id", "")
+                if c_id.lower() not in seen_ids:
+                    seen_ids.add(c_id.lower())
+                    concepts.insert(0, {
+                        "id": c_id,
+                        "name": c_data.get("name", "Custom Concept"),
+                        "category": c_data.get("category", "Custom Concept"),
+                        "total_provisions": cc.get("total_governing_provisions", len(cc.get("provisions_by_annex", {}))),
+                        "is_custom": True,
+                        "description": c_data.get("description", "")
+                    })
+        except Exception as e:
+            pass
+
         return concepts
+
+    def resolve_concept(self, concept_query: str) -> Optional[Dict[str, Any]]:
+        """
+        Robustly resolves any concept query, preset name, acronym, or ID
+        to its canonical concept record without fragile regex syntax errors.
+        """
+        q = concept_query.strip().lower()
+        if not q:
+            return None
+
+        # 1. Check custom concepts first
+        try:
+            from ingestion.graph.custom_concepts import get_custom_concept_manager
+            mgr = get_custom_concept_manager()
+            cust = mgr.get_concept(concept_query)
+            if cust:
+                return {
+                    "id": cust.get("concept", {}).get("id") or cust.get("id"),
+                    "name": cust.get("concept", {}).get("name") or cust.get("name"),
+                    "category": cust.get("concept", {}).get("category") or cust.get("category"),
+                    "is_custom": True,
+                    "raw_custom": cust
+                }
+        except Exception:
+            pass
+
+        # 2. Get all taxonomy concepts
+        all_concepts = self.get_all_concepts()
+
+        # Check exact ID (with or without 'concept_')
+        for c in all_concepts:
+            cid = c["id"].lower()
+            if cid == q or cid.replace("concept_", "") == q:
+                return c
+
+        # Check exact Name
+        for c in all_concepts:
+            if c["name"].lower() == q:
+                return c
+
+        # Check Parentheses Acronyms (e.g. user passes 'SMS' or '(SMS)', matches 'Safety Management System (SMS)')
+        for c in all_concepts:
+            c_name_lower = c["name"].lower()
+            if f"({q})" in c_name_lower or f"/{q})" in c_name_lower or f"({q}/" in c_name_lower or f"/{q}/" in c_name_lower:
+                return c
+
+        # Check Token Overlap for compound phrases (e.g. 'ATM/ANS Airspace' -> 'Air Traffic Management & Airspace (ATM/ANS/SERA)')
+        q_clean = re.sub(r'[^a-zA-Z0-9]+', ' ', q).strip()
+        q_words = set(w for w in q_clean.split() if len(w) > 2)
+        best_c = None
+        best_score = 0
+        for c in all_concepts:
+            c_clean = re.sub(r'[^a-zA-Z0-9]+', ' ', c["name"].lower()).strip()
+            c_words = set(w for w in c_clean.split() if len(w) > 2)
+            score = len(q_words & c_words)
+            if score > best_score:
+                best_score = score
+                best_c = c
+        if best_score >= 1:
+            return best_c
+
+        # Check Substring
+        for c in all_concepts:
+            if q in c["name"].lower() or c["name"].lower() in q:
+                return c
+
+        return None
 
     def get_concept_subgraph(self, concept_name: str) -> Dict[str, Any]:
         """
-        Finds all regulatory provisions governing a specific aviation concept,
-        grouped by Annex and legal force.
+        Finds all regulatory provisions governing an aviation concept across Annexes.
+        Handles both native Kùzu graph concepts and user-generated custom concepts.
         """
-        clean_name = concept_name.replace("CONCEPT_", "").replace("CON_", "").replace("_", " ").strip()
-        res_concept = self.conn.execute(f"""
-            MATCH (c:Concept)
-            WHERE c.name =~ '(?i).*{clean_name}.*' OR c.id = '{concept_name}'
-            RETURN c.id, c.name, c.category
-            LIMIT 1;
-        """)
-        if not res_concept.has_next():
+        resolved = self.resolve_concept(concept_name)
+        if not resolved:
             return {"error": f"Concept '{concept_name}' not found in taxonomy."}
 
-        concept_id, c_name, c_cat = res_concept.get_next()
+        # If it's a custom concept, return its pre-built mesh
+        if resolved.get("is_custom"):
+            raw = resolved.get("raw_custom")
+            if not raw:
+                try:
+                    from ingestion.graph.custom_concepts import get_custom_concept_manager
+                    mgr = get_custom_concept_manager()
+                    raw = mgr.get_concept(resolved["id"]) or mgr.get_concept(resolved["name"])
+                except Exception:
+                    raw = None
+
+            if raw:
+                c_info = raw.get("concept", raw)
+                provs_by_annex = raw.get("provisions_by_annex", {})
+                total_provs = sum(len(v) for v in provs_by_annex.values())
+                return {
+                    "concept": {
+                        "id": c_info.get("id", resolved["id"]),
+                        "name": c_info.get("name", resolved["name"]),
+                        "category": c_info.get("category", resolved.get("category", "Custom")),
+                        "description": c_info.get("description", ""),
+                        "is_custom": True
+                    },
+                    "total_governing_provisions": total_provs,
+                    "provisions_by_annex": provs_by_annex,
+                    "is_custom": True
+                }
+
+        # Otherwise query Kùzu for the canonical concept ID
+        concept_id = resolved["id"]
+        c_name = resolved["name"]
+        c_cat = resolved.get("category", "General")
 
         res_provs = self.conn.execute(f"""
             MATCH (p:Provision)-[g:GOVERNS_CONCEPT]->(c:Concept {{id: '{concept_id}'}})
@@ -350,7 +468,6 @@ class EasaGraphEngine:
         while res_provs.has_next():
             row = res_provs.get_next()
             p_id, p_code, p_title, p_subj, p_ctype, p_force, g_rel, a_code, a_name = row
-            # Use clean annex identifier
             annex = (a_code if a_code and a_code != "n/a" else None) or (p_subj if p_subj and p_subj != "n/a" else None) or "General"
             if annex not in provisions_by_annex:
                 provisions_by_annex[annex] = []
@@ -366,9 +483,10 @@ class EasaGraphEngine:
 
         total_provisions = sum(len(v) for v in provisions_by_annex.values())
         return {
-            "concept": {"name": c_name, "category": c_cat, "id": concept_id},
+            "concept": {"name": c_name, "category": c_cat, "id": concept_id, "is_custom": False},
             "total_governing_provisions": total_provisions,
-            "provisions_by_annex": provisions_by_annex
+            "provisions_by_annex": provisions_by_annex,
+            "is_custom": False
         }
 
 

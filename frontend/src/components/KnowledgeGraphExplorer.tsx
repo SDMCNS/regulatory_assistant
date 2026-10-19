@@ -178,8 +178,13 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     fetchRegulationsCatalog(apiUrl)
       .then((regs) => {
         setRegulationsList(regs);
-        if (regs.length > 0 && !currentRegulation) {
-          setCurrentRegulation(regs[0].name);
+        if (regs.length > 0) {
+          const match = regs.find(r => r.name.toLowerCase().includes(currentRegulation.toLowerCase()));
+          if (match) {
+            setCurrentRegulation(match.name);
+          } else if (!currentRegulation) {
+            setCurrentRegulation(regs[0].name || regs[0].id);
+          }
         }
       })
       .catch((err) => console.warn('Failed to fetch regulations catalog:', err));
@@ -1162,15 +1167,31 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                   className="w-full bg-slate-900 border border-blue-900/50 rounded px-2 py-1.5 text-xs text-blue-200 outline-none focus:border-blue-500 transition-colors"
                 >
                   {regulationsList
-                    .filter(r => !regulationSearchFilter || r.name.toLowerCase().includes(regulationSearchFilter.toLowerCase()) || r.title.toLowerCase().includes(regulationSearchFilter.toLowerCase()))
-                    .map((r) => (
-                      <option key={r.id} value={r.name} className="bg-slate-900 text-slate-200">
-                        {r.name} ({r.total_topics} topics)
-                      </option>
-                    ))}
+                    .filter(r => {
+                      if (!regulationSearchFilter) return true;
+                      const f = regulationSearchFilter.toLowerCase();
+                      const name = (r.name || '').toLowerCase();
+                      const code = (r.code || '').toLowerCase();
+                      const title = (r.title || '').toLowerCase();
+                      return name.includes(f) || code.includes(f) || title.includes(f);
+                    })
+                    .map((r) => {
+                      const displayName = r.name || r.code || r.title || r.id;
+                      return (
+                        <option key={r.id} value={r.name || r.id} className="bg-slate-900 text-slate-200">
+                          {displayName} ({r.total_topics} topics)
+                        </option>
+                      );
+                    })}
                 </select>
                 {(() => {
-                  const sel = regulationsList.find(r => r.name === currentRegulation || r.id === currentRegulation);
+                  const sel = regulationsList.find(r =>
+                    r.name === currentRegulation ||
+                    r.id === currentRegulation ||
+                    r.code === currentRegulation ||
+                    (r.name && currentRegulation && r.name.toLowerCase().includes(currentRegulation.toLowerCase())) ||
+                    (currentRegulation && r.id.toLowerCase().includes(currentRegulation.toLowerCase()))
+                  );
                   if (!sel) return null;
                   return (
                     <div className="flex flex-col gap-1 text-[10px] text-slate-400 px-1 pt-1">

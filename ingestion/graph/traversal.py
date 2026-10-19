@@ -503,46 +503,121 @@ class EasaGraphEngine:
         while res.has_next():
             row = res.get_next()
             doc_id, title, src, topics, annexes = row
+
+            clean_name = title.strip()
+            clean_name = clean_name.replace("’", "'").replace("—", " - ").replace("–", " - ")
+            if clean_name.lower().startswith("easy access rules for "):
+                clean_name = clean_name[len("easy access rules for "):].strip()
+            clean_name = clean_name.replace(" (Regulation (EU) No ", " (Reg ").replace(" (Regulation (EU) ", " (Reg ").replace(" (Regulations (EU) ", " (Regs ")
+            clean_name = clean_name.replace("Regulation (EU) No ", "Reg ").replace("Regulation (EU) ", "Reg ")
+            clean_name = clean_name.replace("_", ".")
+            if clean_name.startswith("the "):
+                clean_name = clean_name[4:].capitalize()
+            elif clean_name.startswith("The "):
+                clean_name = clean_name[4:]
+            elif clean_name.startswith("small category"):
+                clean_name = "Small Category VCA"
+            elif "Sailplane Rule Book" in clean_name:
+                clean_name = "Sailplanes (Rule Book)"
+
             short_code = doc_id.replace("DOC_", "").split("__")[0]
             if "AIR_OPERATIONS" in doc_id:
                 short_code = "AIR-OPS (965/2012)"
+                clean_name = "Air Operations (Reg 965/2012)"
             elif "CONTINUING_AIRWORTHINESS" in doc_id:
                 short_code = "AIRWORTHINESS (1321/2014)"
+                clean_name = "Continuing Airworthiness (Reg 1321/2014)"
             elif "AIRCREW" in doc_id:
                 short_code = "AIRCREW (1178/2011)"
+                clean_name = "Aircrew Licensing (Reg 1178/2011)"
             elif "AERODROMES" in doc_id:
                 short_code = "AERODROMES (139/2014)"
+                clean_name = "Aerodromes (Reg 139/2014)"
+            elif "AIR_TRAFFIC_MANAGEMENT" in doc_id and "EQUIPMENT" in doc_id:
+                short_code = "ATM/ANS Equipment"
+                clean_name = "ATM/ANS Equipment Specifications"
             elif "AIR_TRAFFIC_MANAGEMENT" in doc_id:
                 short_code = "ATM/ANS (2017/373)"
+                clean_name = "Air Traffic Management (ATM/ANS 2017/373)"
             elif "LARGE_AEROPLANES" in doc_id:
                 short_code = "CS-25 (Large Aeroplanes)"
+                clean_name = "Large Aeroplanes (CS-25)"
             elif "INFORMATION_SECURITY" in doc_id:
                 short_code = "PART-IS (Cybersecurity)"
+                clean_name = "Information Security (Part-IS 2023/203)"
             elif "UNMANNED" in doc_id:
                 short_code = "UAS (Drones 2019/947)"
+                clean_name = "Unmanned Aircraft Systems (Drones 2019/947)"
             elif "STANDARDISED_EUROPEAN_RULES_OF_THE_AIR" in doc_id:
                 short_code = "SERA (923/2012)"
+                clean_name = "Rules of the Air (SERA 923/2012)"
             elif "GROUND_HANDLING" in doc_id:
                 short_code = "GROUND HANDLING (2025/23)"
+                clean_name = "Ground Handling (Part-GH 2025/23)"
             elif "INITIAL_AIRWORTHINESS" in doc_id:
                 short_code = "PART-21 (Design/Production)"
+                clean_name = "Initial Airworthiness (Part-21 748/2012)"
             elif "CS_MMEL" in doc_id:
                 short_code = "CS-MMEL (Master MEL)"
+                clean_name = "Master Minimum Equipment List (CS-MMEL)"
             elif "CS_AWO" in doc_id:
                 short_code = "CS-AWO (All-Weather)"
+                clean_name = "All-Weather Operations (CS-AWO)"
             elif "CS_ACNS" in doc_id:
                 short_code = "CS-ACNS (Comms/Nav/Surv)"
+                clean_name = "Airborne Comms, Nav & Surveillance (CS-ACNS)"
             elif "CS_ETSO" in doc_id:
                 short_code = "CS-ETSO (Technical Orders)"
+                clean_name = "European Technical Standard Orders (CS-ETSO)"
             elif "U_SPACE" in doc_id:
                 short_code = "U-SPACE (2021/664)"
+                clean_name = "U-Space Airspace (Reg 2021/664)"
             elif "BASIC_REGULATION" in doc_id:
                 short_code = "BASIC REG (2018/1139)"
+                clean_name = "The Basic Regulation (Reg 2018/1139)"
             elif "OCCURRENCE_REPORTING" in doc_id:
                 short_code = "OCCURRENCE (376/2014)"
+                clean_name = "Occurrence Reporting (Reg 376/2014)"
+            elif "LARGE_ROTORCRAFT" in doc_id:
+                short_code = "CS-29 (Rotorcraft)"
+                clean_name = "Large Rotorcraft (CS-29)"
+            elif "SMALL_ROTORCRAFT" in doc_id:
+                short_code = "CS-27 (Rotorcraft)"
+                clean_name = "Small Rotorcraft (CS-27)"
+            elif "NORMAL_CATEGORY_AEROPLANES" in doc_id:
+                short_code = "CS-23 (Normal Aeroplanes)"
+                clean_name = "Normal-Category Aeroplanes (CS-23)"
+            elif "VERY_LIGHT_AEROPLANES" in doc_id:
+                short_code = "CS-VLA (Light Aeroplanes)"
+                clean_name = "Very Light Aeroplanes (CS-VLA)"
+            elif "LIGHT_SPORT_AEROPLANES" in doc_id:
+                short_code = "CS-LSA (Light Sport)"
+                clean_name = "Light Sport Aeroplanes (CS-LSA)"
+            elif "ENGINES" in doc_id:
+                short_code = "CS-E (Engines)"
+                clean_name = "Engines (CS-E)"
+            elif "SAILPLANES" in doc_id:
+                short_code = "CS-22 (Sailplanes)"
+                clean_name = "Sailplanes & Powered Sailplanes (CS-22)"
+            elif "THIRD_COUNTRY_OPERATORS" in doc_id:
+                short_code = "TCO (Third Country)"
+                clean_name = "Third Country Operators (Part-TCO)"
+            elif "HOT_AIR_BALLOONS" in doc_id:
+                short_code = "CS-31HB (Hot Air)"
+                clean_name = "Hot Air Balloons (CS-31HB)"
+            elif "TETHERED_GAS_BALLOONS" in doc_id:
+                short_code = "CS-31TGB (Tethered)"
+                clean_name = "Tethered Gas Balloons (CS-31TGB)"
+            elif "GAS_BALLOONS" in doc_id:
+                short_code = "CS-31GB (Gas)"
+                clean_name = "Gas Balloons (CS-31GB)"
+            elif "BALLOONS" in doc_id:
+                short_code = "BALLOONS"
+                clean_name = "Balloons (Part-BFCL & Operations)"
 
             regs.append({
                 "id": doc_id,
+                "name": clean_name,
                 "code": short_code,
                 "title": title,
                 "source": src or "EASA",
@@ -561,9 +636,13 @@ class EasaGraphEngine:
         q_lower = q.lower()
         all_regs = self.get_all_regulations()
 
-        # 1. Exact ID or Code match
+        # 1. Exact ID, Code, or Name match
         for r in all_regs:
-            if r["id"].lower() == q_lower or r["code"].lower() == q_lower:
+            if (
+                r["id"].lower() == q_lower
+                or r["code"].lower() == q_lower
+                or r.get("name", "").lower() == q_lower
+            ):
                 return r
 
         # 2. Domain aliases

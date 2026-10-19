@@ -17,9 +17,12 @@ import {
 import {
   fetchGraphStats, fetchSourcesCatalog, fetchConceptsCatalog, generateCustomConcept, deleteCustomConcept,
   searchGraph, executeHydeSearch, fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
+  fetchConceptNarrative, ConceptNarrativeResponse,
   GraphStats, SourcesCatalog, ConceptSummary, GraphSearchResult, HydeResponse, HydeCandidate,
   D3GraphData, D3GraphNode, D3GraphLink, NodeInspectionDetails
 } from '../services/graphService';
+import { loadSettings } from '../services/apiClient';
+import { marked } from 'marked';
 
 interface Props {
   apiUrl: string;
@@ -72,6 +75,22 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   const [conceptGenerateError, setConceptGenerateError] = useState<string | null>(null);
   const [conceptSuccessMessage, setConceptSuccessMessage] = useState<string | null>(null);
 
+  // AI Concept Narrative State
+  const [isNarrativeModalOpen, setIsNarrativeModalOpen] = useState<boolean>(false);
+  const [narrativeConceptName, setNarrativeConceptName] = useState<string>('');
+  const [narrativeData, setNarrativeData] = useState<ConceptNarrativeResponse | null>(null);
+  const [isNarrativeLoading, setIsNarrativeLoading] = useState<boolean>(false);
+  const [narrativeError, setNarrativeError] = useState<string | null>(null);
+  const [narrativeProvider, setNarrativeProvider] = useState<'gemini' | 'local'>(() => {
+    try {
+      const s = loadSettings();
+      return s.geminiApiKey ? 'gemini' : 'local';
+    } catch {
+      return 'local';
+    }
+  });
+  const [copiedNarrative, setCopiedNarrative] = useState<boolean>(false);
+
   // Multi-source Federation State
   const [activeSources, setActiveSources] = useState<string[]>(['EASA', 'EU', 'FAA', 'SKYBRARY', 'EUROCAE']);
   const [sourcesCatalog, setSourcesCatalog] = useState<SourcesCatalog | null>(null);
@@ -100,7 +119,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
   // 360° Inspector Modal
   const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
-  const [inspectorTab, setInspectorTab] = useState<'text' | 'hierarchy' | 'similar' | 'citations' | 'impact' | 'rag'>('text');
+  const [inspectorTab, setInspectorTab] = useState<'text' | 'hierarchy' | 'similar' | 'citations' | 'impact' | 'rag' | 'narrative'>('text');
   const [copiedText, setCopiedText] = useState<boolean>(false);
 
   // HyDE Candidate Discovery Modal
@@ -584,6 +603,37 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     setTimeout(() => setCopiedText(false), 2000);
   };
 
+  // Concept Narrative Handlers
+  const handleGenerateNarrative = useCallback(async (targetConcept: string, provider: 'gemini' | 'local') => {
+    setIsNarrativeLoading(true);
+    setNarrativeError(null);
+    try {
+      const settings = loadSettings();
+      const res = await fetchConceptNarrative(
+        apiUrl,
+        targetConcept,
+        provider,
+        settings.geminiModel || undefined,
+        settings.geminiApiKey || undefined
+      );
+      setNarrativeData(res);
+    } catch (err: any) {
+      console.error('Concept narrative generation failed:', err);
+      setNarrativeError(err.message || 'Failed to synthesize regulatory narrative report.');
+    } finally {
+      setIsNarrativeLoading(false);
+    }
+  }, [apiUrl]);
+
+  const handleOpenNarrative = useCallback((conceptName?: string) => {
+    const target = conceptName || currentConcept;
+    setNarrativeConceptName(target);
+    setIsNarrativeModalOpen(true);
+    if (!narrativeData || narrativeData.concept !== target || narrativeData.provider !== narrativeProvider) {
+      handleGenerateNarrative(target, narrativeProvider);
+    }
+  }, [currentConcept, narrativeData, narrativeProvider, handleGenerateNarrative]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.75rem)] w-full bg-slate-950 text-slate-100 overflow-hidden select-none">
       {/* ================= TOP CONTROLS BAR ================= */}
@@ -737,6 +787,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
             >
               <Plus className="w-3 h-3" />
               <span>Suggest Concept</span>
+            </button>
+            <button
+              onClick={() => handleOpenNarrative(currentConcept)}
+              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white shadow-sm transition-all shrink-0 cursor-pointer"
+              title="Generate comprehensive regulatory narrative report with AI"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>AI Concept Report</span>
             </button>
             {[
               { name: 'Fuel Planning & Energy Schemes', label: '⛽ Fuel Schemes' },
@@ -912,6 +970,14 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                     </div>
                   );
                 })()}
+                <button
+                  onClick={() => handleOpenNarrative(currentConcept)}
+                  className="mt-1.5 w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:via-pink-500 hover:to-amber-500 text-white rounded text-xs font-semibold shadow-md shadow-rose-950/40 hover:shadow-rose-900/60 transition-all cursor-pointer"
+                  title="Ask Gemini or Local LLM to synthesize how all provisions in this concept fit together"
+                >
+                  <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                  <span>AI Concept Narrative</span>
+                </button>
               </div>
             )}
           </div>
@@ -1177,6 +1243,13 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                   <div className="text-[11px] text-slate-300 mt-1">
                     Governed across European air operations by <strong className="text-rose-300">{nodeDetails?.total_provisions || '80+'}</strong> codifications.
                   </div>
+                  <button
+                    onClick={() => handleOpenNarrative(selectedNode.label)}
+                    className="mt-2 w-full py-1.5 bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:via-pink-500 hover:to-amber-500 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-rose-950/40 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Synthesize AI Narrative</span>
+                  </button>
                 </div>
 
                 {nodeDetails?.provisions_by_annex && Object.keys(nodeDetails.provisions_by_annex).length > 0 && (
@@ -1287,6 +1360,15 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
             {/* Drawer Actions */}
             <div className="flex flex-col gap-2 mt-auto pt-3 border-t border-slate-800">
+              {selectedNode.type === 'CONCEPT' && (
+                <button
+                  onClick={() => handleOpenNarrative(selectedNode.label)}
+                  className="w-full py-1.5 bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:via-pink-500 hover:to-amber-500 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-rose-950/40 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>AI Concept Synthesis Report</span>
+                </button>
+              )}
               <button
                 onClick={() => handlePivotToNode(selectedNode.label)}
                 className="w-full py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
@@ -1362,6 +1444,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
               {[
                 { id: 'text', label: '📖 Verbatim Text' },
                 { id: 'hierarchy', label: '⚖️ Legal Hierarchy & Soft Law' },
+                ...(selectedNode.type === 'CONCEPT' ? [{ id: 'narrative', label: '✨ AI Concept Narrative' }] : []),
                 { id: 'similar', label: '🧬 Semantic Parallels (SIMILAR_TO)' },
                 { id: 'citations', label: '🔗 Dependencies & Citations' },
                 { id: 'impact', label: '👥 Stakeholders & Concepts' },
@@ -1738,6 +1821,149 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                       <pre className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto">
                         {nodeDetails?.graphrag_context || nodeDetails?.graph_rag_markdown || 'Generating GraphRAG context...'}
                       </pre>
+                    </div>
+                  )}
+
+                  {/* Tab 7: AI Concept Narrative */}
+                  {inspectorTab === 'narrative' && (
+                    <div className="flex flex-col gap-4">
+                      {/* Sub-header with provider toggle and actions */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-950/70 border border-slate-800 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-300">LLM Provider:</span>
+                          <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-xs">
+                            <button
+                              onClick={() => {
+                                setNarrativeProvider('gemini');
+                                handleGenerateNarrative(selectedNode.label, 'gemini');
+                              }}
+                              disabled={isNarrativeLoading}
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                                narrativeProvider === 'gemini'
+                                  ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                                  : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              <span>✨</span>
+                              <span>Gemini Cloud</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                setNarrativeProvider('local');
+                                handleGenerateNarrative(selectedNode.label, 'local');
+                              }}
+                              disabled={isNarrativeLoading}
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                                narrativeProvider === 'local'
+                                  ? 'bg-purple-600 text-white font-semibold shadow-sm'
+                                  : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              <span>💻</span>
+                              <span>Local LLM</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleGenerateNarrative(selectedNode.label, narrativeProvider)}
+                            disabled={isNarrativeLoading}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 rounded text-xs flex items-center gap-1 transition-colors"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isNarrativeLoading ? 'animate-spin text-cyan-400' : ''}`} />
+                            <span>{isNarrativeLoading ? 'Synthesizing...' : 'Re-synthesize'}</span>
+                          </button>
+                          {narrativeData && narrativeData.concept === selectedNode.label && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(narrativeData.narrative);
+                                  setCopiedNarrative(true);
+                                  setTimeout(() => setCopiedNarrative(false), 2000);
+                                }}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs flex items-center gap-1 transition-colors"
+                              >
+                                {copiedNarrative ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                <span>{copiedNarrative ? 'Copied' : 'Copy Report'}</span>
+                              </button>
+                              {onSendToAssistant && (
+                                <button
+                                  onClick={() => {
+                                    onSendToAssistant(
+                                      `# Regulatory Synthesis: ${narrativeData.concept}\n\n` + narrativeData.narrative
+                                    );
+                                    setIsInspectorOpen(false);
+                                  }}
+                                  className="px-3 py-1 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 shadow-sm transition-all"
+                                >
+                                  <Send className="w-3 h-3" />
+                                  <span>Send to Assistant</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Content Area */}
+                      {isNarrativeLoading ? (
+                        <div className="flex flex-col items-center justify-center py-16 gap-3">
+                          <div className="relative">
+                            <div className="w-12 h-12 rounded-full border-4 border-rose-500/20 border-t-rose-500 animate-spin" />
+                            <Sparkles className="w-5 h-5 text-amber-400 absolute inset-0 m-auto animate-pulse" />
+                          </div>
+                          <span className="text-xs text-slate-300 font-medium">Synthesizing regulatory narrative for {selectedNode.label}...</span>
+                          <span className="text-[11px] text-slate-500">Traversing Kùzu concept mesh and prompting LLM</span>
+                        </div>
+                      ) : narrativeError ? (
+                        <div className="p-4 bg-red-950/40 border border-red-800/80 rounded-xl flex flex-col gap-2">
+                          <span className="text-xs text-red-400 font-semibold">{narrativeError}</span>
+                          <button
+                            onClick={() => handleGenerateNarrative(selectedNode.label, narrativeProvider)}
+                            className="self-start px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded text-xs font-medium"
+                          >
+                            Retry Synthesis
+                          </button>
+                        </div>
+                      ) : narrativeData && narrativeData.concept === selectedNode.label ? (
+                        <div className="flex flex-col gap-4">
+                          {narrativeData.annexes_covered && narrativeData.annexes_covered.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] uppercase font-bold text-slate-500 mr-1">Governing Annexes:</span>
+                              {narrativeData.annexes_covered.map(annex => (
+                                <span key={annex} className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-300 font-mono text-[10px]">
+                                  {annex}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div
+                            className="p-5 bg-slate-950 rounded-xl border border-slate-800 text-slate-200 text-sm leading-relaxed whitespace-normal
+                              prose prose-invert prose-slate max-w-none
+                              prose-headings:text-slate-100 prose-headings:font-bold
+                              prose-h1:text-lg prose-h1:text-rose-400 prose-h1:border-b prose-h1:border-slate-800 prose-h1:pb-2
+                              prose-h2:text-base prose-h2:text-amber-300 prose-h2:mt-4 prose-h2:mb-2
+                              prose-h3:text-sm prose-h3:text-cyan-300
+                              prose-code:text-cyan-300 prose-code:bg-slate-900 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-xs
+                              prose-blockquote:border-l-4 prose-blockquote:border-rose-500 prose-blockquote:bg-rose-950/20 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-slate-300"
+                            dangerouslySetInnerHTML={{ __html: marked.parse(narrativeData.narrative) as string }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+                          <p className="text-xs text-slate-400 max-w-sm">
+                            Click below to generate an executive report explaining how all Hard Law IRs, Soft Law AMCs, and CS specs fit together for this concept.
+                          </p>
+                          <button
+                            onClick={() => handleGenerateNarrative(selectedNode.label, narrativeProvider)}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-rose-600 via-pink-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-xl text-xs font-semibold shadow-md transition-all cursor-pointer"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Synthesize Concept Narrative</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -2125,6 +2351,203 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= AI CONCEPT NARRATIVE MODAL ================= */}
+      {isNarrativeModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/70">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 to-amber-600 flex items-center justify-center shadow-md shadow-rose-950/50">
+                  <Sparkles className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded text-rose-300 bg-rose-950/80 border border-rose-800 font-mono">
+                      CONCEPT NARRATIVE
+                    </span>
+                    <h2 className="text-base font-bold text-slate-100 font-mono">
+                      {narrativeConceptName || currentConcept}
+                    </h2>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    Cross-Annex Regulatory Mesh Synthesis Report
+                  </div>
+                </div>
+              </div>
+
+              {/* Provider Selector & Actions */}
+              <div className="flex items-center gap-2.5">
+                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <button
+                    onClick={() => {
+                      setNarrativeProvider('gemini');
+                      handleGenerateNarrative(narrativeConceptName || currentConcept, 'gemini');
+                    }}
+                    disabled={isNarrativeLoading}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                      narrativeProvider === 'gemini'
+                        ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>✨</span>
+                    <span>Gemini Cloud</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNarrativeProvider('local');
+                      handleGenerateNarrative(narrativeConceptName || currentConcept, 'local');
+                    }}
+                    disabled={isNarrativeLoading}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                      narrativeProvider === 'local'
+                        ? 'bg-gradient-to-r from-purple-600 to-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <span>💻</span>
+                    <span>Local LLM</span>
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => handleGenerateNarrative(narrativeConceptName || currentConcept, narrativeProvider)}
+                  disabled={isNarrativeLoading}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                  title="Re-synthesize narrative"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isNarrativeLoading ? 'animate-spin text-cyan-400' : ''}`} />
+                </button>
+
+                <button
+                  onClick={() => setIsNarrativeModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Annex Subgraph Pills Header */}
+            {narrativeData?.annexes_covered && narrativeData.annexes_covered.length > 0 && (
+              <div className="px-6 py-2.5 bg-slate-950/40 border-b border-slate-800/80 flex items-center justify-between gap-3 text-xs overflow-x-auto">
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">Governing Scope:</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {narrativeData.annexes_covered.map(annex => (
+                      <span key={annex} className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-800/60 text-cyan-300 font-mono text-[10px]">
+                        {annex}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {narrativeData.total_provisions} codified rules
+                  </span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-[11px] text-rose-300 font-medium">
+                    {narrativeData.category}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 select-text">
+              {isNarrativeLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-full border-4 border-rose-500/20 border-t-rose-500 animate-spin" />
+                    <Sparkles className="w-6 h-6 text-amber-400 absolute inset-0 m-auto animate-pulse" />
+                  </div>
+                  <div className="text-center">
+                    <h3 className="text-sm font-bold text-slate-200">
+                      Synthesizing Cross-Annex Regulatory Report...
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 max-w-md">
+                      Analyzing hard law IRs, soft law AMCs, CS certifications, and guidance materials to structure how the ontology topology fits together.
+                    </p>
+                  </div>
+                </div>
+              ) : narrativeError ? (
+                <div className="p-5 bg-red-950/40 border border-red-800/80 rounded-xl flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <span>Failed to synthesize regulatory narrative</span>
+                  </div>
+                  <p className="text-xs text-red-300/80">{narrativeError}</p>
+                  <button
+                    onClick={() => handleGenerateNarrative(narrativeConceptName || currentConcept, narrativeProvider)}
+                    className="self-start px-3 py-1.5 bg-red-800 hover:bg-red-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Try Again</span>
+                  </button>
+                </div>
+              ) : narrativeData ? (
+                <div className="flex flex-col gap-5">
+                  {/* Action Bar */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <div className="text-xs text-slate-400">
+                      Generated via <strong className="text-slate-200 font-mono">{narrativeData.provider === 'gemini' ? 'Google Gemini Cloud' : 'Local LLM'}</strong>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(narrativeData.narrative);
+                          setCopiedNarrative(true);
+                          setTimeout(() => setCopiedNarrative(false), 2000);
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors"
+                      >
+                        {copiedNarrative ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedNarrative ? 'Copied' : 'Copy Markdown'}</span>
+                      </button>
+                      {onSendToAssistant && (
+                        <button
+                          onClick={() => {
+                            onSendToAssistant(
+                              `# Regulatory Synthesis: ${narrativeData.concept}\n\n` + narrativeData.narrative
+                            );
+                            setIsNarrativeModalOpen(false);
+                          }}
+                          className="px-3.5 py-1.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-500 hover:to-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow transition-all"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send to Assistant</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Rendered Markdown */}
+                  <div
+                    className="prose prose-invert prose-slate max-w-none text-slate-200 text-sm leading-relaxed
+                      prose-headings:text-slate-100 prose-headings:font-bold prose-headings:tracking-tight
+                      prose-h1:text-xl prose-h1:text-rose-400 prose-h1:border-b prose-h1:border-slate-800 prose-h1:pb-2
+                      prose-h2:text-base prose-h2:text-amber-300 prose-h2:mt-6 prose-h2:mb-2
+                      prose-h3:text-sm prose-h3:text-cyan-300 prose-h3:mt-4 prose-h3:mb-1
+                      prose-p:my-2.5 prose-p:leading-relaxed
+                      prose-strong:text-slate-100 prose-strong:font-semibold
+                      prose-ul:my-2 prose-ul:list-disc prose-ul:pl-5
+                      prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-5
+                      prose-li:my-1
+                      prose-code:text-cyan-300 prose-code:bg-slate-950 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:text-xs
+                      prose-blockquote:border-l-4 prose-blockquote:border-rose-500 prose-blockquote:bg-rose-950/20 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:rounded-r prose-blockquote:text-slate-300 prose-blockquote:italic
+                      prose-table:w-full prose-table:text-left prose-table:border-collapse prose-table:my-3
+                      prose-th:border-b prose-th:border-slate-700 prose-th:p-2 prose-th:text-xs prose-th:font-semibold prose-th:text-slate-300
+                      prose-td:border-b prose-td:border-slate-800 prose-td:p-2 prose-td:text-xs prose-td:text-slate-300"
+                    dangerouslySetInnerHTML={{ __html: marked.parse(narrativeData.narrative) as string }}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       )}

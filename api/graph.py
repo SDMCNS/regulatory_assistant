@@ -25,12 +25,14 @@ try:
     from ingestion.graph.sources import get_source_manager, MultiSourceManager
     from ingestion.graph.hyde import get_hyde_engine, HydeEngine
     from ingestion.graph.custom_concepts import get_custom_concept_manager, CustomConceptManager
+    from api.utils import call_unified_chat
 except Exception as e:
     _graph_import_error = str(e)
     get_engine = None
     get_source_manager = None
     get_hyde_engine = None
     get_custom_concept_manager = None
+    call_unified_chat = None
 
 router = APIRouter()
 
@@ -39,6 +41,14 @@ class GenerateConceptRequest(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+
+
+class ConceptNarrativeRequest(BaseModel):
+    concept_name: str
+    provider: Optional[str] = "gemini"  # "gemini" or "local"
+    model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+
 
 
 def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
@@ -511,6 +521,138 @@ def delete_custom_concept_api(id: str = Query(..., description="Custom Concept I
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/concept/narrative")
+def generate_concept_narrative_api(request: ConceptNarrativeRequest):
+    """
+    Synthesizes an LLM-based regulatory narrative and executive report
+    for a concept ontology mesh using Google Gemini Cloud or Local LM Studio.
+    """
+    check_graph_engine()
+    concept_name = request.concept_name.strip()
+    if not concept_name:
+        raise HTTPException(status_code=400, detail="Concept name cannot be empty")
+
+    try:
+        eng = get_engine()
+        sub = eng.get_concept_subgraph(concept_name)
+        if "error" in sub:
+            raise HTTPException(status_code=404, detail=sub["error"])
+
+        c_info = sub["concept"]
+        provs_by_annex = sub.get("provisions_by_annex", {})
+        total_provisions = sub.get("total_governing_provisions", 0)
+
+        # Build comprehensive structural topology prompt
+        lines = [
+            f"# Concept: {c_info.get('name', concept_name)}",
+            f"Domain / Category: {c_info.get('category', 'Flight Operations & Airworthiness')}",
+            f"Total Codified Governing Provisions: {total_provisions}",
+            f"Description / Scope: {c_info.get('description', 'Aviation regulatory concept mesh across European air law')}\n",
+            "## Governing Regulatory Annexes & Codified Hierarchy:"
+        ]
+
+        # Sort annexes by provision count descending
+        sorted_annexes = sorted(provs_by_annex.items(), key=lambda x: len(x[1]), reverse=True)
+        annexes_covered = []
+
+        for annex, provs in sorted_annexes[:8]:
+            annexes_covered.append(annex)
+            lines.append(f"\n### Annex: {annex} ({len(provs)} provisions)")
+            irs = [p for p in provs if p.get('content_type') == 'IR'][:5]
+            amcs = [p for p in provs if p.get('content_type') == 'AMC'][:5]
+            gms = [p for p in provs if p.get('content_type') == 'GM'][:4]
+            cs_rules = [p for p in provs if p.get('content_type') == 'CS'][:4]
+
+            if irs:
+                lines.append("- Implementing Rules (IR - Hard Law / Mandatory Baseline):")
+                for p in irs:
+                    lines.append(f"  * {p['code']}: {p['title']}")
+            if cs_rules:
+                lines.append("- Certification Specifications (CS - Technical Airworthiness Standard):")
+                for p in cs_rules:
+                    lines.append(f"  * {p['code']}: {p['title']}")
+            if amcs:
+                lines.append("- Acceptable Means of Compliance (AMC - Soft Law / Standard Compliance Path):")
+                for p in amcs:
+                    lines.append(f"  * {p['code']}: {p['title']}")
+            if gms:
+                lines.append("- Guidance Material (GM - Soft Law / Operational Interpretation):")
+                for p in gms:
+                    lines.append(f"  * {p['code']}: {p['title']}")
+
+        topology_text = "\n".join(lines)
+
+        system_prompt = (
+            "You are a senior European Aviation Safety Agency (EASA) regulatory architect and aviation compliance legal expert. "
+            "You are given an interactive Concept Ontology Mesh codifying how European aviation regulations govern a specific domain across Annexes, "
+            "Implementing Rules (IR), Certification Specifications (CS), Acceptable Means of Compliance (AMC), and Guidance Material (GM).\n\n"
+            "TASK:\n"
+            "Write an authoritative, clear, and comprehensive regulatory synthesis report outlining 'how it all fits together'.\n\n"
+            "FORMAT & STYLE REQUIREMENTS:\n"
+            "- Use clean GitHub-flavored markdown with structured headings (H2, H3), bold terminology, bullet lists, and comparative markdown tables.\n"
+            "- Clearly articulate the interaction between Hard Law (IR / CS) and Soft Law (AMC / GM).\n"
+            "- Detail how different Annexes (e.g., Part-ORO organizational requirements vs Part-CAT operational procedures vs Part-M/CAMO airworthiness) interface.\n"
+            "- Provide practical guidance for airline operators, safety managers, CAMO, and audit inspectors.\n\n"
+            "REQUIRED SECTIONS:\n"
+            "1. ## Executive Summary & Operational Mandate\n"
+            "   - Purpose, safety intent, and regulatory objective in European aviation.\n"
+            "2. ## Regulatory Pillars & Multi-Annex Architecture\n"
+            "   - Detailed breakdown of how each Annex contributes to governing this concept.\n"
+            "   - Include a Markdown Table: | Annex | Scope & Domain | Core Provisions | Role in Concept |\n"
+            "3. ## Compliance Chain: Hard Law vs Soft Law Interplay\n"
+            "   - The binding legal baseline established by Implementing Rules (IR).\n"
+            "   - The role of AMCs as standard approved compliance paths vs Alternative Means of Compliance (AltMoC).\n"
+            "   - How Guidance Material (GM) provides operational rationale and interpretation.\n"
+            "4. ## Cross-Annex Interplay & Stakeholder Responsibilities\n"
+            "   - Obligations of Aircraft Operators (Part-CAT / Part-NCC / Part-SPO).\n"
+            "   - Role of Organization Requirements (Part-ORO / SMS / Management Systems).\n"
+            "   - Interfaces with Continuing Airworthiness (Part-CAMO / Part-M) and Technical Specs (CS-25).\n"
+            "   - Competent Authority oversight.\n"
+            "5. ## Key Compliance Audit Checkpoints & Operational Risk Focus\n"
+            "   - 5 actionable inspection checkpoints for operators, flight operations inspectors, and safety auditors."
+        )
+
+        user_prompt = (
+            f"Generate the comprehensive EASA regulatory synthesis report for the following Concept Ontology Mesh:\n\n"
+            f"{topology_text}"
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        from datetime import datetime
+        provider_used = request.provider or "gemini"
+
+        if call_unified_chat is None:
+            raise HTTPException(status_code=500, detail="LLM chat service is not initialized")
+
+        narrative_text = call_unified_chat(
+            messages=messages,
+            provider=provider_used,
+            gemini_api_key=request.gemini_api_key,
+            gemini_model=request.model or "gemini-3.5-flash",
+            max_tokens=3500,
+            temperature=0.3
+        )
+
+        return {
+            "concept": c_info.get("name", concept_name),
+            "category": c_info.get("category", "General"),
+            "total_provisions": total_provisions,
+            "annexes_covered": annexes_covered,
+            "provider_used": provider_used,
+            "narrative": narrative_text,
+            "generated_at": datetime.utcnow().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate concept narrative: {str(e)}")
 
 
 @router.get("/node")

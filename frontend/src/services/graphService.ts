@@ -311,6 +311,46 @@ export async function deleteCustomConcept(apiUrl: string, id: string): Promise<{
   return res.json();
 }
 
+export interface ConceptNarrativeResponse {
+  concept: string;
+  category: string;
+  total_provisions: number;
+  annexes_covered: string[];
+  provider_used: string;
+  narrative: string;
+  generated_at: string;
+}
+
+export async function fetchConceptNarrative(
+  apiUrl: string,
+  conceptName: string,
+  provider: 'gemini' | 'local' = 'gemini',
+  model?: string,
+  geminiApiKey?: string
+): Promise<ConceptNarrativeResponse> {
+  const res = await fetch(`${apiUrl}/graph/concept/narrative`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      concept_name: conceptName,
+      provider,
+      model,
+      gemini_api_key: geminiApiKey
+    })
+  });
+  if (!res.ok) {
+    let errorDetail = `HTTP ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.detail) errorDetail = errJson.detail;
+    } catch {
+      errorDetail = await res.text();
+    }
+    throw new Error(errorDetail || `Failed to generate concept narrative: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function fetchNodeDetails(apiUrl: string, idOrCode: string): Promise<NodeInspectionDetails> {
   const params = new URLSearchParams({ id: idOrCode });
   return request<NodeInspectionDetails>(`${apiUrl}/graph/node?${params.toString()}`);

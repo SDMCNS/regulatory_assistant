@@ -118,6 +118,32 @@ export default function App() {
     handleSaveSettings(updated);
   };
 
+  const [governanceUploadTrigger, setGovernanceUploadTrigger] = useState(0);
+
+  const handleSelectTab = (tab: any) => {
+    if (tab === 'governance' && !settings.showGovernanceTab) {
+      const updated = { ...settings, showGovernanceTab: true };
+      setSettings(updated);
+      saveSettings(updated);
+    }
+    if (tab === 'builder' && !settings.showDocumentBuilderTab) {
+      const updated = { ...settings, showDocumentBuilderTab: true };
+      setSettings(updated);
+      saveSettings(updated);
+    }
+    setActiveTab(tab);
+  };
+
+  const handleOpenUploadDoc = () => {
+    if (!settings.showGovernanceTab) {
+      const updated = { ...settings, showGovernanceTab: true };
+      setSettings(updated);
+      saveSettings(updated);
+    }
+    setActiveTab('governance');
+    setGovernanceUploadTrigger(prev => prev + 1);
+  };
+
   // Redirect if current active tab is disabled
   useEffect(() => {
     const isHidden =
@@ -179,7 +205,7 @@ export default function App() {
       {/* Top Bar Header */}
       <TopBar
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         connectionStatus={connectionStatus}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onPingConnection={() => checkConnection()}
@@ -189,6 +215,7 @@ export default function App() {
         theme={settings.theme || 'dark'}
         onToggleTheme={handleToggleTheme}
         onOpenAbout={() => setIsAboutOpen(true)}
+        onOpenUploadDoc={handleOpenUploadDoc}
       />
 
       {/* Main Content Viewport */}
@@ -270,6 +297,7 @@ export default function App() {
             <KnowledgeGovernance
               settings={settings}
               onOpenInWorkspace={(docId) => handleOpenWorkspaceWithDocs([docId])}
+              uploadTrigger={governanceUploadTrigger}
             />
           </ErrorBoundary>
         )}

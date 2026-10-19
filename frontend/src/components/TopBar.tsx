@@ -21,6 +21,7 @@ interface TopBarProps {
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
   onOpenAbout?: () => void;
+  onOpenUploadDoc?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -35,6 +36,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   theme = 'dark',
   onToggleTheme,
   onOpenAbout,
+  onOpenUploadDoc,
 }) => {
   return (
     <header className="flex items-center justify-between px-6 py-3.5 bg-slate-950/90 border-b border-slate-800/80 backdrop-blur sticky top-0 z-40 transition-colors">
@@ -257,7 +259,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Upload Doc Button */}
         <button
           type="button"
-          onClick={() => onSelectTab('governance')}
+          onClick={onOpenUploadDoc ? onOpenUploadDoc : () => onSelectTab('governance')}
           title="Upload Regulatory Document (PDF, Word, XML)"
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/60 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
         >

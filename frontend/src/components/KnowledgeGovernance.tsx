@@ -71,11 +71,13 @@ import {
 interface KnowledgeGovernanceProps {
   settings?: AppSettings;
   onOpenInWorkspace?: (docId: string) => void;
+  uploadTrigger?: number;
 }
 
 export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
   settings = loadSettings(),
-  onOpenInWorkspace
+  onOpenInWorkspace,
+  uploadTrigger
 }) => {
   const [stats, setStats] = useState<GovernanceStats | null>(null);
   const [documents, setDocuments] = useState<RegulationItem[]>([]);
@@ -585,6 +587,12 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
     setCustomDate('');
     setShowUploadModal(true);
   };
+
+  useEffect(() => {
+    if (uploadTrigger && uploadTrigger > 0) {
+      handleOpenUploadModal();
+    }
+  }, [uploadTrigger]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

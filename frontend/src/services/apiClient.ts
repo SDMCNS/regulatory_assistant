@@ -83,9 +83,13 @@ export function loadSettings(): AppSettings {
       if (!parsed.geminiModel || parsed.geminiModel.startsWith('gemini-1.') || parsed.geminiModel.startsWith('gemini-2.')) {
         parsed.geminiModel = 'gemini-3.5-flash';
       }
-      // Ensure hidden tabs default to false if undefined in previously saved settings
-      parsed.showGovernanceTab = Boolean(parsed.showGovernanceTab);
-      parsed.showDocumentBuilderTab = Boolean(parsed.showDocumentBuilderTab);
+      // Ensure core tabs default to true if undefined or false from legacy storage
+      if (parsed.showGovernanceTab === undefined || parsed.showGovernanceTab === false) {
+        parsed.showGovernanceTab = true;
+      }
+      if (parsed.showDocumentBuilderTab === undefined || parsed.showDocumentBuilderTab === false) {
+        parsed.showDocumentBuilderTab = true;
+      }
       parsed.showQueryMemoryTab = Boolean(parsed.showQueryMemoryTab);
       parsed.showSchemaExtractorTab = Boolean(parsed.showSchemaExtractorTab);
       parsed.showLocalCacheTab = Boolean(parsed.showLocalCacheTab);

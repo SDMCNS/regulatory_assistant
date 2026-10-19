@@ -32,7 +32,8 @@ import {
   Sparkles,
   Calendar,
   Zap,
-  Sliders
+  Sliders,
+  Image
 } from 'lucide-react';
 import {
   AppSettings,
@@ -2073,6 +2074,24 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                     </div>
                   </div>
 
+                  {/* Diagram & Graphical Elements Detection Callout */}
+                  {(analysisResult.diagrams_detected ?? 0) > 0 && (
+                    <div className="p-3.5 bg-fuchsia-950/40 border border-fuchsia-800/60 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-fuchsia-300">
+                          <Image className="w-4 h-4 text-fuchsia-400" />
+                          <span>{analysisResult.diagrams_detected} Diagram / Graphic Element(s) Detected</span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-fuchsia-900/60 text-fuchsia-200 border border-fuchsia-700/60 uppercase">
+                          Gemini HyDE Summarizer
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-fuchsia-200/80 leading-relaxed">
+                        Visual schematics, flowcharts, and diagrams on detected PDF pages are converted into dense technical HyDE text summaries, tagged as <strong>Summary of Graphical Elements</strong>, and indexed for semantic search and deep research.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Metadata & Title Overrides */}
                   <div className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-3">
                     <div className="text-xs font-semibold text-slate-200">Extracted Document Attributes</div>
@@ -2325,6 +2344,17 @@ export const KnowledgeGovernance: React.FC<KnowledgeGovernanceProps> = ({
                       <div className="text-[10px] text-slate-500">FAISS Embeddings</div>
                       <div className="font-mono text-indigo-400">{ingestSuccess.embeddings_count} vectors</div>
                     </div>
+                    {(ingestSuccess.diagrams_detected ?? 0) > 0 && (
+                      <div className="col-span-2 md:col-span-4 p-2 bg-fuchsia-950/40 border border-fuchsia-800/60 rounded-lg text-fuchsia-300 text-xs flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <Image className="w-3.5 h-3.5 text-fuchsia-400" />
+                          {ingestSuccess.diagrams_detected} Diagram(s) Summarized & Tagged
+                        </span>
+                        <span className="font-mono text-[10px] bg-fuchsia-900/60 text-fuchsia-200 px-2 py-0.5 rounded">
+                          Summary of Graphical Elements
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -63,6 +63,8 @@ class UploadAnalysisResponse(BaseModel):
     suggested_action: str  # "none", "supersede", "suppress"
     suggested_target_doc_id: Optional[str] = None
     matches: List[ComparisonMatchItem]
+    diagrams_detected: int = 0
+    diagram_details: List[Dict[str, Any]] = []
 
 
 class IngestConfirmRequest(BaseModel):
@@ -71,6 +73,8 @@ class IngestConfirmRequest(BaseModel):
     target_doc_id: Optional[str] = Field(None, description="Document ID to supersede or suppress if action is not 'none'")
     custom_title: Optional[str] = Field(None, description="Optional custom title override")
     custom_date: Optional[str] = Field(None, description="Optional custom publication date override")
+    gemini_api_key: Optional[str] = Field(None, description="Optional user Gemini API key for HyDE diagram summarization")
+    gemini_model: Optional[str] = Field(None, description="Optional Gemini vision model override")
 
 
 class IngestionResultResponse(BaseModel):
@@ -85,11 +89,14 @@ class IngestionResultResponse(BaseModel):
     executive_action: str
     target_doc_id: Optional[str] = None
     action_summary: str
+    diagrams_detected: int = 0
 
 
 @router.post("/analyze", response_model=UploadAnalysisResponse, tags=["DOCUMENTS"])
 async def api_analyze_upload(
-    file: UploadFile = File(..., description="Uploaded document (PDF, XML, TXT, MD, HTML, etc.)")
+    file: UploadFile = File(..., description="Uploaded document (PDF, XML, TXT, MD, HTML, etc.)"),
+    gemini_api_key: Optional[str] = Form(None, description="Optional Gemini API key for HyDE diagram extraction"),
+    gemini_model: Optional[str] = Form(None, description="Optional Gemini model override")
 ):
     """
     Step 1: Analyzes an uploaded document:
@@ -140,7 +147,13 @@ async def api_analyze_upload(
             }
         else:
             # Standard User Document
-            ext_res = extract_user_document(staging_path, filename)
+            ext_res = extract_user_document(
+                staging_path,
+                filename,
+                gemini_api_key=gemini_api_key,
+                gemini_model=gemini_model,
+                extract_diagrams=True
+            )
             title = ext_res["title"]
             date_str = ext_res["date"]
             pub_year = ext_res["year"]
@@ -183,7 +196,9 @@ async def api_analyze_upload(
             "has_conflict": comparison["has_conflict"],
             "suggested_action": comparison["suggested_action"],
             "suggested_target_doc_id": comparison["suggested_target_doc_id"],
-            "matches": comparison["matches"]
+            "matches": comparison["matches"],
+            "diagrams_detected": ext_res.get("diagrams_detected", 0) if "ext_res" in locals() else 0,
+            "diagram_details": ext_res.get("diagrams", []) if "ext_res" in locals() else []
         }
 
     except Exception as e:
@@ -218,7 +233,10 @@ def api_confirm_ingestion(req: IngestConfirmRequest):
             custom_date=req.custom_date,
             executive_action=req.executive_action,
             target_doc_id=req.target_doc_id,
-            embed_vectors=True
+            embed_vectors=True,
+            gemini_api_key=req.gemini_api_key,
+            gemini_model=req.gemini_model,
+            extract_diagrams=True
         )
 
         # Move staged file to permanent archive
@@ -237,7 +255,9 @@ async def api_direct_upload(
     executive_action: str = Form("none", description="'none', 'supersede', or 'suppress'"),
     target_doc_id: Optional[str] = Form(None, description="Optional doc ID to supersede or suppress"),
     custom_title: Optional[str] = Form(None),
-    custom_date: Optional[str] = Form(None)
+    custom_date: Optional[str] = Form(None),
+    gemini_api_key: Optional[str] = Form(None, description="Optional Gemini API key"),
+    gemini_model: Optional[str] = Form(None, description="Optional Gemini model override")
 ):
     """
     Direct single-step upload and ingestion endpoint for programmatic / CLI use.
@@ -260,7 +280,10 @@ async def api_direct_upload(
             custom_date=custom_date,
             executive_action=executive_action,
             target_doc_id=target_doc_id,
-            embed_vectors=True
+            embed_vectors=True,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            extract_diagrams=True
         )
 
         archive_path = ARCHIVE_DIR / staging_path.name

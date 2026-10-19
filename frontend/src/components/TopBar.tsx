@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap, Sun, Moon, Info } from 'lucide-react';
+import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap, Sun, Moon, Info, Upload } from 'lucide-react';
 import { ConnectionStatus, AppSettings } from '../types';
 
 export type ActiveTab = 'assistant' | 'search' | 'research' | 'workspace' | 'consultation' | 'governance' | 'builder' | 'notes' | 'memory' | 'extract' | 'cache';
@@ -253,6 +253,17 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="hidden xl:inline">About</span>
           </button>
         )}
+
+        {/* Upload Doc Button */}
+        <button
+          type="button"
+          onClick={() => onSelectTab('governance')}
+          title="Upload Regulatory Document (PDF, Word, XML)"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800/60 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+        >
+          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden lg:inline">Upload Doc</span>
+        </button>
 
         {/* Settings Button */}
         <button

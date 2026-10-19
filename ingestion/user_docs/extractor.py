@@ -82,7 +82,13 @@ def clean_title_candidate(candidate: str, fallback_filename: str) -> str:
     return candidate
 
 
-def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
+def extract_user_document(
+    file_path: Path,
+    filename: str,
+    gemini_api_key: Optional[str] = None,
+    gemini_model: Optional[str] = None,
+    extract_diagrams: bool = True
+) -> Dict[str, Any]:
     """
     Extracts text, pages, title, date, and metrics from a user-supplied file.
     Supports PDF, Word (.doc / .docx), Markdown, Plain Text, HTML, and XML.
@@ -115,6 +121,8 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
     is_word = False
     word_format = None
 
+    detected_diagrams_list: List[Dict[str, Any]] = []
+
     if ext == ".pdf" and fitz is not None:
         try:
             doc = fitz.open(file_path)
@@ -134,6 +142,32 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
                 p_text = page.get_text("text").strip()
                 if page_idx == 0:
                     first_page_lines = [l.strip() for l in p_text.splitlines() if l.strip()]
+
+                # Visual Graphic & Diagram Detection and Gemini HyDE Summarizer
+                if extract_diagrams:
+                    try:
+                        from .diagram_extractor import detect_page_graphics, generate_diagram_hyde_summary
+                        page_graphics = detect_page_graphics(page, page_idx + 1)
+                        if page_graphics:
+                            for g in page_graphics:
+                                hyde_summary = generate_diagram_hyde_summary(
+                                    graphic_info=g,
+                                    doc_title=title_candidate or Path(filename).stem,
+                                    api_key=gemini_api_key,
+                                    preferred_model=gemini_model
+                                )
+                                if hyde_summary:
+                                    p_text += f"\n\n{hyde_summary}\n"
+                                    detected_diagrams_list.append({
+                                        "page": page_idx + 1,
+                                        "figure_id": g.get("figure_id"),
+                                        "type": g.get("graphic_type"),
+                                        "caption": g.get("nearby_caption"),
+                                        "summary_snippet": hyde_summary[:200] + "..." if len(hyde_summary) > 200 else hyde_summary
+                                    })
+                    except Exception as diag_err:
+                        print(f"[Diagram Extractor Warning] Page {page_idx + 1}: {diag_err}")
+
                 pages_text.append(f"--- PAGE {page_idx + 1} ---\n{p_text}")
 
             raw_text = "\n\n".join(pages_text)
@@ -232,6 +266,8 @@ def extract_user_document(file_path: Path, filename: str) -> Dict[str, Any]:
         "is_word": is_word,
         "word_format": word_format,
         "author": author,
-        "filename": filename
+        "filename": filename,
+        "diagrams_detected": len(detected_diagrams_list),
+        "diagrams": detected_diagrams_list
     }
 

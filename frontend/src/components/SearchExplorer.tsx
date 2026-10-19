@@ -10,7 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, FileText, Layers, Check, Copy, ArrowUpRight, 
   BookOpen, AlertCircle, RefreshCw, Key, Sparkles, Hash, Database, ChevronDown, ChevronRight,
-  Target, X, ExternalLink
+  Target, X, ExternalLink, Image
 } from 'lucide-react';
 import { 
   AppSettings, KeywordSearchResponse, RegulationOrigin, 
@@ -662,6 +662,12 @@ export const SearchExplorer: React.FC<SearchExplorerProps> = ({
                         ) : (
                           <span className="font-mono text-sky-400 uppercase tracking-wider font-semibold">
                             {doc.source}
+                          </span>
+                        )}
+                        {(doc.metadata?.is_graphic_summary || doc.metadata?.content_type === 'graphic_summary' || doc.metadata?.graphic_tag || doc.text.includes('Summary of Graphical Elements') || doc.path.includes('Summary of Graphical Elements')) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-fuchsia-950/80 border border-fuchsia-500/50 text-fuchsia-300 flex items-center gap-1">
+                            <Image className="w-3 h-3 text-fuchsia-400" />
+                            GRAPHICAL SUMMARY
                           </span>
                         )}
                         {doc.metadata?.project && (

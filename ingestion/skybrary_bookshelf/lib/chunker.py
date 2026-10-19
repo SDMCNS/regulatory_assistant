@@ -149,6 +149,41 @@ class SkybraryChunker:
                 if not p_clean:
                     continue
 
+                is_graphic = "Summary of Graphical Elements" in p_clean or "[Summary of Graphical Elements" in p_clean
+                if is_graphic:
+                    if current_block:
+                        chunk_counter += 1
+                        chunks.append(
+                            self._build_chunk(
+                                doc_id=doc_id,
+                                counter=chunk_counter,
+                                title=title,
+                                category=category,
+                                author=author,
+                                pub_date=pub_date,
+                                page_num=page_num,
+                                source_text="\n\n".join(current_block),
+                                pub_info=pub_info,
+                            )
+                        )
+                        current_block = []
+                        current_words = 0
+                    chunk_counter += 1
+                    chunks.append(
+                        self._build_chunk(
+                            doc_id=doc_id,
+                            counter=chunk_counter,
+                            title=title,
+                            category=category,
+                            author=author,
+                            pub_date=pub_date,
+                            page_num=page_num,
+                            source_text=p_clean,
+                            pub_info=pub_info,
+                        )
+                    )
+                    continue
+
                 words_in_p = len(p_clean.split())
 
                 if current_words + words_in_p > self.max_words and current_block:
@@ -213,6 +248,8 @@ class SkybraryChunker:
                 merged_chunks
                 and c.metadata["word_count"] < self.min_words_per_chunk
                 and merged_chunks[-1].metadata["page_end"] == c.metadata["page_start"]
+                and not c.metadata.get("is_graphic_summary")
+                and not merged_chunks[-1].metadata.get("is_graphic_summary")
             ):
                 prev = merged_chunks[-1]
                 prev.source_text += "\n\n" + c.source_text
@@ -263,21 +300,34 @@ class SkybraryChunker:
         chunk_id = f"{doc_id}:P{page_num}:{counter}"
         embedding_text = self._build_embedding_text(title, category, author, pub_date, page_num, source_text)
 
+        is_graphic_summary = (
+            "Summary of Graphical Elements" in source_text or
+            "[Summary of Graphical Elements" in source_text
+        )
+        chunk_type = "graphic_summary" if is_graphic_summary else "paragraph"
+        section_path = [title, category, f"Page {page_num}"]
+        if is_graphic_summary:
+            section_path.append("Summary of Graphical Elements")
+
+        doc_source = pub_info.get("source") or ("USER" if pub_info.get("origin") == "user" else "SKYBRARY")
+        doc_origin = pub_info.get("origin") or ("user" if doc_source == "USER" else "skybrary")
+
         return ChunkRecord(
             chunk_id=chunk_id,
             document_id=doc_id,
-            chunk_type="paragraph",
-            section_path=[title, category, f"Page {page_num}"],
+            chunk_type=chunk_type,
+            section_path=section_path,
             section_numbers=[str(page_num)],
             source_text=source_text,
             embedding_text=embedding_text,
             parent_chunk_id=None,
             previous_chunk_id=None,
             next_chunk_id=None,
-            structure={"node_type": "paragraph", "pages": [page_num]},
+            structure={"node_type": chunk_type, "pages": [page_num]},
             references=[],
             metadata={
-                "source": "SKYBRARY",
+                "source": doc_source,
+                "origin": doc_origin,
                 "skybrary_id": pub_info.get("id"),
                 "category": category,
                 "author": author,
@@ -288,5 +338,8 @@ class SkybraryChunker:
                 "page_end": page_num,
                 "word_count": len(source_text.split()),
                 "char_count": len(source_text),
+                "is_graphic_summary": is_graphic_summary,
+                "content_type": "graphic_summary" if is_graphic_summary else "text",
+                "graphic_tag": "Summary of Graphical Elements" if is_graphic_summary else None,
             },
         )

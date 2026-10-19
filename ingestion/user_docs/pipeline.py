@@ -187,7 +187,10 @@ def ingest_user_document(
     custom_date: Optional[str] = None,
     executive_action: str = "none",  # "none", "supersede", "suppress"
     target_doc_id: Optional[str] = None,
-    embed_vectors: bool = True
+    embed_vectors: bool = True,
+    gemini_api_key: Optional[str] = None,
+    gemini_model: Optional[str] = None,
+    extract_diagrams: bool = True
 ) -> Dict[str, Any]:
     """
     Executes full ingestion workflow for user-supplied documents:
@@ -228,7 +231,13 @@ def ingest_user_document(
         # Standard User-Supplied Document -> Skybrary Workflow
         source = "USER"
         origin = "user"
-        extracted = extract_user_document(file_path, filename)
+        extracted = extract_user_document(
+            file_path,
+            filename,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            extract_diagrams=extract_diagrams
+        )
         doc_title = custom_title or extracted["title"]
         pub_date = custom_date or extracted["date"] or ""
 
@@ -265,6 +274,7 @@ def ingest_user_document(
             "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "page_count": extracted["page_count"],
             "word_count": extracted["word_count"],
+            "diagrams_detected": extracted.get("diagrams_detected", 0),
         }
 
         # Save to SQLite
@@ -373,5 +383,6 @@ def ingest_user_document(
         "embeddings_count": embeddings_count,
         "executive_action": executive_action,
         "target_doc_id": target_doc_id,
-        "action_summary": action_summary
+        "action_summary": action_summary,
+        "diagrams_detected": extracted.get("diagrams_detected", 0) if "extracted" in locals() else 0
     }

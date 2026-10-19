@@ -271,7 +271,8 @@ def search_keywords(
                 COALESCE(c.is_active, 1) AS chunk_active,
                 COALESCE(d.is_active, 1) AS doc_active,
                 d.superseded_by,
-                d.deactivation_reason
+                d.deactivation_reason,
+                c.metadata_json
             FROM chunks_fts f
             JOIN chunks c ON f.rowid = c.rowid
             JOIN documents d ON c.document_id = d.document_id
@@ -315,7 +316,7 @@ def search_keywords(
         for row in rows:
             if count >= fetch_limit:
                 break
-            chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score, chunk_active, doc_active, superseded_by, deactivation_reason = row
+            chunk_id, doc_id, section_path, source_text, meta_json, doc_title, score, chunk_active, doc_active, superseded_by, deactivation_reason, chunk_meta_json = row
             
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
@@ -358,6 +359,16 @@ def search_keywords(
                 path_list = []
                 
             meta_dict = json.loads(meta_json) if meta_json else {}
+            if chunk_meta_json:
+                try:
+                    c_meta = json.loads(chunk_meta_json)
+                    if isinstance(c_meta, dict):
+                        meta_dict.update(c_meta)
+                except Exception:
+                    pass
+            if "Summary of Graphical Elements" in (source_text or ""):
+                meta_dict["is_graphic_summary"] = True
+                meta_dict["graphic_tag"] = "Summary of Graphical Elements"
             if doc_title:
                 meta_dict["document_title"] = doc_title
             meta_dict["origin"] = "icao" if is_icao else ("user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))))
@@ -390,7 +401,7 @@ def search_keywords(
                 "section_path": path_list,
                 "text": source_text,
                 "source_text": source_text,
-                "source": "NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))),
+                "source": "ICAO" if is_icao else ("USER" if is_user else ("NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))))),
                 "metadata": meta_dict,
                 "expanded_terms": expanded_terms,
                 "is_active": bool(chunk_active and doc_active),

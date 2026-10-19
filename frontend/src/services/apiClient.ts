@@ -64,7 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   researchProvider: 'local',
   geminiApiKey: '',
   geminiModel: 'gemini-3.5-flash',
-  showGovernanceTab: false,
+  showGovernanceTab: true,
   showDocumentBuilderTab: false,
   showQueryMemoryTab: false,
   showSchemaExtractorTab: false,
@@ -2087,6 +2087,12 @@ export async function analyzeDocumentUpload(
 
   const formData = new FormData();
   formData.append('file', file);
+  if (settings.geminiApiKey && settings.geminiApiKey.trim()) {
+    formData.append('gemini_api_key', settings.geminiApiKey.trim());
+  }
+  if (settings.geminiModel && settings.geminiModel.trim()) {
+    formData.append('gemini_model', settings.geminiModel.trim());
+  }
 
   const doFetch = async (targetBase: string) => {
     const res = await fetch(`${targetBase}/documents/analyze`, {
@@ -2128,11 +2134,17 @@ export async function confirmDocumentIngestion(
     headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
   }
 
+  const payload: IngestConfirmRequest = {
+    ...req,
+    gemini_api_key: req.gemini_api_key ?? (settings.geminiApiKey?.trim() || undefined),
+    gemini_model: req.gemini_model ?? (settings.geminiModel?.trim() || undefined),
+  };
+
   const doFetch = async (targetBase: string) => {
     const res = await fetch(`${targetBase}/documents/confirm`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(req),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
@@ -2177,6 +2189,12 @@ export async function directDocumentUpload(
   if (targetDocId) formData.append('target_doc_id', targetDocId);
   if (customTitle) formData.append('custom_title', customTitle);
   if (customDate) formData.append('custom_date', customDate);
+  if (settings.geminiApiKey && settings.geminiApiKey.trim()) {
+    formData.append('gemini_api_key', settings.geminiApiKey.trim());
+  }
+  if (settings.geminiModel && settings.geminiModel.trim()) {
+    formData.append('gemini_model', settings.geminiModel.trim());
+  }
 
   const doFetch = async (targetBase: string) => {
     const res = await fetch(`${targetBase}/documents/upload`, {

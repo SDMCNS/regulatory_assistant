@@ -420,7 +420,7 @@ def search_semantic(
             cursor.execute("""
                 SELECT c.chunk_id, c.document_id, c.section_path, c.source_text, d.metadata_json, d.title,
                        COALESCE(c.is_active, 1) as chunk_active, COALESCE(d.is_active, 1) as doc_active,
-                       d.superseded_by, d.deactivation_reason
+                       d.superseded_by, d.deactivation_reason, c.metadata_json
                 FROM chunks c
                 JOIN documents d ON c.document_id = d.document_id
                 WHERE c.document_id = ?
@@ -438,7 +438,7 @@ def search_semantic(
                 cursor.execute("""
                     SELECT c.document_id, c.section_path, c.source_text, d.metadata_json, d.title,
                            COALESCE(c.is_active, 1) as chunk_active, COALESCE(d.is_active, 1) as doc_active,
-                           d.superseded_by, d.deactivation_reason
+                           d.superseded_by, d.deactivation_reason, c.metadata_json
                     FROM chunks c
                     JOIN documents d ON c.document_id = d.document_id
                     WHERE c.chunk_id = ?
@@ -446,7 +446,7 @@ def search_semantic(
                 row = cursor.fetchone()
                 if not row:
                     continue
-                doc_id, section_path, source_text, meta_json, doc_title, chunk_active, doc_active, superseded_by, deactivation_reason = row
+                doc_id, section_path, source_text, meta_json, doc_title, chunk_active, doc_active, superseded_by, deactivation_reason, chunk_meta_json = row
 
             is_easa = ('"source": "EASA XML"' in meta_json) if meta_json else False
             is_faa = ('"source": "FAA XML"' in meta_json) if meta_json else (doc_id.startswith("FAA_"))
@@ -485,6 +485,16 @@ def search_semantic(
             import json
             path_list = json.loads(section_path) if section_path else []
             meta_dict = json.loads(meta_json) if meta_json else {}
+            if chunk_meta_json:
+                try:
+                    c_meta = json.loads(chunk_meta_json)
+                    if isinstance(c_meta, dict):
+                        meta_dict.update(c_meta)
+                except Exception:
+                    pass
+            if "Summary of Graphical Elements" in (source_text or ""):
+                meta_dict["is_graphic_summary"] = True
+                meta_dict["graphic_tag"] = "Summary of Graphical Elements"
             if doc_title:
                 meta_dict["document_title"] = doc_title
             meta_dict["origin"] = "icao" if is_icao else ("user" if is_user else ("note" if is_note else ("skybrary" if is_skybrary else ("manual" if is_manual else ("faa" if is_faa else ("easa" if is_easa else "eu"))))))
@@ -547,7 +557,7 @@ def search_semantic(
                 "score": round(combined_score, 4),
                 "raw_vector_score": round(base_score, 4),
                 "act_prior_score": round(act_prior, 4) if act_prior > 0 else None,
-                "source": "NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))),
+                "source": "ICAO" if is_icao else ("USER" if is_user else ("NOTE" if is_note else ("MANUAL" if is_manual else ("SKYBRARY" if is_skybrary else ("FAA" if is_faa else ("EASA" if is_easa else "EU")))))),
                 "document_id": doc_id,
                 "path": path_list,
                 "text": source_text,

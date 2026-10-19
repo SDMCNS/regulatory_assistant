@@ -1,6 +1,7 @@
 import sys
 import sqlite3
 from pathlib import Path
+from typing import Optional
 
 # Add project root to sys.path
 _project_root = Path(__file__).resolve().parent.parent.parent

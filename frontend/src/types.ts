@@ -44,6 +44,8 @@ export interface UploadAnalysisResponse {
   suggested_action: 'none' | 'supersede' | 'suppress';
   suggested_target_doc_id?: string | null;
   matches: ComparisonMatchItem[];
+  diagrams_detected?: number;
+  diagram_details?: any[];
 }
 
 export interface IngestConfirmRequest {
@@ -52,6 +54,8 @@ export interface IngestConfirmRequest {
   target_doc_id?: string | null;
   custom_title?: string | null;
   custom_date?: string | null;
+  gemini_api_key?: string | null;
+  gemini_model?: string | null;
 }
 
 export interface IngestionResultResponse {
@@ -66,6 +70,7 @@ export interface IngestionResultResponse {
   executive_action: string;
   target_doc_id?: string | null;
   action_summary: string;
+  diagrams_detected?: number;
 }
 
 export interface SkybraryCategoryInfo {

@@ -218,13 +218,51 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     }
   };
 
+  // Fit graph to available viewport with comfortable padding
+  const handleFitView = useCallback((duration: number = 400) => {
+    if (!svgRef.current || !zoomBehaviorRef.current || !gRef.current) return;
+    const svgEl = svgRef.current;
+    const width = svgEl.clientWidth || 1200;
+    const height = svgEl.clientHeight || 700;
+
+    const gEl = gRef.current.node() as SVGGElement | null;
+    if (!gEl) return;
+
+    const bbox = gEl.getBBox();
+    if (!bbox || bbox.width <= 0 || bbox.height <= 0) return;
+
+    // Use generous horizontal and vertical padding
+    const paddingX = Math.min(80, width * 0.06);
+    const paddingY = Math.min(60, height * 0.08);
+
+    const availableW = Math.max(width - paddingX * 2, 200);
+    const availableH = Math.max(height - paddingY * 2, 200);
+
+    const scaleX = availableW / bbox.width;
+    const scaleY = availableH / bbox.height;
+    // Don't over-scale tiny subgraphs beyond 1.15, but scale down large ones to fit comfortably
+    const scale = Math.min(Math.max(Math.min(scaleX, scaleY), 0.25), 1.15);
+
+    const midX = bbox.x + bbox.width / 2;
+    const midY = bbox.y + bbox.height / 2;
+
+    const transform = d3.zoomIdentity
+      .translate(width / 2 - midX * scale, height / 2 - midY * scale)
+      .scale(scale);
+
+    d3.select(svgEl)
+      .transition()
+      .duration(duration)
+      .call(zoomBehaviorRef.current.transform, transform);
+  }, []);
+
   // D3 Simulation and Rendering
   useEffect(() => {
     if (!svgRef.current || !graphData) return;
 
     const svg = d3.select(svgRef.current);
-    const width = svgRef.current.clientWidth || 900;
-    const height = svgRef.current.clientHeight || 650;
+    const width = svgRef.current.clientWidth || 1200;
+    const height = svgRef.current.clientHeight || 700;
 
     svg.selectAll('*').remove();
 
@@ -260,15 +298,61 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     const nodes: D3GraphNode[] = graphData.nodes.map(d => ({ ...d }));
     const links: D3GraphLink[] = graphData.links.map(d => ({ ...d }));
 
-    // D3 Force Simulation
+    // Distribute initial unpositioned nodes across a wide ellipse matching available horizontal space
+    nodes.forEach((node, i) => {
+      if (node.x === undefined || node.y === undefined) {
+        if (node.is_anchor) {
+          node.x = width / 2;
+          node.y = height / 2;
+        } else {
+          const angle = (i / Math.max(nodes.length, 1)) * 2 * Math.PI;
+          // Substantial horizontal spread matching widescreen aspect ratio
+          const spreadX = (width * 0.38) * (0.6 + 0.4 * ((i % 5) / 4));
+          const spreadY = (height * 0.32) * (0.6 + 0.4 * ((i % 3) / 2));
+          node.x = width / 2 + Math.cos(angle) * spreadX;
+          node.y = height / 2 + Math.sin(angle) * spreadY;
+        }
+      }
+    });
+
+    // Adaptive link distance scaled by available horizontal real estate
+    const baseLinkDist = Math.max(180, Math.min(320, Math.round(width * 0.17)));
+
+    // D3 Force Simulation with wide spatial distribution
     const simulation = d3.forceSimulation<D3GraphNode, D3GraphLink>(nodes)
       .force('link', d3.forceLink<D3GraphNode, D3GraphLink>(links)
         .id(d => d.id)
-        .distance(d => (d.type === 'BELONGS_TO_ANNEX' ? 140 : d.type === 'SIMILAR_TO' ? 180 : 100))
+        .distance(d => {
+          if (d.type === 'BELONGS_TO_ANNEX') return Math.round(baseLinkDist * 1.35);
+          if (d.type === 'SIMILAR_TO') return Math.round(baseLinkDist * 1.5);
+          if (d.type === 'GOVERNS_CONCEPT' || d.type === 'COVERS_CONCEPT') return Math.round(baseLinkDist * 1.25);
+          if (d.type === 'SATISFIES') return Math.round(baseLinkDist * 1.1);
+          return baseLinkDist;
+        })
+        .strength(d => (d.type === 'BELONGS_TO_ANNEX' ? 0.35 : 0.6))
       )
-      .force('charge', d3.forceManyBody().strength(d => (d.is_anchor ? -600 : -280)))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collide', d3.forceCollide().radius(d => (d.is_anchor ? 38 : 26)).iterations(2));
+      .force('charge', d3.forceManyBody<D3GraphNode>()
+        .strength(d => {
+          if (d.is_anchor) return Math.min(-2000, -width * 1.3);
+          if (d.type === 'ANNEX') return Math.min(-1500, -width * 1.0);
+          if (d.type === 'CONCEPT') return Math.min(-1300, -width * 0.85);
+          return Math.min(-900, -width * 0.65);
+        })
+        .distanceMin(30)
+        .distanceMax(Math.max(width * 1.2, 1800))
+      )
+      // Gentler horizontal pull so nodes can spread out wide across the screen
+      .force('x', d3.forceX(width / 2).strength(0.018))
+      // Stronger vertical pull to stay within the upper and lower screen bounds
+      .force('y', d3.forceY(height / 2).strength(0.048))
+      // Overall center anchor
+      .force('center', d3.forceCenter(width / 2, height / 2).strength(0.08))
+      // Anti-collision with generous radius to prevent clumping and keep labels readable
+      .force('collide', d3.forceCollide<D3GraphNode>()
+        .radius(d => (d.is_anchor ? 65 : d.type === 'ANNEX' ? 55 : 46))
+        .strength(0.9)
+        .iterations(3)
+      );
 
     simulationRef.current = simulation;
 
@@ -377,6 +461,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         return title.length > 22 ? title.slice(0, 20) + '...' : title;
       });
 
+    let hasAutoFitted = false;
     // Simulation Tick
     simulation.on('tick', () => {
       linkPath
@@ -390,6 +475,12 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
         .attr('y', d => (((d.source as D3GraphNode).y || 0) + ((d.target as D3GraphNode).y || 0)) / 2);
 
       node.attr('transform', d => `translate(${d.x || 0},${d.y || 0})`);
+
+      // Once the layout has expanded and stabilized, gently fit to viewport if not already fitted
+      if (!hasAutoFitted && simulation.alpha() < 0.08) {
+        hasAutoFitted = true;
+        handleFitView(350);
+      }
     });
 
     // Background Click clears quick bar
@@ -400,7 +491,31 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     return () => {
       simulation.stop();
     };
-  }, [graphData, isPhysicsFrozen]);
+  }, [graphData, isPhysicsFrozen, handleFitView]);
+
+  // Dynamically adapt simulation center and forces on viewport or drawer resize
+  useEffect(() => {
+    if (!svgRef.current || !svgRef.current.parentElement) return;
+    const container = svgRef.current.parentElement;
+
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0 && simulationRef.current) {
+          const sim = simulationRef.current;
+          sim.force('center', d3.forceCenter(width / 2, height / 2).strength(0.08));
+          sim.force('x', d3.forceX(width / 2).strength(0.018));
+          sim.force('y', d3.forceY(height / 2).strength(0.048));
+          if (!isPhysicsFrozen) {
+            sim.alpha(0.12).restart();
+          }
+        }
+      }
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isPhysicsFrozen]);
 
   // Viewport Control Actions
   const handleZoomIn = () => {
@@ -416,12 +531,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   };
 
   const handleResetView = () => {
-    if (svgRef.current && zoomBehaviorRef.current) {
-      d3.select(svgRef.current).transition().duration(400).call(
-        zoomBehaviorRef.current.transform,
-        d3.zoomIdentity
-      );
-    }
+    handleFitView(400);
   };
 
   const handleTogglePhysics = () => {
@@ -438,8 +548,8 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
   // Center camera on a specific node
   const handlePanToNode = (targetNode: D3GraphNode) => {
     if (!svgRef.current || !zoomBehaviorRef.current || targetNode.x === undefined || targetNode.y === undefined) return;
-    const width = svgRef.current.clientWidth || 900;
-    const height = svgRef.current.clientHeight || 650;
+    const width = svgRef.current.clientWidth || 1200;
+    const height = svgRef.current.clientHeight || 700;
     const scale = 1.4;
     const transform = d3.zoomIdentity
       .translate(width / 2 - targetNode.x * scale, height / 2 - targetNode.y * scale)
@@ -1099,11 +1209,11 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 <ZoomOut className="w-3.5 h-3.5" /> Zoom Out
               </button>
               <button
-                onClick={handleResetView}
+                onClick={() => handleFitView(400)}
                 className="flex items-center justify-center gap-1 px-2 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-xs text-slate-300 transition-colors"
-                title="Center Camera"
+                title="Fit graph to available screen"
               >
-                <Maximize2 className="w-3.5 h-3.5" /> Center
+                <Maximize2 className="w-3.5 h-3.5" /> Fit View
               </button>
               <button
                 onClick={handleTogglePhysics}

@@ -319,6 +319,7 @@ export interface ConceptNarrativeResponse {
   provider_used: string;
   narrative: string;
   generated_at: string;
+  cached?: boolean;
 }
 
 export async function fetchConceptNarrative(
@@ -326,7 +327,8 @@ export async function fetchConceptNarrative(
   conceptName: string,
   provider: 'gemini' | 'local' = 'gemini',
   model?: string,
-  geminiApiKey?: string
+  geminiApiKey?: string,
+  forceRefresh: boolean = false
 ): Promise<ConceptNarrativeResponse> {
   const res = await fetch(`${apiUrl}/graph/concept/narrative`, {
     method: 'POST',
@@ -335,7 +337,8 @@ export async function fetchConceptNarrative(
       concept_name: conceptName,
       provider,
       model,
-      gemini_api_key: geminiApiKey
+      gemini_api_key: geminiApiKey,
+      force_refresh: forceRefresh
     })
   });
   if (!res.ok) {

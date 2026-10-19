@@ -9,7 +9,10 @@ Exposes endpoints for:
 - Compliance Path Traversals
 """
 
+import json
+import logging
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from fastapi import APIRouter, HTTPException, Query
@@ -18,6 +21,43 @@ from pydantic import BaseModel
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
+
+from ingestion.core.config import settings
+
+logger = logging.getLogger("api.graph")
+NARRATIVES_CACHE_FILE = settings.DATA_DIR / "concept_narratives.json"
+_narratives_lock = threading.Lock()
+
+
+def _load_cached_narratives() -> Dict[str, Any]:
+    if not NARRATIVES_CACHE_FILE.exists():
+        return {}
+    try:
+        with _narratives_lock:
+            with open(NARRATIVES_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to read concept narratives cache: {e}")
+        return {}
+
+
+def _save_cached_narrative(cache_key: str, data: Dict[str, Any]) -> None:
+    try:
+        NARRATIVES_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _narratives_lock:
+            cache = {}
+            if NARRATIVES_CACHE_FILE.exists():
+                try:
+                    with open(NARRATIVES_CACHE_FILE, "r", encoding="utf-8") as f:
+                        cache = json.load(f)
+                except Exception:
+                    cache = {}
+            cache[cache_key] = data
+            with open(NARRATIVES_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Failed to save concept narrative to cache: {e}")
+
 
 _graph_import_error = None
 try:
@@ -48,6 +88,7 @@ class ConceptNarrativeRequest(BaseModel):
     provider: Optional[str] = "gemini"  # "gemini" or "local"
     model: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    force_refresh: Optional[bool] = False
 
 
 
@@ -534,6 +575,18 @@ def generate_concept_narrative_api(request: ConceptNarrativeRequest):
     if not concept_name:
         raise HTTPException(status_code=400, detail="Concept name cannot be empty")
 
+    provider_used = request.provider or "gemini"
+    cache_key = f"{concept_name.lower()}_{provider_used.lower()}"
+
+    # Return persistent stored report if available and force_refresh is not requested
+    if not request.force_refresh:
+        cached_narratives = _load_cached_narratives()
+        if cache_key in cached_narratives:
+            cached_data = dict(cached_narratives[cache_key])
+            cached_data["cached"] = True
+            logger.info(f"Returning cached concept narrative for '{concept_name}' ({provider_used})")
+            return cached_data
+
     try:
         eng = get_engine()
         sub = eng.get_concept_subgraph(concept_name)
@@ -639,15 +692,18 @@ def generate_concept_narrative_api(request: ConceptNarrativeRequest):
             temperature=0.3
         )
 
-        return {
+        response_data = {
             "concept": c_info.get("name", concept_name),
             "category": c_info.get("category", "General"),
             "total_provisions": total_provisions,
             "annexes_covered": annexes_covered,
             "provider_used": provider_used,
             "narrative": narrative_text,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.utcnow().isoformat(),
+            "cached": False
         }
+        _save_cached_narrative(cache_key, response_data)
+        return response_data
 
     except HTTPException:
         raise

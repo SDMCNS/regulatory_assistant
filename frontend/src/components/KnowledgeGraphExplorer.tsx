@@ -20,7 +20,7 @@ import {
   searchGraph, executeHydeSearch, fetchComplianceChain, fetchBlastRadius, fetchConceptSubgraph, fetchNodeDetails,
   fetchConceptNarrative, ConceptNarrativeResponse,
   GraphStats, SourcesCatalog, ConceptSummary, GraphSearchResult, HydeResponse, HydeCandidate,
-  D3GraphData, D3GraphNode, D3GraphLink, NodeInspectionDetails
+  D3GraphData, D3GraphNode, D3GraphLink, NodeInspectionDetails, EdgeRuleItem
 } from '../services/graphService';
 import { loadSettings } from '../services/apiClient';
 import { marked } from 'marked';
@@ -121,6 +121,10 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
   // Selection & Details Drawer
   const [selectedNode, setSelectedNode] = useState<D3GraphNode | null>(null);
+  const [selectedLink, setSelectedLink] = useState<D3GraphLink | null>(null);
+  const [edgeRuleFilter, setEdgeRuleFilter] = useState<'ALL' | 'IR' | 'AMC' | 'GM' | 'CS'>('ALL');
+  const [edgeSearchQuery, setEdgeSearchQuery] = useState<string>('');
+  const selectedLinkRef = useRef<D3GraphLink | null>(null);
   const [nodeDetails, setNodeDetails] = useState<NodeInspectionDetails | null>(null);
   const [isDetailsLoading, setIsDetailsLoading] = useState<boolean>(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
@@ -205,6 +209,7 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       } else {
         data = await fetchRegulationConcepts(apiUrl, target);
       }
+      setSelectedLink(null);
       setGraphData(data);
       // Auto-select anchor if present
       const anchor = data.nodes.find(n => n.is_anchor) || data.nodes[0] || null;
@@ -230,9 +235,30 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     );
   }, []); // Run on mount
 
+  // Helper to safely resolve source & target nodes for link inspection
+  const getSourceNode = (l: D3GraphLink): D3GraphNode | undefined => {
+    if (typeof l.source === 'object' && l.source !== null) return l.source as D3GraphNode;
+    return graphData?.nodes.find(n => n.id === l.source);
+  };
+
+  const getTargetNode = (l: D3GraphLink): D3GraphNode | undefined => {
+    if (typeof l.target === 'object' && l.target !== null) return l.target as D3GraphNode;
+    return graphData?.nodes.find(n => n.id === l.target);
+  };
+
+  // Select and inspect a link / edge
+  const handleSelectLink = (link: D3GraphLink) => {
+    setSelectedLink(link);
+    setSelectedNode(null);
+    setIsDrawerOpen(true);
+    setEdgeRuleFilter('ALL');
+    setEdgeSearchQuery('');
+  };
+
   // Select and inspect a node
   const handleSelectNode = async (node: D3GraphNode) => {
     setSelectedNode(node);
+    setSelectedLink(null);
     setIsDrawerOpen(true);
     setIsDetailsLoading(true);
     try {
@@ -394,9 +420,50 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       .data(links)
       .enter()
       .append('g')
-      .attr('class', 'link');
+      .attr('class', 'link')
+      .attr('cursor', 'pointer')
+      .on('click', (event, d) => {
+        event.stopPropagation();
+        handleSelectLink(d);
+      })
+      .on('mouseenter', function(event, d) {
+        d3.select(this).select('line.link-visible')
+          .attr('stroke', '#38bdf8')
+          .attr('stroke-width', 4)
+          .attr('stroke-opacity', 1);
+        d3.select(this).select('text.link-label')
+          .attr('font-size', '11px')
+          .attr('font-weight', '700')
+          .attr('fill', '#38bdf8');
+      })
+      .on('mouseleave', function(event, d) {
+        const cur = selectedLinkRef.current;
+        const isSelected = cur && (
+          cur === d ||
+          (((cur.source as any)?.id || cur.source) === ((d.source as any)?.id || d.source) &&
+           ((cur.target as any)?.id || cur.target) === ((d.target as any)?.id || d.target))
+        );
+        if (!isSelected) {
+          d3.select(this).select('line.link-visible')
+            .attr('stroke', d => LINK_COLORS[d.type] || LINK_COLORS.DEFAULT)
+            .attr('stroke-width', d => (d.type === 'BRIDGES_TO' ? 2 : d.type === 'SIMILAR_TO' ? 2 : d.type === 'SATISFIES' ? 2.5 : 1.5))
+            .attr('stroke-opacity', 0.7);
+          d3.select(this).select('text.link-label')
+            .attr('font-size', '9px')
+            .attr('font-weight', 'normal')
+            .attr('fill', d => LINK_COLORS[d.type] || '#64748b');
+        }
+      });
+
+    // Invisible generous hit-line for responsive, easy clicking on thin links
+    link.append('line')
+      .attr('class', 'link-hit')
+      .attr('stroke', 'transparent')
+      .attr('stroke-width', 18)
+      .attr('cursor', 'pointer');
 
     const linkPath = link.append('line')
+      .attr('class', 'link-visible')
       .attr('stroke', d => LINK_COLORS[d.type] || LINK_COLORS.DEFAULT)
       .attr('stroke-width', d => (d.type === 'BRIDGES_TO' ? 2 : d.type === 'SIMILAR_TO' ? 2 : d.type === 'SATISFIES' ? 2.5 : 1.5))
       .attr('stroke-dasharray', d => (d.type === 'BRIDGES_TO' ? '4,4' : d.type === 'SIMILAR_TO' ? '4,4' : d.type === 'CROSS_REFERENCES' ? '2,2' : 'none'))
@@ -505,11 +572,11 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
     let hasAutoFitted = false;
     // Simulation Tick
     simulation.on('tick', () => {
-      linkPath
-        .attr('x1', d => (d.source as D3GraphNode).x || 0)
-        .attr('y1', d => (d.source as D3GraphNode).y || 0)
-        .attr('x2', d => (d.target as D3GraphNode).x || 0)
-        .attr('y2', d => (d.target as D3GraphNode).y || 0);
+      link.selectAll('line')
+        .attr('x1', (d: any) => (d.source as D3GraphNode).x || 0)
+        .attr('y1', (d: any) => (d.source as D3GraphNode).y || 0)
+        .attr('x2', (d: any) => (d.target as D3GraphNode).x || 0)
+        .attr('y2', (d: any) => (d.target as D3GraphNode).y || 0);
 
       linkText
         .attr('x', d => (((d.source as D3GraphNode).x || 0) + ((d.target as D3GraphNode).x || 0)) / 2)
@@ -533,6 +600,42 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
       simulation.stop();
     };
   }, [graphData, isPhysicsFrozen, handleFitView]);
+
+  // Synchronize visual highlight styling whenever selectedLink changes
+  useEffect(() => {
+    selectedLinkRef.current = selectedLink;
+    if (!gRef.current) return;
+    gRef.current.selectAll('g.link').each(function(d: any) {
+      const isSelected = selectedLink && (
+        selectedLink === d ||
+        (((selectedLink.source as any)?.id || selectedLink.source) === ((d.source as any)?.id || d.source) &&
+         ((selectedLink.target as any)?.id || selectedLink.target) === ((d.target as any)?.id || d.target))
+      );
+      const visibleLine = d3.select(this).select('line.link-visible');
+      const labelText = d3.select(this).select('text.link-label');
+      if (isSelected) {
+        visibleLine
+          .attr('stroke', '#38bdf8')
+          .attr('stroke-width', 4)
+          .attr('stroke-opacity', 1)
+          .attr('filter', 'drop-shadow(0 0 6px #0284c7)');
+        labelText
+          .attr('font-size', '11px')
+          .attr('font-weight', 'bold')
+          .attr('fill', '#38bdf8');
+      } else {
+        visibleLine
+          .attr('stroke', LINK_COLORS[d.type] || LINK_COLORS.DEFAULT)
+          .attr('stroke-width', d.type === 'BRIDGES_TO' ? 2 : d.type === 'SIMILAR_TO' ? 2 : d.type === 'SATISFIES' ? 2.5 : 1.5)
+          .attr('stroke-opacity', 0.7)
+          .attr('filter', null);
+        labelText
+          .attr('font-size', '9px')
+          .attr('font-weight', 'normal')
+          .attr('fill', LINK_COLORS[d.type] || '#64748b');
+      }
+    });
+  }, [selectedLink]);
 
   // Dynamically adapt simulation center and forces on viewport or drawer resize
   useEffect(() => {
@@ -1531,13 +1634,332 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
 
           {/* Helper Hint */}
           <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-slate-900/80 border border-slate-800/80 rounded-full text-[11px] text-slate-400 backdrop-blur pointer-events-none">
-            💡 <strong>Click</strong> node to inspect & regenerate • <strong>Drag</strong> to pin • <strong>Scroll</strong> to zoom
+            💡 <strong>Click</strong> node or edge to inspect rules • <strong>Drag</strong> to pin • <strong>Scroll</strong> to zoom
           </div>
         </main>
 
         {/* Right Drawer: Quick Overview */}
-        {isDrawerOpen && selectedNode && (
-          <aside className="w-80 bg-slate-900 border-l border-slate-800 p-4 flex flex-col gap-3 overflow-y-auto z-20 shrink-0 select-text">
+        {isDrawerOpen && (selectedLink || selectedNode) && (
+          <aside className="w-88 sm:w-96 bg-slate-900 border-l border-slate-800 p-4 flex flex-col gap-3 overflow-y-auto z-20 shrink-0 select-text">
+            {selectedLink ? (() => {
+              const srcNode = getSourceNode(selectedLink);
+              const tgtNode = getTargetNode(selectedLink);
+              const srcLabel = srcNode?.label || (typeof selectedLink.source === 'string' ? selectedLink.source : 'Source');
+              const tgtLabel = tgtNode?.label || (typeof selectedLink.target === 'string' ? selectedLink.target : 'Target');
+              const rules = selectedLink.rules || [];
+
+              const irCount = rules.filter(r => r.content_type === 'IR').length;
+              const amcCount = rules.filter(r => r.content_type === 'AMC').length;
+              const gmCount = rules.filter(r => r.content_type === 'GM').length;
+              const csCount = rules.filter(r => r.content_type === 'CS').length;
+
+              const filteredRules = rules.filter(r => {
+                if (edgeRuleFilter !== 'ALL' && r.content_type !== edgeRuleFilter) return false;
+                if (edgeSearchQuery.trim()) {
+                  const q = edgeSearchQuery.toLowerCase();
+                  const matchCode = r.code?.toLowerCase().includes(q);
+                  const matchTitle = r.title?.toLowerCase().includes(q);
+                  const matchSnippet = r.text_snippet?.toLowerCase().includes(q);
+                  const matchAnnex = r.annex?.toLowerCase().includes(q);
+                  if (!matchCode && !matchTitle && !matchSnippet && !matchAnnex) return false;
+                }
+                return true;
+              });
+
+              return (
+                <>
+                  {/* Edge / Relationship Header */}
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded text-white font-mono"
+                        style={{ backgroundColor: LINK_COLORS[selectedLink.type] || '#06b6d4' }}
+                      >
+                        {selectedLink.type}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">Relationship</span>
+                    </div>
+                    <button
+                      onClick={() => setIsDrawerOpen(false)}
+                      className="p-1 hover:bg-slate-800 text-slate-400 hover:text-slate-200 rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Source -> Target Connection Banner */}
+                  <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-lg flex flex-col gap-2">
+                    <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                      Connection Topology
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <div
+                        onClick={() => { if (srcNode) handleSelectNode(srcNode); }}
+                        className="flex-1 p-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/60 rounded cursor-pointer transition-colors"
+                      >
+                        <div className="text-[9px] text-slate-400 uppercase font-mono">From</div>
+                        <div className="font-semibold text-slate-200 truncate" title={srcNode?.title || srcLabel}>
+                          {srcLabel}
+                        </div>
+                        {srcNode?.type && (
+                          <span className="text-[9px] text-cyan-400 font-mono">({srcNode.type})</span>
+                        )}
+                      </div>
+                      <div className="text-cyan-400 font-mono text-sm px-0.5">──►</div>
+                      <div
+                        onClick={() => { if (tgtNode) handleSelectNode(tgtNode); }}
+                        className="flex-1 p-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/60 rounded cursor-pointer transition-colors"
+                      >
+                        <div className="text-[9px] text-slate-400 uppercase font-mono">To</div>
+                        <div className="font-semibold text-slate-200 truncate" title={tgtNode?.title || tgtLabel}>
+                          {tgtLabel}
+                        </div>
+                        {tgtNode?.type && (
+                          <span className="text-[9px] text-cyan-400 font-mono">({tgtNode.type})</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Metrics */}
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div className="bg-slate-950 p-2 rounded border border-slate-800">
+                      <div className="text-base font-bold text-cyan-400 font-mono">
+                        {selectedLink.rules?.length || selectedLink.rule_count || 0}
+                      </div>
+                      <div className="text-[9px] text-slate-400">Associated Rules</div>
+                    </div>
+                    <div className="bg-slate-950 p-2 rounded border border-slate-800">
+                      <div className="text-sm font-bold text-slate-200 font-mono">
+                        {selectedLink.type === 'BRIDGES_TO' ? 'Cross-Regulation' : selectedLink.type === 'COVERS_CONCEPT' ? 'Mandate' : 'Legal Link'}
+                      </div>
+                      <div className="text-[9px] text-slate-400">Relationship Type</div>
+                    </div>
+                  </div>
+
+                  {/* Semantic Parallels Reason / Score if present */}
+                  {selectedLink.reason && (
+                    <div className="p-2.5 bg-cyan-950/30 border border-cyan-800/40 rounded text-xs text-cyan-200">
+                      <div className="font-semibold text-[10px] text-cyan-400 uppercase mb-1">
+                        Semantic Parallel Rationale {selectedLink.score ? `(${Math.round(selectedLink.score * 100)}% Match)` : ''}
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-slate-300">{selectedLink.reason}</p>
+                    </div>
+                  )}
+
+                  {/* Filter and Search for Rules */}
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className="flex items-center justify-between text-[10px] uppercase font-bold text-slate-400">
+                      <span>Governing Rules & Provisions</span>
+                      <span className="text-cyan-400 font-mono">
+                        {filteredRules.length} / {rules.length}
+                      </span>
+                    </div>
+
+                    {/* Filter Chips */}
+                    {rules.length > 0 && (
+                      <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px]">
+                        <button
+                          onClick={() => setEdgeRuleFilter('ALL')}
+                          className={`px-2 py-0.5 rounded font-mono font-medium transition-colors ${
+                            edgeRuleFilter === 'ALL'
+                              ? 'bg-cyan-600 text-white'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                          }`}
+                        >
+                          All ({rules.length})
+                        </button>
+                        {irCount > 0 && (
+                          <button
+                            onClick={() => setEdgeRuleFilter('IR')}
+                            className={`px-2 py-0.5 rounded font-mono font-medium transition-colors ${
+                              edgeRuleFilter === 'IR'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-slate-800 text-purple-400 hover:bg-slate-700'
+                            }`}
+                          >
+                            IR ({irCount})
+                          </button>
+                        )}
+                        {amcCount > 0 && (
+                          <button
+                            onClick={() => setEdgeRuleFilter('AMC')}
+                            className={`px-2 py-0.5 rounded font-mono font-medium transition-colors ${
+                              edgeRuleFilter === 'AMC'
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-slate-800 text-emerald-400 hover:bg-slate-700'
+                            }`}
+                          >
+                            AMC ({amcCount})
+                          </button>
+                        )}
+                        {gmCount > 0 && (
+                          <button
+                            onClick={() => setEdgeRuleFilter('GM')}
+                            className={`px-2 py-0.5 rounded font-mono font-medium transition-colors ${
+                              edgeRuleFilter === 'GM'
+                                ? 'bg-amber-600 text-white'
+                                : 'bg-slate-800 text-amber-400 hover:bg-slate-700'
+                            }`}
+                          >
+                            GM ({gmCount})
+                          </button>
+                        )}
+                        {csCount > 0 && (
+                          <button
+                            onClick={() => setEdgeRuleFilter('CS')}
+                            className={`px-2 py-0.5 rounded font-mono font-medium transition-colors ${
+                              edgeRuleFilter === 'CS'
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-slate-800 text-indigo-400 hover:bg-slate-700'
+                            }`}
+                          >
+                            CS ({csCount})
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Search Rules Input */}
+                    {rules.length > 4 && (
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                        <input
+                          type="text"
+                          value={edgeSearchQuery}
+                          onChange={e => setEdgeSearchQuery(e.target.value)}
+                          placeholder="Search rules in this relationship..."
+                          className="w-full pl-8 pr-7 py-1 bg-slate-950 border border-slate-800 rounded text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                        />
+                        {edgeSearchQuery && (
+                          <button
+                            onClick={() => setEdgeSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rules Scrollable List */}
+                  <div className="flex flex-col gap-2 max-h-[380px] overflow-y-auto pr-1">
+                    {filteredRules.length > 0 ? (
+                      filteredRules.map(rule => (
+                        <div
+                          key={rule.id || rule.code}
+                          className="p-2.5 bg-slate-950 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg flex flex-col gap-1.5 transition-colors group"
+                        >
+                          {/* Rule Top Row */}
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className="px-1.5 py-0.2 rounded text-[10px] font-bold font-mono text-white"
+                                style={{ backgroundColor: NODE_COLORS[rule.content_type || 'IR'] || '#8b5cf6' }}
+                              >
+                                {rule.content_type || 'IR'}
+                              </span>
+                              <span className="font-mono text-xs font-bold text-slate-200">
+                                {rule.code}
+                              </span>
+                            </div>
+                            {rule.annex && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-sky-950 border border-sky-800 text-sky-300 rounded font-mono">
+                                {rule.annex}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Rule Title */}
+                          <div className="text-xs text-slate-300 font-medium leading-snug">
+                            {rule.title}
+                          </div>
+
+                          {/* Rule Text Snippet */}
+                          {rule.text_snippet && (
+                            <div className="p-2 bg-slate-900/80 rounded border border-slate-800/80 text-[11px] text-slate-400 font-serif leading-relaxed line-clamp-3">
+                              {rule.text_snippet}
+                            </div>
+                          )}
+
+                          {/* Card Actions */}
+                          <div className="flex items-center gap-1.5 mt-0.5 pt-1.5 border-t border-slate-800/80">
+                            <button
+                              onClick={() => {
+                                handleSelectNode({
+                                  id: rule.id || rule.code,
+                                  label: rule.code,
+                                  type: rule.content_type || 'IR',
+                                  title: rule.title,
+                                  text: rule.text_snippet
+                                });
+                                setIsInspectorOpen(true);
+                              }}
+                              className="flex-1 py-1 px-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded text-[10px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                            >
+                              <Eye className="w-3 h-3 text-cyan-400" />
+                              <span>360° View</span>
+                            </button>
+                            <button
+                              onClick={() => handlePivotToNode(rule.code)}
+                              className="py-1 px-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded text-[10px] font-medium border border-slate-800 flex items-center justify-center gap-1 transition-colors"
+                              title="Pivot Graph View to this Provision"
+                            >
+                              <RefreshCw className="w-3 h-3 text-slate-400" />
+                              <span>Pivot</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-4 bg-slate-950 rounded border border-slate-800 text-center text-xs text-slate-500 italic">
+                        {rules.length === 0
+                          ? 'No specific rule codifications recorded for this relationship.'
+                          : 'No rules match the current search / filter.'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Edge Bottom Actions */}
+                  <div className="flex flex-col gap-2 mt-auto pt-3 border-t border-slate-800">
+                    {onSendToAssistant && (
+                      <button
+                        onClick={() => {
+                          const sampleCodes = rules.slice(0, 8).map(r => r.code).join(', ');
+                          onSendToAssistant(
+                            `Explain the regulatory relationship and compliance interplay between "${srcLabel}" and "${tgtLabel}" (${selectedLink.type}). Specifically address how the governing rules (e.g. ${sampleCodes || 'relevant IR/AMC provisions'}) establish binding mandates and acceptable means of compliance.`
+                          );
+                        }}
+                        className="w-full py-1.5 px-3 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Ask AI Assistant About This Edge</span>
+                      </button>
+                    )}
+                    {selectedLink.type === 'BRIDGES_TO' && tgtNode && (
+                      <button
+                        onClick={() => handleSelectRegulation(tgtNode.title || tgtLabel)}
+                        className="w-full py-1.5 px-3 bg-teal-600 hover:bg-teal-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                        <span>Pivot Knowledge Graph to {tgtLabel}</span>
+                      </button>
+                    )}
+                    {selectedLink.type === 'COVERS_CONCEPT' && tgtNode && (
+                      <button
+                        onClick={() => handleSelectConcept(tgtLabel)}
+                        className="w-full py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>Open Concept Ontology Mesh for {tgtLabel}</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              );
+            })() : selectedNode ? (
+              <>
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <div className="flex items-center gap-2">
                 <span
@@ -1787,6 +2209,8 @@ export const KnowledgeGraphExplorer: React.FC<Props> = ({
                 <span>Pan Camera Here</span>
               </button>
             </div>
+            </>
+            ) : null}
           </aside>
         )}
       </div>

@@ -98,6 +98,18 @@ export interface D3GraphNode {
   fy?: number | null;
 }
 
+export interface EdgeRuleItem {
+  id: string;
+  code: string;
+  title: string;
+  content_type?: string;
+  legal_force?: string;
+  annex?: string;
+  annex_name?: string;
+  text_snippet?: string;
+  relevance?: string;
+}
+
 export interface D3GraphLink {
   source: string | D3GraphNode;
   target: string | D3GraphNode;
@@ -105,6 +117,9 @@ export interface D3GraphLink {
   label?: string;
   score?: number;
   reason?: string;
+  rule_count?: number;
+  shared_rules?: number;
+  rules?: EdgeRuleItem[];
 }
 
 export interface D3GraphData {

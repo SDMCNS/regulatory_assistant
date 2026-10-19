@@ -461,16 +461,17 @@ class EasaGraphEngine:
             MATCH (p:Provision)-[g:GOVERNS_CONCEPT]->(c:Concept {{id: '{concept_id}'}})
             WHERE p.content_type IN ['IR', 'AMC', 'GM', 'CS']
             OPTIONAL MATCH (p)-[:BELONGS_TO_ANNEX]->(a:Annex)
-            RETURN p.id, p.code, p.title, p.subject, p.content_type, p.legal_force, g.relevance, a.code, a.name
+            RETURN p.id, p.code, p.title, p.subject, p.content_type, p.legal_force, g.relevance, a.code, a.name, p.text
         """)
 
         provisions_by_annex: Dict[str, List[Dict[str, Any]]] = {}
         while res_provs.has_next():
             row = res_provs.get_next()
-            p_id, p_code, p_title, p_subj, p_ctype, p_force, g_rel, a_code, a_name = row
+            p_id, p_code, p_title, p_subj, p_ctype, p_force, g_rel, a_code, a_name, p_text = row
             annex = (a_code if a_code and a_code != "n/a" else None) or (p_subj if p_subj and p_subj != "n/a" else None) or "General"
             if annex not in provisions_by_annex:
                 provisions_by_annex[annex] = []
+            snippet = (p_text[:280] + "...") if p_text and len(p_text) > 280 else (p_text or "")
             provisions_by_annex[annex].append({
                 "id": p_id,
                 "code": p_code,
@@ -478,7 +479,9 @@ class EasaGraphEngine:
                 "content_type": p_ctype,
                 "legal_force": p_force,
                 "relevance": g_rel,
-                "annex_name": a_name or annex
+                "annex_name": a_name or annex,
+                "annex": a_code or annex,
+                "text_snippet": snippet
             })
 
         total_provisions = sum(len(v) for v in provisions_by_annex.values())
@@ -785,10 +788,32 @@ class EasaGraphEngine:
 
         all_regs = {r["id"]: r for r in self.get_all_regulations()}
 
-        # 3. For each applicable concept, find top connected OTHER regulations
+        # 3. For each applicable concept, fetch its governing rules and top connected other regulations
         for c in sorted_concepts:
             c_id = c["id"]
             if not c["is_custom"]:
+                # Query governing rules in this regulation
+                res_rules = self.conn.execute(f"""
+                    MATCH (d:RegulationDocument {{id: '{doc_id}'}})-[:CONTAINS_ANNEX]->(a:Annex)<-[:BELONGS_TO_ANNEX]-(p:Provision)-[:GOVERNS_CONCEPT]->(c:Concept {{id: '{c_id}'}})
+                    RETURN p.id, p.code, p.title, p.content_type, p.legal_force, a.code, p.text
+                    LIMIT 40;
+                """)
+                concept_rules = []
+                while res_rules.has_next():
+                    rp_id, rp_code, rp_title, rp_ctype, rp_force, ra_code, rp_text = res_rules.get_next()
+                    snippet = (rp_text[:280] + "...") if rp_text and len(rp_text) > 280 else (rp_text or "")
+                    concept_rules.append({
+                        "id": rp_id,
+                        "code": rp_code,
+                        "title": rp_title,
+                        "content_type": rp_ctype,
+                        "legal_force": rp_force,
+                        "annex": ra_code or "",
+                        "text_snippet": snippet
+                    })
+                c["rules"] = concept_rules
+
+                # Top connected OTHER regulations
                 res_cross = self.conn.execute(f"""
                     MATCH (c:Concept {{id: '{c_id}'}})<-[:GOVERNS_CONCEPT]-(p2:Provision)-[:BELONGS_TO_ANNEX]->(a2:Annex)<-[:CONTAINS_ANNEX]-(d2:RegulationDocument)
                     WHERE d2.id <> '{doc_id}'
@@ -799,13 +824,56 @@ class EasaGraphEngine:
                 while res_cross.has_next():
                     d2_id, d2_title, ocnt = res_cross.get_next()
                     reg_meta = all_regs.get(d2_id, {})
+                    res_cr_rules = self.conn.execute(f"""
+                        MATCH (c:Concept {{id: '{c_id}'}})<-[:GOVERNS_CONCEPT]-(p2:Provision)-[:BELONGS_TO_ANNEX]->(a2:Annex)<-[:CONTAINS_ANNEX]-(d2:RegulationDocument {{id: '{d2_id}'}})
+                        RETURN p2.id, p2.code, p2.title, p2.content_type, p2.legal_force, a2.code, p2.text
+                        LIMIT 30;
+                    """)
+                    cr_rules = []
+                    while res_cr_rules.has_next():
+                        cp_id, cp_code, cp_title, cp_ctype, cp_force, ca_code, cp_text = res_cr_rules.get_next()
+                        snippet = (cp_text[:280] + "...") if cp_text and len(cp_text) > 280 else (cp_text or "")
+                        cr_rules.append({
+                            "id": cp_id,
+                            "code": cp_code,
+                            "title": cp_title,
+                            "content_type": cp_ctype,
+                            "legal_force": cp_force,
+                            "annex": ca_code or "",
+                            "text_snippet": snippet
+                        })
                     c["connected_regulations"].append({
                         "id": d2_id,
                         "code": reg_meta.get("code") or d2_id.replace("DOC_", "").split("__")[0],
                         "title": d2_title,
-                        "shared_rules": ocnt
+                        "shared_rules": ocnt,
+                        "rules": cr_rules
                     })
             else:
+                # Custom concept rules from provisions_by_annex
+                try:
+                    raw_cc = mgr.get_concept(c_id)
+                    custom_rules = []
+                    if raw_cc:
+                        for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
+                            for p in provs:
+                                pid = p.get("id", "")
+                                if pid.startswith(doc_prefix) or (doc_id in pid):
+                                    txt = p.get("text") or p.get("text_snippet") or ""
+                                    snippet = (txt[:280] + "...") if txt and len(txt) > 280 else txt
+                                    custom_rules.append({
+                                        "id": pid,
+                                        "code": p.get("code", ""),
+                                        "title": p.get("title", ""),
+                                        "content_type": p.get("content_type", "IR"),
+                                        "legal_force": p.get("legal_force", "BINDING"),
+                                        "annex": annex,
+                                        "text_snippet": snippet
+                                    })
+                    c["rules"] = custom_rules[:40]
+                except Exception:
+                    c["rules"] = []
+
                 # Custom concept cross-regulations from provisions_by_annex
                 try:
                     raw_cc = mgr.get_concept(c_id)
@@ -822,11 +890,28 @@ class EasaGraphEngine:
                         top_other = sorted(doc_counts.items(), key=lambda x: x[1], reverse=True)[:3]
                         for other_doc_id, cnt in top_other:
                             reg_meta = all_regs.get(other_doc_id, {})
+                            cr_custom_rules = []
+                            for annex, provs in raw_cc.get("provisions_by_annex", {}).items():
+                                for p in provs:
+                                    pid = p.get("id", "")
+                                    if other_doc_id in pid:
+                                        txt = p.get("text") or p.get("text_snippet") or ""
+                                        snippet = (txt[:280] + "...") if txt and len(txt) > 280 else txt
+                                        cr_custom_rules.append({
+                                            "id": pid,
+                                            "code": p.get("code", ""),
+                                            "title": p.get("title", ""),
+                                            "content_type": p.get("content_type", "IR"),
+                                            "legal_force": p.get("legal_force", "BINDING"),
+                                            "annex": annex,
+                                            "text_snippet": snippet
+                                        })
                             c["connected_regulations"].append({
                                 "id": other_doc_id,
                                 "code": reg_meta.get("code") or other_doc_id.replace("DOC_", "").split("__")[0],
                                 "title": reg_meta.get("title") or other_doc_id,
-                                "shared_rules": cnt
+                                "shared_rules": cnt,
+                                "rules": cr_custom_rules[:30]
                             })
                 except Exception:
                     pass

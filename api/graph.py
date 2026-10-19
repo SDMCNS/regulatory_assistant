@@ -134,7 +134,14 @@ def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
             "legal_force": amc["legal_force"],
             "text": amc.get("text_snippet", "")
         })
-        links.append({"source": amc["id"], "target": rule["id"], "type": "SATISFIES", "label": "SATISFIES"})
+        links.append({
+            "source": amc["id"],
+            "target": rule["id"],
+            "type": "SATISFIES",
+            "label": "SATISFIES",
+            "rule_count": 1,
+            "rules": [amc]
+        })
 
     # 4. GMs (Soft Law)
     for gm in chain["guidance_material"]:
@@ -143,7 +150,14 @@ def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
             "legal_force": gm["legal_force"],
             "text": gm.get("text_snippet", "")
         })
-        links.append({"source": gm["id"], "target": rule["id"], "type": "EXPLAINS", "label": "EXPLAINS"})
+        links.append({
+            "source": gm["id"],
+            "target": rule["id"],
+            "type": "EXPLAINS",
+            "label": "EXPLAINS",
+            "rule_count": 1,
+            "rules": [gm]
+        })
 
     # 5. Concepts
     for c in chain.get("concepts", []):
@@ -152,7 +166,14 @@ def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
             "category": c["category"],
             "title": c["name"]
         })
-        links.append({"source": rule["id"], "target": cid, "type": "GOVERNS_CONCEPT", "label": "GOVERNS"})
+        links.append({
+            "source": rule["id"],
+            "target": cid,
+            "type": "GOVERNS_CONCEPT",
+            "label": "GOVERNS",
+            "rule_count": 1,
+            "rules": [rule]
+        })
 
     # 6. Stakeholders
     for s in chain.get("stakeholders", []):
@@ -170,7 +191,14 @@ def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
             "title": cite.get("title", ""),
             "subject": cite.get("subject", "")
         })
-        links.append({"source": rule["id"], "target": cite_id, "type": "CROSS_REFERENCES", "label": "CITES"})
+        links.append({
+            "source": rule["id"],
+            "target": cite_id,
+            "type": "CROSS_REFERENCES",
+            "label": "CITES",
+            "rule_count": 1,
+            "rules": [cite]
+        })
 
     # 8. Semantic Parallels (SIMILAR_TO)
     for sim in chain.get("similar_provisions", []):
@@ -189,7 +217,9 @@ def build_chain_graph(chain: Dict[str, Any]) -> Dict[str, Any]:
             "type": "SIMILAR_TO",
             "label": f"SIMILAR ({score_pct}%)",
             "score": sim.get("score", 0.0),
-            "reason": sim.get("reason", "")
+            "reason": sim.get("reason", ""),
+            "rule_count": 1,
+            "rules": [sim]
         })
 
     return {
@@ -223,13 +253,27 @@ def build_blast_graph(blast: Dict[str, Any]) -> Dict[str, Any]:
             "title": d["title"],
             "subject": d["subject"]
         })
-        links.append({"source": did, "target": target["id"], "type": "CROSS_REFERENCES", "label": "CITES"})
+        links.append({
+            "source": did,
+            "target": target["id"],
+            "type": "CROSS_REFERENCES",
+            "label": "CITES",
+            "rule_count": 1,
+            "rules": [d]
+        })
 
     for s in blast.get("attached_soft_law", []):
         sid = f"SOFT_{s['code']}_{s['rel_type']}"
         node_type = "AMC" if "SATISFIES" in s["rel_type"] else "GM"
         add_node(sid, s["code"], node_type, {"title": s["title"]})
-        links.append({"source": sid, "target": target["id"], "type": s["rel_type"], "label": s["rel_type"]})
+        links.append({
+            "source": sid,
+            "target": target["id"],
+            "type": s["rel_type"],
+            "label": s["rel_type"],
+            "rule_count": 1,
+            "rules": [s]
+        })
 
     return {
         "target": target,
@@ -277,7 +321,14 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
                 "type": "ANNEX",
                 "title": full_annex_name or f"Annex {annex_name}"
             })
-            links.append({"source": annex_id, "target": cid, "type": "COVERS_CONCEPT", "label": "COVERS"})
+            links.append({
+                "source": annex_id,
+                "target": cid,
+                "type": "COVERS_CONCEPT",
+                "label": f"Governs ({len(provs)} rules)",
+                "rule_count": len(provs),
+                "rules": provs
+            })
 
         # Prioritize IRs (hard law) first, then AMCs, then GMs
         def _prov_sort_key(p: Dict[str, Any]) -> int:
@@ -307,8 +358,22 @@ def build_concept_graph(sub: Dict[str, Any]) -> Dict[str, Any]:
                     "title": p["title"],
                     "legal_force": p["legal_force"]
                 })
-                links.append({"source": pid, "target": annex_id, "type": "BELONGS_TO", "label": "IN"})
-                links.append({"source": pid, "target": cid, "type": "GOVERNS_CONCEPT", "label": "GOVERNS"})
+                links.append({
+                    "source": pid,
+                    "target": annex_id,
+                    "type": "BELONGS_TO",
+                    "label": "IN",
+                    "rule_count": 1,
+                    "rules": [p]
+                })
+                links.append({
+                    "source": pid,
+                    "target": cid,
+                    "type": "GOVERNS_CONCEPT",
+                    "label": "GOVERNS",
+                    "rule_count": 1,
+                    "rules": [p]
+                })
 
     return {
         "concept": c,
@@ -358,12 +423,15 @@ def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
             })
 
         # Link REGULATION -> CONCEPT
+        c_rules = c.get("rules", [])
+        c_cnt = c.get("rule_count", len(c_rules))
         links.append({
             "source": anchor_id,
             "target": cid,
             "type": "COVERS_CONCEPT",
-            "label": f"Governs ({c.get('rule_count', 0)} rules)",
-            "rule_count": c.get("rule_count", 0)
+            "label": f"Governs ({c_cnt} rules)",
+            "rule_count": c_cnt,
+            "rules": c_rules
         })
 
         # Connected other regulations
@@ -380,12 +448,16 @@ def build_regulation_concept_graph(res: Dict[str, Any]) -> Dict[str, Any]:
                     "shared_rules": cr.get("shared_rules", 0)
                 })
 
+            cr_rules = cr.get("rules", [])
+            cr_cnt = cr.get("shared_rules", len(cr_rules))
             links.append({
                 "source": cid,
                 "target": crid,
                 "type": "BRIDGES_TO",
-                "label": f"Bridges ({cr.get('shared_rules', 0)} rules)",
-                "shared_rules": cr.get("shared_rules", 0)
+                "label": f"Bridges ({cr_cnt} rules)",
+                "shared_rules": cr_cnt,
+                "rule_count": cr_cnt,
+                "rules": cr_rules
             })
 
     return {

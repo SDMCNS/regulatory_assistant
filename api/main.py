@@ -19,6 +19,7 @@ import time
 from ingestion.retrieval.search_chunks import search_semantic, get_query_embedding, get_embeddings_batch, get_chunk_surrounding_context
 from ingestion.retrieval.keyword_search import search_keywords
 from ingestion.retrieval.hybrid_search import search_hybrid
+from ingestion.retrieval.reranker import RerankerService, rerank_candidate_chunks
 from ingestion.parsers.json_to_doc import render_document, find_json_file, parse_document_sections
 from ingestion.core.config import settings
 
@@ -86,6 +87,9 @@ class SearchResponse(BaseModel):
     metadata: Dict[str, Any]
     primary_stakeholder: Optional[str] = None
     stakeholder_scores: Optional[Dict[str, float]] = None
+    rerank_score: Optional[float] = None
+    rerank_rank: Optional[int] = None
+    original_rank: Optional[int] = None
 
 class SearchDocResponse(SearchResponse):
     markdown_doc: str
@@ -119,6 +123,8 @@ class LLMAskRequest(BaseModel):
     use_hyde: bool = Field(False, description="Enable Hypothetical Document Embeddings for query expansion")
     context_window: int = Field(1, ge=0, le=4, description="Sequential surrounding context window (±N provisions)")
     include_deactivated: bool = Field(False, description="Whether to include deactivated / superseded documents")
+    rerank: Optional[bool] = Field(None, description="Whether to apply neural cross-encoder reranking to retrieved chunks")
+    reranker_model: Optional[str] = Field(None, description="Neural reranker model name (e.g. 'text-embedding-baai-bge-reranker-v2-m3-m3')")
     
     # Provider & model parameters
     provider: Optional[str] = Field("local", description="LLM provider: 'local' (LM Studio) or 'gemini'")
@@ -162,9 +168,14 @@ def api_search(
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
-    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes"),
+    rerank: bool = Query(False, description="Enable neural cross-encoder reranking"),
+    reranker_model: Optional[str] = Query(None, description="Optional neural reranker model name")
 ):
-    results = search_semantic(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
+    fetch_k = max(top_k * 6, getattr(settings, "RERANKER_CANDIDATE_POOL", 40)) if rerank else top_k
+    results = search_semantic(query, fetch_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
+    if rerank and results:
+        results = rerank_candidate_chunks(query, results, model_name=reranker_model, top_k=top_k)
     return results
 
 @app.get("/search/docs", response_model=List[SearchDocResponse], tags=["SEARCH"])
@@ -175,9 +186,21 @@ def api_search_docs(
     use_hyde: bool = Query(False, description="Use Hypothetical Document Embeddings (HyDE)"),
     stakeholder: Optional[str] = Query(None, description="Prioritize or filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
-    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes"),
+    rerank: bool = Query(False, description="Enable neural cross-encoder reranking"),
+    reranker_model: Optional[str] = Query(None, description="Optional neural reranker model name")
 ):
-    results = search_hybrid(query, top_k, origin, use_hyde=use_hyde, stakeholder=stakeholder, document_id=document_id, deep_research=deep_research)
+    results = search_hybrid(
+        query, 
+        top_k, 
+        origin, 
+        use_hyde=use_hyde, 
+        stakeholder=stakeholder, 
+        document_id=document_id, 
+        deep_research=deep_research,
+        rerank=rerank,
+        reranker_model=reranker_model
+    )
     
     enriched_results = []
     for r in results:
@@ -275,13 +298,36 @@ def api_search_hybrid(
     origin: str = Query("all", description="Filter by 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', or 'note'"),
     use_hyde: bool = Query(False, description="Use HyDE for the semantic component"),
     document_id: Optional[str] = Query(None, description="Optional document ID to restrict search to a single regulation"),
-    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes")
+    deep_research: bool = Query(False, description="Enable deep research mode to prioritize notes"),
+    rerank: bool = Query(False, description="Enable neural cross-encoder reranking"),
+    reranker_model: Optional[str] = Query(None, description="Optional neural reranker model name")
 ):
     """
-    Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search.
+    Perform Reciprocal Rank Fusion (RRF) between semantic vector search and BM25 keyword search,
+    with optional neural cross-encoder reranking.
     """
-    results = search_hybrid(query=query, top_k=top_k, origin=origin, use_hyde=use_hyde, document_id=document_id, deep_research=deep_research)
+    results = search_hybrid(
+        query=query, 
+        top_k=top_k, 
+        origin=origin, 
+        use_hyde=use_hyde, 
+        document_id=document_id, 
+        deep_research=deep_research,
+        rerank=rerank,
+        reranker_model=reranker_model
+    )
     return results
+
+@app.post("/search/rerank/test", tags=["SEARCH"])
+def api_test_reranker(
+    payload: Dict[str, Any] = Body(default={})
+):
+    """
+    Test status and latency of the neural reranker model.
+    """
+    model_name = payload.get("model_name") or settings.RERANKER_MODEL_NAME
+    service = RerankerService.get_instance()
+    return service.test_status(model_name=model_name)
 
 @app.get("/search/origin-options", tags=["SEARCH"])
 def api_get_origin_options():
@@ -471,6 +517,7 @@ def api_llm_ask(request: LLMAskRequest):
             resolved_stakeholder = "flight_crew"
 
     if not active_chunk_ids:
+        should_rerank = request.rerank if request.rerank is not None else getattr(settings, "RERANKER_ENABLED", True)
         log_debug_info("API /llm/ask - EXECUTING HYBRID RETRIEVAL", {
             "query": active_query,
             "origin": resolved_origin,
@@ -480,7 +527,9 @@ def api_llm_ask(request: LLMAskRequest):
             "keyword_filter": request.keyword_filter,
             "top_k": request.top_k,
             "use_hyde": request.use_hyde,
-            "document_id": target_doc_id
+            "document_id": target_doc_id,
+            "rerank": should_rerank,
+            "reranker_model": request.reranker_model
         })
         
         search_results = search_hybrid(
@@ -491,7 +540,9 @@ def api_llm_ask(request: LLMAskRequest):
             stakeholder=resolved_stakeholder,
             document_id=target_doc_id,
             deep_research=request.deep_research,
-            keyword_filter=request.keyword_filter
+            keyword_filter=request.keyword_filter,
+            rerank=should_rerank,
+            reranker_model=request.reranker_model
         )
         
         # If multiple document_ids requested, filter candidates locally
@@ -538,7 +589,10 @@ def api_llm_ask(request: LLMAskRequest):
                 "deactivation_reason": deact_reason,
                 "superseded_by": supers_by,
                 "skybrary_weight": cand_meta.get("skybrary_weight"),
-                "skybrary_explanation": cand_meta.get("skybrary_explanation")
+                "skybrary_explanation": cand_meta.get("skybrary_explanation"),
+                "rerank_score": cand_meta.get("rerank_score"),
+                "rerank_rank": cand_meta.get("rerank_rank"),
+                "original_rank": cand_meta.get("original_rank")
             })
             
             # Combine surrounding text into unified block

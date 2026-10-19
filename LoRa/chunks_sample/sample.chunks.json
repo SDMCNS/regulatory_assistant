@@ -1,0 +1,101 @@
+{
+  "document": {
+    "document_id": "SKYBRARY_2667",
+    "title": "Advisory to Operators of Civil Unmanned Aircraft Systems in the United States",
+    "language": "en",
+    "date": "29.Jul.2016",
+    "source": "SKYBRARY",
+    "category": "Accident Investigation",
+    "author": "NTSB",
+    "summary_url": "https://skybrary.aero/bookshelf/advisory-operators-civil-unmanned-aircraft-systems-united-states-0",
+    "pdf_url": "https://skybrary.aero/sites/default/files/bookshelf/5944.pdf",
+    "pdf_filename": "Advisory to Operators of Civil Unmanned Aircraft Systems in the United States.pdf",
+    "url_file_element": "5944.pdf",
+    "pages": 4,
+    "char_count": 9564,
+    "word_count": 1281,
+    "metadata": {
+      "skybrary_id": 2667,
+      "llm_classification": null,
+      "llm_score": null
+    }
+  },
+  "chunks": [
+    {
+      "chunk_id": "SKYBRARY_2667:P1:1",
+      "document_id": "SKYBRARY_2667",
+      "chunk_type": "paragraph",
+      "section_path": [
+        "Advisory to Operators of Civil Unmanned Aircraft Systems in the United States",
+        "Accident Investigation",
+        "Page 1"
+      ],
+      "section_numbers": [
+        "1"
+      ],
+      "source_text": "NATIONAL TRANSPORTATION SAFETY BOARD Office of Aviation Safety\n\nJuly 29, 2016\n\nAdvisory to Operators of Civil Unmanned Aircraft Systems in the United States\n\nINTRODUCTION The use of small civil unmanned operating systems (sUAS) is growing rapidly, with changes hap- pening on a nearly daily basis. In particular, the Federal Aviation Administration (FAA) and the Department of Transportation\u2019s Office of the Secretary issued a new final rule on the operation and certification of small unmanned aircraft systems1 and the FAA recently issued a new \u201cblanket Certif- icate of Waiver or Authorization (COA)\u201d for commercial Section 3332 and Public Aircraft operators. FAA authorizations for UAS operation direct UAS pilots and operators to provide notification to the FAA in the event that any of a series of enumerated occurrences takes place during the operation of a UAS. Included in these instructions are reminders that the FAA procedures \u201care not a substitute for separate accident/incident reporting required by the National Transportation Safety Board (NTSB) under 49 CFR \u00a7830.5.\u201d By means of this Advisory, the NTSB reminds operators of any civil UAS, other than those operated for hobby or recreational purposes, of the NTSB\u2019s accident and incident reporting requirements in Part 830 of title 49, Code of Federal Regulations.\n\nBACKGROUND In August of 2010, the NTSB revised its Part 830 regulations to clarify that its accident and inci- dent notification requirements apply to unmanned aircraft as well as conventional manned aircraft.3 Section 830.5 instructs operators of civil aircraft and certain public aircraft to immediately, and by the most expeditious means available, notify the NTSB when an accident or listed incident occurs. An accident will result in the NTSB\u2019s initiating an investigation and report with a determination of probable cause. In order to minimize the burden on operators of a small UAS and the NTSB, we have exempted from the definitions of \u201caircraft accident\u201d and \u201cunmanned aircraft accident\u201d in section 830.2 of the NTSB regulations those events in which there is only substantial damage to the aircraft (no injuries), and the aircraft has a maximum gross takeoff weight of less than 300 pounds. Although any of the incidents enumerated in section 830.5 would require the operator to notify the NTSB, the agency at its discretion may decide to conduct a full investigation with probable cause.",
+      "embedding_text": "Document: Advisory to Operators of Civil Unmanned Aircraft Systems in the United States\nCategory: Accident Investigation | Author: NTSB | Date: 29.Jul.2016 | Page: 1\n\nNATIONAL TRANSPORTATION SAFETY BOARD Office of Aviation Safety\n\nJuly 29, 2016\n\nAdvisory to Operators of Civil Unmanned Aircraft Systems in the United States\n\nINTRODUCTION The use of small civil unmanned operating systems (sUAS) is growing rapidly, with changes hap- pening on a nearly daily basis. In particular, the Federal Aviation Administration (FAA) and the Department of Transportation\u2019s Office of the Secretary issued a new final rule on the operation and certification of small unmanned aircraft systems1 and the FAA recently issued a new \u201cblanket Certif- icate of Waiver or Authorization (COA)\u201d for commercial Section 3332 and Public Aircraft operators. FAA authorizations for UAS operation direct UAS pilots and operators to provide notification to the FAA in the event that any of a series of enumerated occurrences takes place during the operation of a UAS. Included in these instructions are reminders that the FAA procedures \u201care not a substitute for separate accident/incident reporting required by the National Transportation Safety Board (NTSB) under 49 CFR \u00a7830.5.\u201d By means of this Advisory, the NTSB reminds operators of any civil UAS, other than those operated for hobby or recreational purposes, of the NTSB\u2019s accident and incident reporting requirements in Part 830 of title 49, Code of Federal Regulations.\n\nBACKGROUND In August of 2010, the NTSB revised its Part 830 regulations to clarify that its accident and inci- dent notification requirements apply to unmanned aircraft as well as conventional manned aircraft.3 Section 830.5 instructs operators of civil aircraft and certain public aircraft to immediately, and by the most expeditious means available, notify the NTSB when an accident or listed incident occurs. An accident will result in the NTSB\u2019s initiating an investigation and report with a determination of probable cause. In order to minimize the burden on operators of a small UAS and the NTSB, we have exempted from the definitions of \u201caircraft accident\u201d and \u201cunmanned aircraft accident\u201d in section 830.2 of the NTSB regulations those events in which there is only substantial damage to the aircraft (no injuries), and the aircraft has a maximum gross takeoff weight of less than 300 pounds. Although any of the incidents enumerated in section 830.5 would require the operator to notify the NTSB, the agency at its discretion may decide to conduct a full investigation with probable cause.",
+      "parent_chunk_id": null,
+      "previous_chunk_id": null,
+      "next_chunk_id": "SKYBRARY_2667:P1:2",
+      "structure": {
+        "node_type": "paragraph",
+        "pages": [
+          1
+        ]
+      },
+      "references": [],
+      "metadata": {
+        "source": "SKYBRARY",
+        "skybrary_id": 2667,
+        "category": "Accident Investigation",
+        "author": "NTSB",
+        "publication_date": "29.Jul.2016",
+        "summary_url": "https://skybrary.aero/bookshelf/advisory-operators-civil-unmanned-aircraft-systems-united-states-0",
+        "pdf_url": "https://skybrary.aero/sites/default/files/bookshelf/5944.pdf",
+        "page_start": 1,
+        "page_end": 1,
+        "word_count": 379,
+        "char_count": 2430
+      }
+    },
+    {
+      "chunk_id": "SKYBRARY_2667:P1:2",
+      "document_id": "SKYBRARY_2667",
+      "chunk_type": "paragraph",
+      "section_path": [
+        "Advisory to Operators of Civil Unmanned Aircraft Systems in the United States",
+        "Accident Investigation",
+        "Page 1"
+      ],
+      "section_numbers": [
+        "1"
+      ],
+      "source_text": "1 See 81 Fed. Reg. 42063 (June 28, 2016). 2 Section 333 of the FAA Modernization and Reform Act of 2012 provides that \u201c[i]f the Secretary of Transportation determines that \u2026 certain unmanned aircraft systems may operate safely in the national airspace system, the Secretary shall establish requirements for the safe operation of such aircraft systems in the national airspace system.\u201d 3 75 Fed. Reg. 51955 (August 24, 2010).",
+      "embedding_text": "Document: Advisory to Operators of Civil Unmanned Aircraft Systems in the United States\nCategory: Accident Investigation | Author: NTSB | Date: 29.Jul.2016 | Page: 1\n\n1 See 81 Fed. Reg. 42063 (June 28, 2016). 2 Section 333 of the FAA Modernization and Reform Act of 2012 provides that \u201c[i]f the Secretary of Transportation determines that \u2026 certain unmanned aircraft systems may operate safely in the national airspace system, the Secretary shall establish requirements for the safe operation of such aircraft systems in the national airspace system.\u201d 3 75 Fed. Reg. 51955 (August 24, 2010).",
+      "parent_chunk_id": null,
+      "previous_chunk_id": "SKYBRARY_2667:P1:1",
+      "next_chunk_id": "SKYBRARY_2667:P2:3",
+      "structure": {
+        "node_type": "paragraph",
+        "pages": [
+          1
+        ]
+      },
+      "references": [],
+      "metadata": {
+        "source": "SKYBRARY",
+        "skybrary_id": 2667,
+        "category": "Accident Investigation",
+        "author": "NTSB",
+        "publication_date": "29.Jul.2016",
+        "summary_url": "https://skybrary.aero/bookshelf/advisory-operators-civil-unmanned-aircraft-systems-united-states-0",
+        "pdf_url": "https://skybrary.aero/sites/default/files/bookshelf/5944.pdf",
+        "page_start": 1,
+        "page_end": 1,
+        "word_count": 69,
+        "char_count": 424
+      }
+    }
+  ]
+}

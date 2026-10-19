@@ -32,6 +32,25 @@
       </div>
     </div>
 
+    <!-- Header Navigation Tabs -->
+    <nav class="header-nav-tabs" aria-label="Main Views">
+      <button id="nav-tab-chat" class="header-nav-btn active" title="Regulatory Q&A Assistant">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Assistant</span>
+      </button>
+      <button id="nav-tab-notes" class="header-nav-btn" title="Organizational Knowledge Base Notes">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+          <path d="M6 6h10"/>
+          <path d="M6 10h10"/>
+        </svg>
+        <span>Knowledge Notes</span>
+        <span id="notes-count-badge" class="nav-count-badge">0</span>
+      </button>
+    </nav>
+
     <div class="header-actions">
       <!-- Backend Status -->
       <div id="backend-status" class="status-pill" title="Checking backend connection...">
@@ -60,199 +79,657 @@
     </div>
   </header>
 
-  <!-- Document Source Filter Bar -->
-  <nav class="filter-bar source-bar" aria-label="Document source filters">
-    <div class="filter-label">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
-        <path d="M6 6h10"/>
-        <path d="M6 10h10"/>
-      </svg>
-      Source:
-    </div>
-    <div class="filter-chips" id="source-chips-container">
-      <button class="filter-chip active" data-source="all">All Sources</button>
-      <button class="filter-chip" data-source="easa">EASA</button>
-      <button class="filter-chip" data-source="eu">EU (EUR-Lex)</button>
-      <button class="filter-chip" data-source="faa">FAA</button>
-      <button class="filter-chip" data-source="skybrary">SKYbrary</button>
-      <button class="filter-chip" data-source="manual">Manuals</button>
-      <button class="filter-chip" data-source="note">Notes</button>
-      <button class="filter-chip" data-source="user">User Docs</button>
-    </div>
-  </nav>
-
-  <!-- Domain Filter Bar -->
-  <nav class="filter-bar domain-bar" aria-label="Regulatory domain filters">
-    <div class="filter-label">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-      </svg>
-      Domain:
-    </div>
-    <div class="filter-chips" id="domain-chips-container">
-      <button class="filter-chip active" data-domain="all">All Domains</button>
-      <button class="filter-chip" data-domain="flight_ops">Flight Ops (Air Ops)</button>
-      <button class="filter-chip" data-domain="airworthiness">Airworthiness & CAMO</button>
-      <button class="filter-chip" data-domain="atm">ATM / Air Navigation</button>
-      <button class="filter-chip" data-domain="aerodromes">Aerodromes & Ground</button>
-      <button class="filter-chip" data-domain="licensing">Crew & Licensing</button>
-      <button class="filter-chip" data-domain="drones">Drones / UAS</button>
-    </div>
-  </nav>
-
-  <!-- Main Chat Section -->
-  <main class="chat-container">
-    <div class="messages-viewport" id="messages-viewport">
-      <!-- Welcome Hero (Visible when empty) -->
-      <section class="welcome-hero" id="welcome-hero">
-        <div class="hero-glow">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
-          </svg>
-        </div>
-        <h2>Aviation Regulatory Assistant</h2>
-        <p>
-          Ask questions directly over EASA, EU regulations, FAA standards, and SKYbrary articles.
-          Answers are grounded via live semantic retrieval, with superseded and deactivated instruments automatically flagged.
-        </p>
-
-        <div class="hero-features">
-          <div class="feature-tag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-            Active Knowledge Only
-          </div>
-          <div class="feature-tag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-            Superseded Warning Alerts
-          </div>
-          <div class="feature-tag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-            Domain Filtering
-          </div>
-          <div class="feature-tag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
-            Full Provision Citations
-          </div>
-        </div>
-
-        <div class="prompt-suggestions">
-          <div class="prompt-card" data-prompt="What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?" data-domain="flight_ops">
-            <div class="prompt-card-domain">Flight Ops</div>
-            <div class="prompt-card-text">What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?</div>
-          </div>
-          <div class="prompt-card" data-prompt="What are the continuing airworthiness maintenance responsibilities under Part-ML vs Part-M?" data-domain="airworthiness">
-            <div class="prompt-card-domain">Airworthiness</div>
-            <div class="prompt-card-text">Continuing airworthiness responsibilities under Part-ML vs Part-M?</div>
-          </div>
-          <div class="prompt-card" data-prompt="What are the competency and rating maintenance requirements for ATSEP personnel?" data-domain="atm">
-            <div class="prompt-card-domain">ATM</div>
-            <div class="prompt-card-text">Competency and rating requirements for ATSEP personnel?</div>
-          </div>
-          <div class="prompt-card" data-prompt="What are the operational boundaries and subcategory requirements for Open Category drones (A1, A2, A3)?" data-domain="drones">
-            <div class="prompt-card-domain">Drones / UAS</div>
-            <div class="prompt-card-text">Requirements for Open Category UAS operations (A1, A2, A3)?</div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Message Bubbles will be injected here dynamically -->
-      <div id="messages-list"></div>
-
-      <!-- Loading Row -->
-      <div id="loading-indicator" class="loading-row" style="display: none;">
-        <div class="dots-loader">
-          <div class="dot"></div>
-          <div class="dot"></div>
-          <div class="dot"></div>
-        </div>
-        <span class="loading-text" id="loading-status-text">Querying regulations via /llm/ask...</span>
+  <!-- =========================================================================
+       VIEW 1: ASSISTANT CHAT
+       ========================================================================= -->
+  <div id="chat-view" class="view-panel active">
+    <!-- Document Source Filter Bar -->
+    <nav class="filter-bar source-bar" aria-label="Document source filters">
+      <div class="filter-label">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+          <path d="M6 6h10"/>
+          <path d="M6 10h10"/>
+        </svg>
+        Source:
       </div>
-    </div>
+      <div class="filter-chips" id="source-chips-container">
+        <button class="filter-chip active" data-source="all">All Sources</button>
+        <button class="filter-chip" data-source="easa">EASA</button>
+        <button class="filter-chip" data-source="eu">EU (EUR-Lex)</button>
+        <button class="filter-chip" data-source="faa">FAA</button>
+        <button class="filter-chip" data-source="skybrary">SKYbrary</button>
+        <button class="filter-chip" data-source="manual">Manuals</button>
+        <button class="filter-chip" data-source="note">Notes</button>
+        <button class="filter-chip" data-source="user">User Docs</button>
+      </div>
+    </nav>
 
-    <!-- Input Footer -->
-    <footer class="input-area">
-      <div class="keyword-filter-bar">
-        <div class="keyword-filter-wrap">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.3-4.3"/>
-          </svg>
-          <input
-            type="text"
-            id="keyword-filter-input"
-            class="keyword-filter-input"
-            placeholder="Keyword filter: e.g. AMC-20, FTL, ATSEP, Part-ORO..."
-          />
-          <button id="btn-clear-keyword" class="btn-clear-keyword" style="display: none;" title="Clear keyword filter">&times;</button>
+    <!-- Domain Filter Bar -->
+    <nav class="filter-bar domain-bar" aria-label="Regulatory domain filters">
+      <div class="filter-label">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+        </svg>
+        Domain:
+      </div>
+      <div class="filter-chips" id="domain-chips-container">
+        <button class="filter-chip active" data-domain="all">All Domains</button>
+        <button class="filter-chip" data-domain="flight_ops">Flight Ops (Air Ops)</button>
+        <button class="filter-chip" data-domain="airworthiness">Airworthiness & CAMO</button>
+        <button class="filter-chip" data-domain="atm">ATM / Air Navigation</button>
+        <button class="filter-chip" data-domain="aerodromes">Aerodromes & Ground</button>
+        <button class="filter-chip" data-domain="licensing">Crew & Licensing</button>
+        <button class="filter-chip" data-domain="drones">Drones / UAS</button>
+      </div>
+    </nav>
+
+    <!-- Main Chat Section -->
+    <main class="chat-container">
+      <div class="messages-viewport" id="messages-viewport">
+        <!-- Welcome Hero (Visible when empty) -->
+        <section class="welcome-hero" id="welcome-hero">
+          <div class="hero-glow">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+            </svg>
+          </div>
+          <h2>Aviation Regulatory Assistant</h2>
+          <p>
+            Ask questions directly over EASA, EU regulations, FAA standards, and SKYbrary articles.
+            Answers are grounded via live semantic retrieval, with superseded and deactivated instruments automatically flagged.
+          </p>
+
+          <div class="hero-features">
+            <div class="feature-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              Active Knowledge Only
+            </div>
+            <div class="feature-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              Superseded Warning Alerts
+            </div>
+            <div class="feature-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              Domain Filtering
+            </div>
+            <div class="feature-tag">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+              Full Provision Citations
+            </div>
+          </div>
+
+          <div class="prompt-suggestions">
+            <div class="prompt-card" data-prompt="What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?" data-domain="flight_ops">
+              <div class="prompt-card-domain">Flight Ops</div>
+              <div class="prompt-card-text">What are the maximum daily flight duty periods (FDP) under EASA Part-ORO.FTL?</div>
+            </div>
+            <div class="prompt-card" data-prompt="What are the continuing airworthiness maintenance responsibilities under Part-ML vs Part-M?" data-domain="airworthiness">
+              <div class="prompt-card-domain">Airworthiness</div>
+              <div class="prompt-card-text">Continuing airworthiness responsibilities under Part-ML vs Part-M?</div>
+            </div>
+            <div class="prompt-card" data-prompt="What are the competency and rating maintenance requirements for ATSEP personnel?" data-domain="atm">
+              <div class="prompt-card-domain">ATM</div>
+              <div class="prompt-card-text">Competency and rating requirements for ATSEP personnel?</div>
+            </div>
+            <div class="prompt-card" data-prompt="What are the operational boundaries and subcategory requirements for Open Category drones (A1, A2, A3)?" data-domain="drones">
+              <div class="prompt-card-domain">Drones / UAS</div>
+              <div class="prompt-card-text">Requirements for Open Category UAS operations (A1, A2, A3)?</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Message Bubbles will be injected here dynamically -->
+        <div id="messages-list"></div>
+
+        <!-- Loading Row -->
+        <div id="loading-indicator" class="loading-row" style="display: none;">
+          <div class="dots-loader">
+            <div class="dot"></div>
+            <div class="dot"></div>
+            <div class="dot"></div>
+          </div>
+          <span class="loading-text" id="loading-status-text">Querying regulations via /llm/ask...</span>
         </div>
-        <span id="keyword-badge" class="filter-badge" style="display: none;">Keyword Filter Active</span>
       </div>
 
-      <div class="input-box">
-        <textarea
-          id="chat-textarea"
-          class="input-textarea"
-          placeholder="Ask a regulatory aviation question (e.g., ATSEP refresher training, Part-ORO duty limits)..."
-          rows="1"
-        ></textarea>
-        
-        <div class="input-controls">
-          <div class="input-indicators">
-            <span class="indicator-pill" id="active-source-pill">Source: All</span>
-            <span class="indicator-pill" id="active-domain-pill">Domain: All</span>
-            <span class="indicator-pill" id="active-keyword-pill" style="display: none;">Keyword: None</span>
-            <span class="indicator-pill" id="active-provider-pill">LM Studio Local</span>
+      <!-- Input Footer -->
+      <footer class="input-area">
+        <div class="keyword-filter-bar">
+          <div class="keyword-filter-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input
+              type="text"
+              id="keyword-filter-input"
+              class="keyword-filter-input"
+              placeholder="Keyword filter: e.g. AMC-20, FTL, ATSEP, Part-ORO..."
+            />
+            <button id="btn-clear-keyword" class="btn-clear-keyword" style="display: none;" title="Clear keyword filter">&times;</button>
           </div>
+          <span id="keyword-badge" class="filter-badge" style="display: none;">Keyword Filter Active</span>
+        </div>
 
-          <button id="btn-send-message" class="btn-send" title="Send Question (Enter)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="m22 2-7 20-4-9-9-4Z"/>
-              <path d="M22 2 11 13"/>
+        <div class="input-box">
+          <textarea
+            id="chat-textarea"
+            class="input-textarea"
+            placeholder="Ask a regulatory aviation question (e.g., ATSEP refresher training, Part-ORO duty limits)..."
+            rows="1"
+          ></textarea>
+          
+          <div class="input-controls">
+            <div class="input-indicators">
+              <span class="indicator-pill" id="active-source-pill">Source: All</span>
+              <span class="indicator-pill" id="active-domain-pill">Domain: All</span>
+              <span class="indicator-pill" id="active-keyword-pill" style="display: none;">Keyword: None</span>
+              <span class="indicator-pill" id="active-provider-pill">LM Studio Local</span>
+            </div>
+
+            <button id="btn-send-message" class="btn-send" title="Send Question (Enter)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m22 2-7 20-4-9-9-4Z"/>
+                <path d="M22 2 11 13"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="input-hint">
+          Press <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for line break
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- =========================================================================
+       VIEW 2: KNOWLEDGE NOTES
+       ========================================================================= -->
+  <div id="notes-view" class="view-panel" style="display: none;">
+    <div class="notes-layout">
+      <!-- Notes Sidebar / List -->
+      <aside class="notes-sidebar">
+        <div class="notes-toolbar">
+          <div class="notes-search-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input
+              type="text"
+              id="notes-search-input"
+              class="notes-search-input"
+              placeholder="Filter by title, author, keyword, project..."
+            />
+            <button id="btn-clear-notes-search" class="btn-clear-keyword" style="display: none;" title="Clear search">&times;</button>
+          </div>
+          <button id="btn-open-add-note" class="btn-add-note" title="Create a new knowledge base note">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            <span>Add Note</span>
+          </button>
+        </div>
+
+        <div class="notes-stats-bar">
+          <span id="notes-total-label">Loading notes...</span>
+          <button id="btn-refresh-notes" class="btn-icon-subtle" title="Refresh Notes from DB">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
             </svg>
           </button>
         </div>
+
+        <div id="notes-list-scroll" class="notes-list-scroll">
+          <div id="notes-loading-state" class="notes-loading">
+            <div class="dots-loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+            <span>Loading knowledge base...</span>
+          </div>
+          <div id="notes-empty-state" class="notes-empty-msg" style="display: none;">
+            No notes found. Click "Add Note" to record organizational knowledge.
+          </div>
+          <div id="notes-cards-container" class="notes-cards-container"></div>
+        </div>
+      </aside>
+
+      <!-- Note Detail / Reader Main Area -->
+      <main class="notes-main" id="notes-main-panel">
+        <div id="note-empty-placeholder" class="note-placeholder">
+          <div class="placeholder-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+              <path d="M6 6h10"/>
+              <path d="M6 10h10"/>
+            </svg>
+          </div>
+          <h3>Organizational Knowledge Base</h3>
+          <p>
+            Browse informal and semi-formal operational notes, meeting minutes, and safety observations.
+            Select a note on the left or create a new entry with author accountability, validity policies, and AI-extracted keywords.
+          </p>
+          <button id="btn-placeholder-add-note" class="btn-action btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Record New Note
+          </button>
+        </div>
+
+        <article id="note-detail-viewer" class="note-detail-viewer" style="display: none;">
+          <header class="note-detail-header">
+            <div class="note-detail-badges">
+              <span id="detail-note-type" class="badge-type"></span>
+              <span id="detail-validity-badge" class="badge-validity"></span>
+              <span id="detail-doc-id" class="badge-docid"></span>
+            </div>
+            <div class="note-detail-actions">
+              <button id="btn-delete-current-note" class="btn-icon-danger" title="Delete Note from Database">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18"/>
+                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                </svg>
+                <span>Delete</span>
+              </button>
+              <button id="btn-close-note-detail" class="btn-icon-subtle" title="Close Note View">&times;</button>
+            </div>
+          </header>
+
+          <h2 id="detail-title" class="note-detail-title"></h2>
+
+          <div class="note-detail-meta">
+            <div class="meta-item">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              <span>Created by: <strong id="detail-creator" class="creator-name"></strong></span>
+            </div>
+            <div id="detail-project-wrap" class="meta-item" style="display: none;">
+              <span>Project: <strong id="detail-project"></strong></span>
+            </div>
+            <div class="meta-item">
+              <span>Date: <span id="detail-date"></span></span>
+            </div>
+          </div>
+
+          <!-- Associated Keywords Section -->
+          <div id="detail-keywords-wrap" class="note-detail-keywords" style="display: none;">
+            <div class="keywords-label">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+              </svg>
+              <span>Associated Keywords:</span>
+            </div>
+            <div id="detail-keywords-chips" class="keyword-chips-list"></div>
+          </div>
+
+          <!-- Sections Container -->
+          <div id="detail-sections-container" class="note-sections-container"></div>
+        </article>
+      </main>
+    </div>
+  </div>
+
+  <div id="add-note-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="add-note-title">
+    <div class="modal-dialog modal-dialog-lg">
+      <div class="modal-header">
+        <div>
+          <h2 id="add-note-title" class="modal-title">Record Knowledge Base Note</h2>
+          <div class="modal-subtitle">Captures author accountability, validity policies, and AI-extracted keywords</div>
+        </div>
+        <button id="btn-close-add-note" class="btn-close" aria-label="Close modal">&times;</button>
       </div>
-      <div class="input-hint">
-        Press <kbd>Enter</kbd> to send · <kbd>Shift + Enter</kbd> for line break
-      </div>
-    </footer>
-  </main>
+
+      <form id="add-note-form" class="add-note-form" onsubmit="return false;">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="input-note-title" class="form-label">Title <span class="required">*</span></label>
+            <input type="text" id="input-note-title" class="form-input" placeholder="E.g., SMR & A-SMGCS Operational Limitations during LVP" required>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <!-- Creator (Enforced) -->
+          <div class="form-group">
+            <label for="input-note-creator" class="form-label">
+              Who Created It (Author / Role) <span class="required">*</span>
+            </label>
+            <input type="text" id="input-note-creator" class="form-input" placeholder="E.g., Capt. John Miller (Safety Manager)" required>
+            <small class="form-hint">Enforced for internal auditability & governance.</small>
+          </div>
+
+          <!-- Note Type -->
+          <div class="form-group">
+            <label for="input-note-type" class="form-label">Note Type</label>
+            <select id="input-note-type" class="form-select">
+              <option value="project_note">Project Note</option>
+              <option value="meeting_minutes">Meeting Minutes</option>
+              <option value="daily_journal">Daily Journal</option>
+              <option value="safety_observation">Safety Observation</option>
+              <option value="general_note">General Note</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid-2">
+          <!-- Project / Topic -->
+          <div class="form-group">
+            <label for="input-note-project" class="form-label">Project / Topic (Optional)</label>
+            <input type="text" id="input-note-project" class="form-input" placeholder="E.g., Aerodrome Safety Review">
+          </div>
+
+          <!-- Validity / Expiration Policy -->
+          <div class="form-group">
+            <label class="form-label">Validity & Expiration Policy</label>
+            <div class="validity-radio-group">
+              <label class="radio-label">
+                <input type="radio" name="validity-choice" id="validity-indefinite" value="indefinite" checked>
+                <span>Indefinite</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="validity-choice" id="validity-expires" value="expires">
+                <span>Expires on</span>
+              </label>
+              <input type="date" id="input-note-expires-at" class="form-input form-input-date" disabled>
+            </div>
+            <small class="form-hint">Indefinite knowledge remains valid; expiring notes trigger alerts after target date.</small>
+          </div>
+        </div>
+
+        <!-- Associated Keywords with AI Generator -->
+        <div class="form-group">
+          <div class="form-label-row">
+            <label for="input-note-keywords" class="form-label">Associated Keywords (Aviation Terms & Acronyms)</label>
+            <button type="button" id="btn-ai-generate-keywords" class="btn-ai-chip" title="Use local LLM to generate domain keywords from title and content">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+              </svg>
+              <span id="ai-generate-btn-text">✨ Auto-Generate via AI</span>
+            </button>
+          </div>
+          <input type="text" id="input-note-keywords" class="form-input" placeholder="E.g., SMR, Low Visibility Procedures, Part-ADR.OPS, Surface Radar (comma-separated)">
+          <small class="form-hint">Keywords associate this note with relevant regulatory queries, search filters, and knowledge domains.</small>
+        </div>
+
+        <!-- Sections Builder -->
+        <div class="form-group sections-builder-group">
+          <div class="sections-header">
+            <label class="form-label">Sections & Markdown Content</label>
+            <button type="button" id="btn-add-form-section" class="btn-action-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Section
+            </button>
+          </div>
+          <div id="form-sections-list" class="form-sections-list">
+            <!-- Initial section -->
+            <div class="form-section-item" data-index="0">
+              <div class="section-item-header">
+                <input type="text" class="form-input sec-heading" placeholder="Section Heading (e.g. Operational Background)" value="Overview & Context">
+                <button type="button" class="btn-remove-section" title="Remove Section" style="display: none;">&times;</button>
+              </div>
+              <textarea class="form-textarea sec-content" rows="4" placeholder="Section markdown content..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div id="add-note-error" class="form-error-alert" style="display: none;"></div>
+
+        <div class="modal-footer">
+          <button type="button" id="btn-cancel-add-note" class="btn-action">Cancel</button>
+          <button type="button" id="btn-submit-add-note" class="btn-action btn-primary">
+            <span id="submit-note-text">Save & Index Note</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Settings Modal -->
   <div id="settings-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-large">
       <div class="modal-header">
-        <h2 id="settings-title" class="modal-title">Settings</h2>
+        <div>
+          <h2 id="settings-title" class="modal-title">API & LLM Engine Settings</h2>
+          <p class="modal-subtitle">Configure FastAPI connectivity, Local LM Studio on-device execution, Google Gemini Cloud acceleration, and Neural Reranker screening.</p>
+        </div>
         <button id="btn-close-settings" class="btn-close" aria-label="Close settings">&times;</button>
       </div>
 
-      <div class="form-group">
-        <label for="setting-api-url" class="form-label">API Base URL</label>
-        <input type="text" id="setting-api-url" class="form-input" value="/api" placeholder="e.g. /api or http://localhost:8000">
-        <small style="color: var(--text-dim); font-size: 0.72rem;">Use <code>/api</code> when using the Vite dev server proxy to avoid CORS, or <code>http://localhost:8000</code> directly.</small>
+      <!-- Section 1: FastAPI Base URL -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <label for="setting-api-url" class="settings-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+              <line x1="6" y1="6" x2="6.01" y2="6"/>
+              <line x1="6" y1="18" x2="6.01" y2="18"/>
+            </svg>
+            FastAPI Base URL
+          </label>
+        </div>
+        <div class="input-with-action">
+          <input type="text" id="setting-api-url" class="form-input" value="/api" placeholder="e.g. /api or http://localhost:8000" style="font-family: var(--font-mono); font-size: 0.8rem;">
+          <button type="button" id="btn-test-connection" class="btn-test">
+            <svg class="test-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span class="btn-test-text">Test Connection</span>
+          </button>
+        </div>
+        <div class="presets-row">
+          <span style="font-size: 0.7rem; color: var(--text-dim);">Quick Presets:</span>
+          <button type="button" class="btn-preset active" id="preset-url-proxy" title="Bypasses all CORS preflight by proxying via Vite">/api (Vite Proxy - No CORS)</button>
+          <button type="button" class="btn-preset" id="preset-url-127">127.0.0.1:8000</button>
+          <button type="button" class="btn-preset" id="preset-url-local">localhost:8000</button>
+        </div>
+        <div id="connection-test-result" class="diagnostics-box" style="display: none;"></div>
       </div>
 
-      <div class="form-group">
-        <label for="setting-provider" class="form-label">Research LLM Provider</label>
-        <select id="setting-provider" class="form-select">
-          <option value="lm_studio">Local LM Studio (Default)</option>
-          <option value="gemini">Google Gemini (Cloud)</option>
-        </select>
+      <!-- Section 2: LLM Reasoning Engine & Cloud Acceleration (LM Studio vs Gemini) -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <div class="settings-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2">
+              <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+            </svg>
+            Deep Research & LLM Provider
+          </div>
+          <span class="settings-section-badge">Model Provider</span>
+        </div>
+        <p class="settings-section-desc">
+          Configure whether regulatory inquiries and notes keyword generation run 100% locally on your LM Studio instance or leverage Google Gemini Cloud reasoning.
+        </p>
+
+        <!-- Provider Cards Grid -->
+        <div class="provider-cards-grid">
+          <!-- Local LM Studio Card -->
+          <div id="provider-card-local" class="provider-card selected-local">
+            <div class="provider-card-top">
+              <div class="provider-card-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="4" y="4" width="16" height="16" rx="2"/>
+                  <rect x="9" y="9" width="6" height="6"/>
+                  <path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/>
+                </svg>
+                <span>Local LLM (LM Studio)</span>
+              </div>
+              <input type="radio" name="setting-provider-radio" id="provider-radio-local" value="local" checked>
+            </div>
+            <p class="provider-card-desc">
+              100% on-device local execution using your local LLM model (e.g. Gemma 3 / 4, Qwen). Fully private with zero cloud communication.
+            </p>
+          </div>
+
+          <!-- Google Gemini Cloud Card -->
+          <div id="provider-card-gemini" class="provider-card">
+            <div class="provider-card-top">
+              <div class="provider-card-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2">
+                  <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>
+                </svg>
+                <span>Google Gemini Cloud</span>
+              </div>
+              <input type="radio" name="setting-provider-radio" id="provider-radio-gemini" value="gemini">
+            </div>
+            <p class="provider-card-desc">
+              Cloud reasoning acceleration for deep multi-pass research, adversarial chunk falsification, and comprehensive synthesis.
+            </p>
+          </div>
+        </div>
+
+        <!-- Local LM Studio Drawer -->
+        <div id="drawer-lm-studio" class="settings-drawer">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-size: 0.78rem; font-weight: 600; color: #fff;">LM Studio Host Configuration</div>
+              <div style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">Endpoint: http://localhost:1234/v1</div>
+            </div>
+            <button type="button" id="btn-test-lm-studio" class="btn-test">
+              <svg class="test-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span class="btn-test-text">Test LM Studio</span>
+            </button>
+          </div>
+          <p style="font-size: 0.72rem; color: var(--text-muted); margin: 0; line-height: 1.4;">
+            Ensure LM Studio local server is running on port 1234 with your desired model loaded (e.g., <code>google/gemma-3-12b-it</code> or <code>Qwen2.5-7B-Instruct</code>).
+          </p>
+          <div id="lm-studio-test-result" class="diagnostics-box" style="display: none;"></div>
+        </div>
+
+        <!-- Google Gemini Drawer -->
+        <div id="drawer-gemini" class="settings-drawer" style="display: none; border-color: rgba(99, 102, 241, 0.4);">
+          <!-- API Key -->
+          <div class="form-group">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <label for="setting-gemini-api-key" class="form-label" style="color: #cbd5e1;">Google Gemini API Key</label>
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="font-size: 0.7rem; color: #818cf8; text-decoration: none;">Get API Key (Google AI Studio) &rarr;</a>
+            </div>
+            <div class="input-with-action">
+              <div class="password-toggle-wrapper">
+                <input type="password" id="setting-gemini-api-key" class="form-input" placeholder="AIzaSy... or AQ.Ab8..." style="font-family: var(--font-mono); font-size: 0.8rem;">
+                <button type="button" id="btn-toggle-gemini-key" class="btn-password-toggle" title="Show / Hide API Key">
+                  <svg id="eye-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+              </div>
+              <button type="button" id="btn-test-gemini" class="btn-test btn-test-indigo">
+                <svg class="test-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span class="btn-test-text">Test Key</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="gemini-test-result" class="diagnostics-box" style="display: none;"></div>
+
+          <!-- Gemini Model Selection -->
+          <div class="form-group">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <label for="setting-gemini-model-select" class="form-label" style="color: #cbd5e1;">Gemini Model for Research & Chat</label>
+              <span id="gemini-active-model-badge" style="font-size: 0.68rem; font-family: var(--font-mono); color: #818cf8;">Active: gemini-3.5-flash</span>
+            </div>
+            <select id="setting-gemini-model-select" class="form-select" style="font-family: var(--font-mono); font-size: 0.8rem;">
+              <option value="gemini-3.5-flash">gemini-3.5-flash (Recommended: High Availability & Speed)</option>
+              <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Ultra-fast & Lightweight)</option>
+              <option value="gemini-3.8-flash">gemini-3.8-flash (Reasoning Thinking Model)</option>
+              <option value="gemini-3.6-flash">gemini-3.6-flash (Stable Standard)</option>
+              <option value="gemini-3.7-flash">gemini-3.7-flash (Multimodal Reasoning)</option>
+              <option value="gemini-3.1-pro-preview">gemini-3.1-pro-preview (Deep Pro Synthesis)</option>
+              <option value="custom">Custom Model Identifier...</option>
+            </select>
+            <input type="text" id="setting-gemini-model-custom" class="form-input" placeholder="e.g. gemini-3.5-flash or custom model name" style="display: none; margin-top: 6px; font-family: var(--font-mono); font-size: 0.8rem;">
+          </div>
+
+          <!-- Scientific Rigor Notice -->
+          <div style="font-size: 0.72rem; color: var(--text-dim); background: rgba(30, 41, 59, 0.4); padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(51, 65, 85, 0.6); display: flex; align-items: flex-start; gap: 8px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <div>
+              <strong style="color: #cbd5e1;">Scientific Falsification & Rigor Enabled:</strong>
+              The research engine actively audits retrieved regulatory chunks, rejecting out-of-scope material to guarantee high-value citations.
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div class="form-group" id="group-gemini-model" style="display: none;">
-        <label for="setting-gemini-model" class="form-label">Gemini Model</label>
-        <input type="text" id="setting-gemini-model" class="form-input" value="gemini-2.5-flash" placeholder="gemini-2.5-flash">
+      <!-- Section 3: Neural Reranker Preprocessing & Relevance Screening -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <div class="settings-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2">
+              <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.9a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>
+              <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/>
+              <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>
+            </svg>
+            Neural Reranker Preprocessing & Screening
+          </div>
+          <span class="settings-section-badge" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">Retrieval Filter</span>
+        </div>
+        <p class="settings-section-desc">
+          Evaluates retrieved candidate chunks using a cross-encoder neural model, scoring deep semantic relevance and screening out superficially matched but contextually irrelevant provisions (e.g. filtering out helicopter operations from CAT III all-weather inquiries).
+        </p>
+
+        <!-- Toggle Checkbox -->
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; padding: 10px; background: rgba(15, 23, 42, 0.5); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);">
+          <input type="checkbox" id="setting-enable-reranker" checked style="margin-top: 2px; accent-color: #10b981;">
+          <div>
+            <div style="font-size: 0.82rem; font-weight: 600; color: #fff;">Enable Neural Reranker Preprocessing</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">Re-ranks wider candidate pools before prompt assembly in /llm/ask and hybrid search.</div>
+          </div>
+        </label>
+
+        <!-- Reranker Drawer -->
+        <div id="drawer-reranker" class="settings-drawer">
+          <div class="form-group">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <label for="setting-reranker-model" class="form-label" style="color: #cbd5e1;">Reranker Model Identifier</label>
+              <button type="button" id="btn-test-reranker" class="btn-test" style="padding: 4px 8px; font-size: 0.7rem; color: #34d399; border-color: rgba(52, 211, 153, 0.4);">
+                <svg class="test-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span class="btn-test-text">Test Reranker</span>
+              </button>
+            </div>
+            <input type="text" id="setting-reranker-model" class="form-input" value="text-embedding-baai-bge-reranker-v2-m3-m3" placeholder="text-embedding-baai-bge-reranker-v2-m3-m3" style="font-family: var(--font-mono); font-size: 0.8rem;">
+          </div>
+          <div class="presets-row">
+            <span style="font-size: 0.7rem; color: var(--text-dim);">Presets:</span>
+            <button type="button" class="btn-preset active" id="preset-reranker-lmstudio">LM Studio (bge-reranker-v2-m3)</button>
+            <button type="button" class="btn-preset" id="preset-reranker-bge-v2">BAAI/bge-reranker-v2-m3</button>
+            <button type="button" class="btn-preset" id="preset-reranker-bge-large">BAAI/bge-reranker-large</button>
+          </div>
+          <div id="reranker-test-result" class="diagnostics-box" style="display: none;"></div>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label for="setting-topk" class="form-label">Retriever Top-K Chunks: <span id="topk-val">3</span></label>
-        <input type="range" id="setting-topk" min="1" max="10" value="3" style="width: 100%; accent-color: var(--accent-cyan);">
+      <!-- Section 4: Retrieval Defaults -->
+      <div class="settings-section">
+        <div class="settings-section-header">
+          <div class="settings-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Retrieval Top-K & Origin Defaults
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label for="setting-topk" class="form-label">Top-K Chunks: <span id="topk-val" style="color: var(--accent-cyan); font-family: var(--font-mono);">5</span></label>
+            <input type="range" id="setting-topk" min="1" max="10" value="5" style="width: 100%; accent-color: var(--accent-cyan);">
+          </div>
+          <div class="form-group">
+            <label for="setting-default-source" class="form-label">Default Source Scope</label>
+            <select id="setting-default-source" class="form-select">
+              <option value="all">All Sources (EASA + EU + FAA)</option>
+              <option value="easa">EASA Easy Access Rules</option>
+              <option value="eu">EU Standards (EUR-Lex)</option>
+              <option value="faa">FAA 14 CFR</option>
+              <option value="skybrary">SKYbrary Articles</option>
+              <option value="manual">Manuals & Procedures</option>
+              <option value="note">Knowledge Notes</option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      <div class="modal-footer">
-        <button id="btn-save-settings" class="btn-action btn-primary">Save Settings</button>
+      <div class="modal-footer" style="margin-top: 12px;">
+        <button type="button" id="btn-cancel-settings" class="btn-action">Cancel</button>
+        <button type="button" id="btn-save-settings" class="btn-action btn-primary">Save Settings</button>
       </div>
     </div>
   </div>

@@ -39,9 +39,16 @@ import {
   NoteSummaryItem,
   NoteDetailResponse,
   GovernanceStats,
+  BatchGovernanceResponse,
+  CategoryGovernanceResponse,
+  SkybraryTopicItem,
+  SkybraryTopicGovernanceResponse,
   UploadAnalysisResponse,
   IngestConfirmRequest,
   IngestionResultResponse,
+  CandidateTitleItem,
+  ObsolescenceCandidateFinding,
+  AiObsolescenceScanResponse,
 } from '../types';
 
 const SETTINGS_KEY = 'aerolex_eu_settings_v2';
@@ -57,6 +64,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   researchProvider: 'local',
   geminiApiKey: '',
   geminiModel: 'gemini-3.5-flash',
+  showGovernanceTab: false,
+  showDocumentBuilderTab: false,
+  showQueryMemoryTab: false,
+  showSchemaExtractorTab: false,
+  showLocalCacheTab: false,
+  enableReranker: true,
+  rerankerModel: 'text-embedding-baai-bge-reranker-v2-m3-m3',
+  theme: 'dark',
 };
 
 export function loadSettings(): AppSettings {
@@ -68,6 +83,15 @@ export function loadSettings(): AppSettings {
       if (!parsed.geminiModel || parsed.geminiModel.startsWith('gemini-1.') || parsed.geminiModel.startsWith('gemini-2.')) {
         parsed.geminiModel = 'gemini-3.5-flash';
       }
+      // Ensure hidden tabs default to false if undefined in previously saved settings
+      parsed.showGovernanceTab = Boolean(parsed.showGovernanceTab);
+      parsed.showDocumentBuilderTab = Boolean(parsed.showDocumentBuilderTab);
+      parsed.showQueryMemoryTab = Boolean(parsed.showQueryMemoryTab);
+      parsed.showSchemaExtractorTab = Boolean(parsed.showSchemaExtractorTab);
+      parsed.showLocalCacheTab = Boolean(parsed.showLocalCacheTab);
+      parsed.enableReranker = parsed.enableReranker !== false;
+      parsed.rerankerModel = parsed.rerankerModel || 'text-embedding-baai-bge-reranker-v2-m3-m3';
+      parsed.theme = parsed.theme === 'light' ? 'light' : 'dark';
       return parsed;
     }
   } catch (e) {
@@ -200,8 +224,12 @@ export async function searchRegulations(
     query: query.trim(),
     top_k: String(topK),
     origin: origin,
-    use_hyde: String(useHyde)
+    use_hyde: String(useHyde),
+    rerank: String(Boolean(settings.enableReranker))
   });
+  if (settings.rerankerModel) {
+    params.append('reranker_model', settings.rerankerModel);
+  }
   if (documentId) {
     params.append('document_id', documentId);
   }
@@ -322,8 +350,12 @@ export async function searchHybridRegulations(
     query: query.trim(),
     top_k: String(topK),
     origin: origin,
-    use_hyde: String(useHyde)
+    use_hyde: String(useHyde),
+    rerank: String(Boolean(settings.enableReranker))
   });
+  if (settings.rerankerModel) {
+    params.append('reranker_model', settings.rerankerModel);
+  }
   if (documentId) {
     params.append('document_id', documentId);
   }
@@ -635,6 +667,8 @@ export async function askLLM(
     top_k: options.topK || activeSettings.defaultTopK || 5,
     use_hyde: options.useHyde || false,
     context_window: options.contextWindow ?? 1,
+    rerank: activeSettings.enableReranker !== false,
+    reranker_model: activeSettings.rerankerModel || 'text-embedding-baai-bge-reranker-v2-m3-m3',
     provider: activeSettings.researchProvider || 'local',
     gemini_api_key: activeSettings.geminiApiKey || undefined,
     gemini_model: activeSettings.geminiModel || undefined,
@@ -755,7 +789,9 @@ export async function createResearchJob(
   query: string,
   recursionLevel: number = 2,
   forceRefresh: boolean = false,
-  settings: AppSettings = loadSettings()
+  settings: AppSettings = loadSettings(),
+  origins?: string[] | null,
+  documentIds?: string[] | null
 ): Promise<{ job_id: string; cached?: boolean; status?: string; message?: string }> {
   const clean = cleanUrl(settings.apiUrl);
   const headers: Record<string, string> = {
@@ -777,6 +813,8 @@ export async function createResearchJob(
         provider: settings.researchProvider || 'local',
         gemini_api_key: settings.geminiApiKey?.trim() || undefined,
         gemini_model: settings.geminiModel?.trim() || 'gemini-3.5-flash',
+        origins: origins && origins.length > 0 ? origins : undefined,
+        document_ids: documentIds && documentIds.length > 0 ? documentIds : undefined,
       }),
     });
     if (!res.ok) {
@@ -1003,8 +1041,13 @@ export async function getRegulationsCatalog(
   params: {
     query?: string;
     origin?: RegulationOrigin | string;
+    subtopic?: string;
     status?: 'all' | 'active' | 'deactivated';
     stakeholder?: string;
+    year_min?: number;
+    year_max?: number;
+    pattern_flag?: string;
+    fuzzy?: boolean;
     sort_by?: 'chunks' | 'title' | 'date';
     sort_order?: 'asc' | 'desc';
     limit?: number;
@@ -1016,8 +1059,13 @@ export async function getRegulationsCatalog(
   const searchParams = new URLSearchParams();
   if (params.query) searchParams.append('query', params.query);
   if (params.origin) searchParams.append('origin', params.origin);
+  if (params.subtopic) searchParams.append('subtopic', params.subtopic);
   if (params.status) searchParams.append('status', params.status);
   if (params.stakeholder) searchParams.append('stakeholder', params.stakeholder);
+  if (params.year_min !== undefined) searchParams.append('year_min', String(params.year_min));
+  if (params.year_max !== undefined) searchParams.append('year_max', String(params.year_max));
+  if (params.pattern_flag) searchParams.append('pattern_flag', params.pattern_flag);
+  if (params.fuzzy) searchParams.append('fuzzy', 'true');
   if (params.sort_by) searchParams.append('sort_by', params.sort_by);
   if (params.sort_order) searchParams.append('sort_order', params.sort_order);
   if (params.limit) searchParams.append('limit', String(params.limit));
@@ -1145,6 +1193,334 @@ export async function activateDocument(
     if (!res.ok) {
       const errText = await res.text();
       throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/batch/deactivate
+ * Batch deactivates multiple documents with a common reason
+ */
+export async function batchDeactivateDocuments(
+  documentIds: string[],
+  reason: string,
+  supersededBy?: string,
+  settings: AppSettings = loadSettings()
+): Promise<BatchGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/batch/deactivate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        document_ids: documentIds,
+        reason,
+        superseded_by: supersededBy || null
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/batch/activate
+ * Batch reactivates multiple documents
+ */
+export async function batchActivateDocuments(
+  documentIds: string[],
+  settings: AppSettings = loadSettings()
+): Promise<BatchGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/batch/activate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        document_ids: documentIds
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/category/{category}/deactivate
+ * Deactivates an entire category of documents
+ */
+export async function deactivateCategory(
+  category: string,
+  reason: string,
+  supersededBy?: string,
+  settings: AppSettings = loadSettings()
+): Promise<CategoryGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const encCat = encodeURIComponent(category);
+    const res = await fetch(`${targetBase}/regulations/governance/category/${encCat}/deactivate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        reason,
+        superseded_by: supersededBy || null
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/category/{category}/activate
+ * Reactivates an entire category of documents
+ */
+export async function activateCategory(
+  category: string,
+  settings: AppSettings = loadSettings()
+): Promise<CategoryGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const encCat = encodeURIComponent(category);
+    const res = await fetch(`${targetBase}/regulations/governance/category/${encCat}/activate`, {
+      method: 'POST',
+      headers
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * GET /regulations/governance/skybrary/topics
+ * Retrieve list of all SKYbrary subtopics with active/deactivated counts
+ */
+export async function getSkybraryTopics(
+  settings: AppSettings = loadSettings()
+): Promise<SkybraryTopicItem[]> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/skybrary/topics`, { headers });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/skybrary/topic/deactivate
+ * Suppresses an entire SKYbrary subtopic
+ */
+export async function deactivateSkybraryTopic(
+  topic: string,
+  reason: string,
+  supersededBy?: string,
+  settings: AppSettings = loadSettings()
+): Promise<SkybraryTopicGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/skybrary/topic/deactivate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        topic,
+        reason,
+        superseded_by: supersededBy || null
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/skybrary/topic/activate
+ * Reactivates an entire SKYbrary subtopic
+ */
+export async function activateSkybraryTopic(
+  topic: string,
+  settings: AppSettings = loadSettings()
+): Promise<SkybraryTopicGovernanceResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/skybrary/topic/activate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ topic })
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText || res.statusText}`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /regulations/governance/ai-obsolescence-scan
+ * Uses aviation legal domain heuristics and LLM inference to identify candidate obsolete/superseded documents
+ */
+export async function scanObsolescenceWithAI(
+  documents: CandidateTitleItem[],
+  focus: string = 'all',
+  settings: AppSettings = loadSettings()
+): Promise<AiObsolescenceScanResponse> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+  if (settings.apiAuthToken) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken}`;
+  }
+
+  const payload = {
+    documents,
+    focus,
+    provider: (settings as any).llmProvider === 'gemini' ? 'gemini' : 'local',
+    gemini_api_key: (settings as any).geminiApiKey,
+    gemini_model: (settings as any).geminiModel || 'gemini-3.5-flash'
+  };
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/governance/ai-obsolescence-scan`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status} from AI obsolescence scan: ${errText || res.statusText}`);
     }
     return await res.json();
   };
@@ -1477,9 +1853,68 @@ export async function createNote(
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
-      throw new Error(errData?.detail || `HTTP ${res.status} when creating note`);
+      let msg = `HTTP ${res.status} when creating note`;
+      if (typeof errData?.detail === 'string') {
+        msg = errData.detail;
+      } else if (Array.isArray(errData?.detail)) {
+        msg = errData.detail.map((d: any) => `${d.loc ? d.loc.slice(-1) : 'field'}: ${d.msg}`).join(', ');
+      }
+      throw new Error(msg);
     }
     return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Generate domain and regulatory keywords for a note using the LLM
+ */
+export async function generateNoteKeywords(
+  req: {
+    title: string;
+    content?: string;
+    sections?: any[];
+    project?: string;
+    provider?: string;
+  },
+  settings: AppSettings = loadSettings()
+): Promise<string[]> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const payload = {
+    ...req,
+    provider: req.provider || (settings.researchProvider === 'gemini' ? 'gemini' : 'local'),
+    gemini_api_key: settings.geminiApiKey,
+    gemini_model: settings.geminiModel,
+  };
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/regulations/notes/generate-keywords`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.detail || `HTTP ${res.status} when generating note keywords`);
+    }
+    const data = await res.json();
+    return data?.keywords || [];
   };
 
   try {
@@ -1576,7 +2011,13 @@ export async function deleteNote(
     });
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
-      throw new Error(errData?.detail || `HTTP ${res.status} when deleting note`);
+      let msg = `HTTP ${res.status} when deleting note`;
+      if (typeof errData?.detail === 'string') {
+        msg = errData.detail;
+      } else if (Array.isArray(errData?.detail)) {
+        msg = errData.detail.map((d: any) => `${d.loc ? d.loc.slice(-1) : 'field'}: ${d.msg}`).join(', ');
+      }
+      throw new Error(msg);
     }
     return await res.json();
   };
@@ -1746,6 +2187,56 @@ export async function directDocumentUpload(
     if (!res.ok) {
       const errData = await res.json().catch(() => null);
       throw new Error(errData?.detail || `HTTP ${res.status} when uploading document`);
+    }
+    return await res.json();
+  };
+
+  try {
+    return await doFetch(clean);
+  } catch (err: any) {
+    if (clean.includes('8000') && !clean.startsWith('/api')) {
+      return await doFetch('/api');
+    }
+    throw err;
+  }
+}
+
+/**
+ * POST /search/rerank/test
+ * Test connectivity, device status, and latency of neural reranker model.
+ */
+export async function testReranker(
+  modelName?: string,
+  settings: AppSettings = loadSettings()
+): Promise<{
+  success: boolean;
+  message: string;
+  model_name?: string;
+  resolved_model?: string;
+  device?: string;
+  cuda_available?: boolean;
+  load_time_seconds?: number;
+  test_inference_seconds?: number;
+  test_score?: number;
+  error?: string;
+}> {
+  const clean = cleanUrl(settings.apiUrl);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (settings.apiAuthToken && settings.apiAuthToken.trim()) {
+    headers['Authorization'] = `Bearer ${settings.apiAuthToken.trim()}`;
+  }
+
+  const doFetch = async (targetBase: string) => {
+    const res = await fetch(`${targetBase}/search/rerank/test`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model_name: modelName || settings.rerankerModel }),
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
     return await res.json();
   };

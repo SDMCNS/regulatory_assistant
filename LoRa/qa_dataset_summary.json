@@ -1,0 +1,32 @@
+{
+  "total_records": 4350,
+  "split_counts": {
+    "train": 3617,
+    "validation": 417,
+    "test": 316
+  },
+  "unique_documents": 496,
+  "categories_distribution": {
+    "Accident Investigation": 875,
+    "Accident Reports": 564,
+    "ANS Contingency Planning": 48,
+    "ATM Operations Training BP": 48,
+    "Aeromedical": 48,
+    "Air Ground Communication": 48,
+    "Airspace Infringement": 48,
+    "Airworthiness": 48,
+    "CAST DIPs": 48,
+    "CAST Outputs": 48,
+    "CAST Safety Enhancements": 48,
+    "CAST Safety Enhancements Plan": 48,
+    "Controlled Flight Into Terrain": 48,
+    "Design Philosophy": 48,
+    "Enhancing Safety": 48
+  },
+  "average_answer_words": 30.3,
+  "files_generated": {
+    "train": "dataset_splits\\train.jsonl",
+    "validation": "dataset_splits\\validation.jsonl",
+    "test": "dataset_splits\\test.jsonl"
+  }
+}

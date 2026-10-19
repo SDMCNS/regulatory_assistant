@@ -28,6 +28,8 @@ class ResearchJobRequest(BaseModel):
     provider: Optional[str] = Field(default="local", description="LLM provider: 'local' or 'gemini'")
     gemini_api_key: Optional[str] = Field(default=None, description="Optional user Gemini API key")
     gemini_model: Optional[str] = Field(default="gemini-3.5-flash", description="Optional Gemini model name")
+    origins: Optional[List[str]] = Field(default=None, description="Optional list of document origins/sources to include: 'easa', 'eu', 'faa', 'skybrary', 'manual', 'note', 'user'")
+    document_ids: Optional[List[str]] = Field(default=None, description="Optional list of specific document IDs to restrict search to")
 
 class ResearchGap(BaseModel):
     gap_id: str
@@ -68,6 +70,8 @@ class ResearchJobSummary(BaseModel):
     comprehensive_status: Optional[str] = "NOT_STARTED"
     provider: Optional[str] = None
     model: Optional[str] = None
+    origins: Optional[List[str]] = None
+    document_ids: Optional[List[str]] = None
     created_at: str
     updated_at: str
 
@@ -88,6 +92,8 @@ class ResearchJobDetail(BaseModel):
     user_notes_reading_materials: Optional[List[UserNoteReadingMaterial]] = None
     provider: Optional[str] = None
     model: Optional[str] = None
+    origins: Optional[List[str]] = None
+    document_ids: Optional[List[str]] = None
     created_at: str
     updated_at: str
 
@@ -190,7 +196,6 @@ def init_research_db():
             c.execute("CREATE INDEX IF NOT EXISTS idx_research_jobs_created ON research_jobs(created_at DESC);")
             c.execute("CREATE INDEX IF NOT EXISTS idx_research_jobs_status ON research_jobs(status);")
 
-            # Upgrade columns if database existed previously
             for col_name, col_type in [
                 ("evaluation_summary", "TEXT"),
                 ("provider", "TEXT"),
@@ -199,7 +204,9 @@ def init_research_db():
                 ("comprehensive_report_markdown", "TEXT"),
                 ("comprehensive_status", "TEXT"),
                 ("skybrary_reading_materials", "TEXT"),
-                ("user_notes_reading_materials", "TEXT")
+                ("user_notes_reading_materials", "TEXT"),
+                ("origins", "TEXT"),
+                ("document_ids", "TEXT")
             ]:
                 try:
                     c.execute(f"ALTER TABLE research_jobs ADD COLUMN {col_name} {col_type};")
@@ -615,7 +622,9 @@ def run_deep_research(
     recursion_level: int,
     provider: str = "local",
     gemini_api_key: Optional[str] = None,
-    gemini_model: Optional[str] = None
+    gemini_model: Optional[str] = None,
+    origins: Optional[List[str]] = None,
+    document_ids: Optional[List[str]] = None
 ):
     """
     Executes scientific, multi-level recursive regulatory research.
@@ -634,6 +643,9 @@ def run_deep_research(
     if not clean_gemini_model or clean_gemini_model.startswith("gemini-1.") or clean_gemini_model.startswith("gemini-2."):
         clean_gemini_model = "gemini-3.5-flash"
     active_model = clean_gemini_model if active_provider == "gemini" else settings.LLM_MODEL_NAME
+
+    allowed_origins = [str(o).lower().strip() for o in origins if str(o).strip()] if origins else None
+    target_doc_id = document_ids[0] if (document_ids and len(document_ids) == 1) else None
 
     def chat(messages, schema=None, max_tokens=4096, temperature=0.2):
         return call_unified_chat(
@@ -659,7 +671,9 @@ def run_deep_research(
             "query": query,
             "recursion_level": recursion_level,
             "provider": active_provider,
-            "model": active_model
+            "model": active_model,
+            "origins": allowed_origins,
+            "document_ids": document_ids
         })
         
         # -------------------------------------------------------------
@@ -740,26 +754,24 @@ Return a JSON object conforming to:
             raw_candidates = []
             for q in active_queries:
                 try:
-                    results = search_hybrid(q, top_k=15, use_hyde=False)
+                    results = search_hybrid(q, top_k=15, origins=allowed_origins, document_id=target_doc_id, use_hyde=False)
                 except Exception as search_err:
                     print(f"Hybrid search failed for '{q}': {search_err}")
                     results = []
                     
                 for r in results:
                     cid = r["chunk_id"]
-                    doc_id = r.get("document_id", "")
-                    if cid not in visited_chunks and not doc_id.startswith("SKYBRARY_") and not doc_id.startswith("NOTE_"):
+                    if cid not in visited_chunks:
                         visited_chunks.add(cid)
                         raw_candidates.append(r)
                         referenced_chunks_dict[cid] = r["text"]
             
             # Fallback if no new candidates on level 0
             if not raw_candidates and level == 0:
-                fallback_results = search_hybrid(query, top_k=20, use_hyde=False)
+                fallback_results = search_hybrid(query, top_k=20, origins=allowed_origins, document_id=target_doc_id, use_hyde=False)
                 for r in fallback_results:
                     cid = r["chunk_id"]
-                    doc_id = r.get("document_id", "")
-                    if cid not in visited_chunks and not doc_id.startswith("SKYBRARY_") and not doc_id.startswith("NOTE_"):
+                    if cid not in visited_chunks:
                         visited_chunks.add(cid)
                         raw_candidates.append(r)
                         referenced_chunks_dict[cid] = r["text"]
@@ -903,7 +915,7 @@ Return ONLY a JSON array of 1-2 search strings: ["query 1", "query 2"]
                     new_qs = extract_json_array_from_text(refine_res)
                     if new_qs:
                         for rq in new_qs[:2]:
-                            for r in search_hybrid(rq, top_k=10, use_hyde=False):
+                            for r in search_hybrid(rq, top_k=10, origins=allowed_origins, document_id=target_doc_id, use_hyde=False):
                                 if r["chunk_id"] not in visited_chunks:
                                     visited_chunks.add(r["chunk_id"])
                                     # Basic domain check
@@ -1095,6 +1107,8 @@ INSTRUCTIONS FOR THE REPORT:
             "negated_count": len(negated_chunks_log),
             "target_domains": target_domains,
             "excluded_domains": excluded_domains,
+            "origins": allowed_origins,
+            "document_ids": document_ids,
             "surrounding_context_expanded": True,
             "provider": active_provider,
             "model": active_model,
@@ -1113,12 +1127,20 @@ INSTRUCTIONS FOR THE REPORT:
         identified_gaps = analyze_report_gaps(query, report_markdown, chat)
         
         # Step 7: Match Relevant SKYbrary Bookshelf Documents for Potential Reading
-        update_job_status(job_id, "RUNNING", progress="Matching relevant SKYbrary Bookshelf reading materials...")
-        skybrary_materials = find_skybrary_reading_materials(query, report_markdown, limit=6)
+        skybrary_allowed = (not allowed_origins) or ("all" in allowed_origins) or ("skybrary" in allowed_origins)
+        if skybrary_allowed:
+            update_job_status(job_id, "RUNNING", progress="Matching relevant SKYbrary Bookshelf reading materials...")
+            skybrary_materials = find_skybrary_reading_materials(query, report_markdown, limit=6)
+        else:
+            skybrary_materials = []
 
         # Step 8: Match Relevant User Notes & Project Journals for Potential Follow-up Reading
-        update_job_status(job_id, "RUNNING", progress="Matching internal project notes and meeting minutes...")
-        user_notes_materials = find_user_notes_reading_materials(query, report_markdown, limit=5)
+        notes_allowed = (not allowed_origins) or ("all" in allowed_origins) or any(o in ("note", "notes") for o in allowed_origins)
+        if notes_allowed:
+            update_job_status(job_id, "RUNNING", progress="Matching internal project notes and meeting minutes...")
+            user_notes_materials = find_user_notes_reading_materials(query, report_markdown, limit=5)
+        else:
+            user_notes_materials = []
 
         update_job_status(
             job_id,
@@ -1186,6 +1208,8 @@ def run_comprehensive_research(
 
             ref_chunks = json.loads(row["referenced_chunks"]) if row["referenced_chunks"] else {}
             consulted_regs = json.loads(row["consulted_regulations"]) if row["consulted_regulations"] else []
+            origins_raw = row["origins"] if "origins" in row.keys() else None
+            job_origins = json.loads(origins_raw) if origins_raw else None
             active_provider = (provider or row["provider"] or "local").lower().strip()
             clean_gemini_model = (gemini_model or row["model"] or "").strip()
             if not clean_gemini_model or clean_gemini_model.startswith("gemini-1.") or clean_gemini_model.startswith("gemini-2."):
@@ -1224,7 +1248,7 @@ def run_comprehensive_research(
             )
 
             # Retrieve regulatory evidence for this specific gap
-            sub_results = search_hybrid(sub_query, top_k=6, origin="all")
+            sub_results = search_hybrid(sub_query, top_k=6, origins=job_origins)
             gap_chunk_texts = []
             for r in sub_results:
                 cid = r["chunk_id"]
@@ -1358,14 +1382,24 @@ def create_research_job(req: ResearchJobRequest, background_tasks: BackgroundTas
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             c.execute("""
-                SELECT job_id, query, recursion_level, status, created_at
+                SELECT job_id, query, recursion_level, status, origins, document_ids, created_at
                 FROM research_jobs
                 WHERE status = 'COMPLETED' AND recursion_level >= ?
                 ORDER BY created_at DESC
             """, (req.recursion_level,))
             rows = c.fetchall()
+            req_origins_norm = set([str(o).lower().strip() for o in req.origins if str(o).strip()]) if req.origins else None
+            req_docs_norm = set([str(d).strip() for d in req.document_ids if str(d).strip()]) if req.document_ids else None
             for r in rows:
                 if normalize_query(r["query"]) == norm_query:
+                    row_origins = json.loads(r["origins"]) if r["origins"] else None
+                    row_origins_norm = set([str(o).lower().strip() for o in row_origins if str(o).strip()]) if row_origins else None
+                    if req_origins_norm != row_origins_norm:
+                        continue
+                    row_docs = json.loads(r["document_ids"]) if r["document_ids"] else None
+                    row_docs_norm = set([str(d).strip() for d in row_docs if str(d).strip()]) if row_docs else None
+                    if req_docs_norm != row_docs_norm:
+                        continue
                     return {
                         "job_id": r["job_id"],
                         "cached": True,
@@ -1380,12 +1414,15 @@ def create_research_job(req: ResearchJobRequest, background_tasks: BackgroundTas
         clean_gemini_model = "gemini-3.5-flash"
     active_model = clean_gemini_model if active_provider == "gemini" else settings.LLM_MODEL_NAME
 
+    origins_json = json.dumps(req.origins) if req.origins else None
+    doc_ids_json = json.dumps(req.document_ids) if req.document_ids else None
+
     with get_db_connection() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO research_jobs (job_id, status, query, recursion_level, progress, provider, model)
-            VALUES (?, 'PENDING', ?, ?, 'Queued in background...', ?, ?)
-        """, (job_id, req.query, req.recursion_level, active_provider, active_model))
+            INSERT INTO research_jobs (job_id, status, query, recursion_level, progress, provider, model, origins, document_ids)
+            VALUES (?, 'PENDING', ?, ?, 'Queued in background...', ?, ?, ?, ?)
+        """, (job_id, req.query, req.recursion_level, active_provider, active_model, origins_json, doc_ids_json))
         conn.commit()
         
     background_tasks.add_task(
@@ -1395,7 +1432,9 @@ def create_research_job(req: ResearchJobRequest, background_tasks: BackgroundTas
         req.recursion_level,
         active_provider,
         req.gemini_api_key,
-        clean_gemini_model
+        clean_gemini_model,
+        req.origins,
+        req.document_ids
     )
     return {"job_id": job_id, "cached": False, "status": "PENDING"}
 
@@ -1408,7 +1447,7 @@ def list_research_jobs(limit: int = Query(500, ge=1, le=1000)):
         conn.row_factory = sqlite3.Row
         c = conn.cursor()
         c.execute("""
-            SELECT job_id, status, query, recursion_level, progress, research_gaps, comprehensive_status, provider, model, created_at, updated_at
+            SELECT job_id, status, query, recursion_level, progress, research_gaps, comprehensive_status, provider, model, origins, document_ids, created_at, updated_at
             FROM research_jobs
             ORDER BY created_at DESC
             LIMIT ?
@@ -1420,6 +1459,10 @@ def list_research_jobs(limit: int = Query(500, ge=1, le=1000)):
         d = dict(r)
         gaps_json = d.pop("research_gaps", None)
         d["has_gaps"] = bool(gaps_json and gaps_json not in ("[]", "null"))
+        origins_raw = d.get("origins")
+        d["origins"] = json.loads(origins_raw) if origins_raw else None
+        doc_ids_raw = d.get("document_ids")
+        d["document_ids"] = json.loads(doc_ids_raw) if doc_ids_raw else None
         results.append(ResearchJobSummary(**d))
     return results
 
@@ -1446,6 +1489,8 @@ def get_research_job(job_id: str):
         d["research_gaps"] = json.loads(d["research_gaps"]) if d.get("research_gaps") else None
         d["skybrary_reading_materials"] = json.loads(d["skybrary_reading_materials"]) if d.get("skybrary_reading_materials") else None
         d["user_notes_reading_materials"] = json.loads(d["user_notes_reading_materials"]) if d.get("user_notes_reading_materials") else None
+        d["origins"] = json.loads(d["origins"]) if d.get("origins") else None
+        d["document_ids"] = json.loads(d["document_ids"]) if d.get("document_ids") else None
 
         # Hydrate any missing chunk excerpts cited in initial or comprehensive reports
         combined_markdown = f"{d.get('report_markdown') or ''}\n\n{d.get('comprehensive_report_markdown') or ''}"

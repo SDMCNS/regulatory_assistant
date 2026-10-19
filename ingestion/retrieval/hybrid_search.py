@@ -1,8 +1,10 @@
 import json
 import re
 from typing import List, Dict, Any, Optional, Union
+from ingestion.core.config import settings
 from ingestion.retrieval.search_chunks import search_semantic
 from ingestion.retrieval.keyword_search import search_keywords
+from ingestion.retrieval.reranker import rerank_candidate_chunks
 
 def search_hybrid(
     query: str, 
@@ -14,18 +16,25 @@ def search_hybrid(
     stakeholder: Optional[str] = None,
     document_id: Optional[str] = None,
     deep_research: bool = False,
-    keyword_filter: Optional[str] = None
+    keyword_filter: Optional[str] = None,
+    rerank: bool = False,
+    reranker_model: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
     Performs Reciprocal Rank Fusion (RRF) between semantic vector search
     and BM25 keyword search, with support for document source/origin filtering,
-    stakeholder domain prioritization, and optional strict keyword filtering.
+    stakeholder domain prioritization, optional strict keyword filtering,
+    and neural cross-encoder reranking.
     """
     # Consolidate origin / origins
     effective_origin: Any = origins if origins else origin
 
-    # We fetch more results than top_k for each to get a good intersection pool
-    fetch_k = max(top_k * 3, 25)
+    # If neural reranking is requested, fetch a wider pool of candidates
+    if rerank:
+        candidate_pool_size = getattr(settings, "RERANKER_CANDIDATE_POOL", 50)
+        fetch_k = max(top_k * 8, candidate_pool_size)
+    else:
+        fetch_k = max(top_k * 3, 25)
     
     semantic_results = search_semantic(
         query, 
@@ -164,13 +173,31 @@ def search_hybrid(
                 matching_chunks.sort(key=lambda x: x["rrf_score"], reverse=True)
                 sorted_results = matching_chunks
 
-    # Take the top_k
-    final_results = sorted_results[:top_k]
-    
-    # Map back to standard schema, setting score to rrf_score
-    for r in final_results:
-        r["score"] = r["rrf_score"]
-        if "expanded_terms" not in r:
+    # Apply neural cross-encoder reranking if requested
+    if rerank and sorted_results:
+        pool_limit = max(top_k * 6, getattr(settings, "RERANKER_CANDIDATE_POOL", 40))
+        candidate_pool = sorted_results[:pool_limit]
+        final_results = rerank_candidate_chunks(
+            query=query,
+            chunks=candidate_pool,
+            model_name=reranker_model,
+            top_k=top_k
+        )
+        for r in final_results:
+            r["score"] = r.get("rerank_score", r.get("rrf_score", 0.0))
+            if "hybrid_components" not in r:
+                r["hybrid_components"] = []
+            rer_rank = r.get("rerank_rank", "N/A")
+            rer_score = r.get("rerank_score", 0.0)
+            orig_rank = r.get("original_rank", "N/A")
+            r["hybrid_components"].append(f"Neural Reranker Rank: #{rer_rank} (was #{orig_rank}, Score: {rer_score:+.4f})")
             r["expanded_terms"] = r.get("hybrid_components", [])
+    else:
+        # Standard RRF top_k without neural reranking
+        final_results = sorted_results[:top_k]
+        for r in final_results:
+            r["score"] = r["rrf_score"]
+            if "expanded_terms" not in r:
+                r["expanded_terms"] = r.get("hybrid_components", [])
             
     return final_results

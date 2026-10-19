@@ -16,6 +16,7 @@ import { buildMemoryContextPrompt, recordQuery, getQueryMemory } from '../servic
 import { getChats, createChat, addMessageToChat, deleteChat, toggleSectionInChat, updateChat } from '../services/chatService';
 import { downloadChatReportHtml } from '../utils/chatHtmlReportGenerator';
 import { marked } from 'marked';
+import { SourceFilterSelector, ALL_SOURCE_IDS } from './SourceFilterSelector';
 
 interface AskAssistantProps {
   settings: AppSettings;
@@ -35,17 +36,6 @@ const AVIATION_DOMAINS = [
   { id: 'aerodromes', label: 'Aerodromes' },
   { id: 'licensing', label: 'Flight Crew & Licensing' },
   { id: 'drones', label: 'Drones / UAS' },
-];
-
-const DOCUMENT_SOURCES = [
-  { id: 'all', label: 'All Sources' },
-  { id: 'easa', label: 'EASA' },
-  { id: 'eu', label: 'EU (EUR-Lex)' },
-  { id: 'faa', label: 'FAA' },
-  { id: 'skybrary', label: 'SKYbrary' },
-  { id: 'manual', label: 'Manuals' },
-  { id: 'note', label: 'Notes' },
-  { id: 'user', label: 'User Docs' },
 ];
 
 export const AskAssistant: React.FC<AskAssistantProps> = ({
@@ -70,7 +60,7 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
 
   const [inputPrompt, setInputPrompt] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string>('all');
-  const [selectedSource, setSelectedSource] = useState<string>('all');
+  const [selectedSources, setSelectedSources] = useState<string[]>(() => ALL_SOURCE_IDS);
   const [keywordFilter, setKeywordFilter] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [useMemoryInPrompt, setUseMemoryInPrompt] = useState(settings.enableQueryMemoryContext);
@@ -147,7 +137,8 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
           chunkIds: targetedChunks.length > 0 ? targetedChunks : null,
           contextSections: savedSections.filter(s => s.enabled !== false).length > 0 ? savedSections.filter(s => s.enabled !== false) : null,
           memoryContext,
-          origin: selectedSource !== 'all' ? selectedSource : settings.defaultOrigin,
+          origin: ALL_SOURCE_IDS.every(s => selectedSources.includes(s)) ? 'all' : undefined,
+          origins: ALL_SOURCE_IDS.every(s => selectedSources.includes(s)) ? undefined : selectedSources,
           keywordFilter: keywordFilter.trim() ? keywordFilter.trim() : undefined,
           domain: selectedDomain !== 'all' ? selectedDomain : undefined,
           topK: settings.defaultTopK,
@@ -600,6 +591,21 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
                               </span>
                             </div>
 
+                            {/* Rerank badge */}
+                            {chunk.rerank_rank !== undefined && (
+                              <div className="flex items-center gap-1.5 text-[10px] text-emerald-300 font-mono mt-1">
+                                <span className="px-1.5 py-0.5 bg-emerald-950/70 border border-emerald-800/80 rounded font-semibold flex items-center gap-1">
+                                  <span>Rerank #{chunk.rerank_rank}</span>
+                                  {chunk.original_rank && <span className="text-slate-400">(was #{chunk.original_rank})</span>}
+                                  {chunk.rerank_score !== undefined && (
+                                    <span className="text-emerald-400 font-mono">
+                                      [{chunk.rerank_score > 0 ? '+' : ''}{chunk.rerank_score.toFixed(2)}]
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            )}
+
                             {/* Superseded / Deactivation Warning */}
                             {(chunk.is_active === false || chunk.is_active === 0 || Boolean(chunk.superseded_by)) && (
                               <div className="flex items-center gap-1 text-[10px] text-amber-400 font-medium mt-1 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
@@ -703,27 +709,13 @@ export const AskAssistant: React.FC<AskAssistantProps> = ({
       {/* Input Area */}
       <div className="p-4 sm:p-6 bg-slate-950 border-t border-slate-800/80 shrink-0">
         <div className="max-w-4xl mx-auto w-full space-y-2">
-          {/* Document Source Filter Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">
-            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 mr-1 shrink-0">
-              <BookOpen className="w-3 h-3 text-sky-400" />
-              Source:
-            </span>
-            {DOCUMENT_SOURCES.map(s => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSelectedSource(s.id)}
-                className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-all shrink-0 cursor-pointer ${
-                  selectedSource === s.id
-                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/50 shadow-sm'
-                    : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+          {/* Document Source Filter Selector */}
+          <SourceFilterSelector
+            selectedSources={selectedSources}
+            onChange={setSelectedSources}
+            compact={true}
+            label="Sources:"
+          />
 
           {/* Domain Filter Selector Chips */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-xs no-scrollbar">

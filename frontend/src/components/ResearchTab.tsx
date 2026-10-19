@@ -57,6 +57,7 @@ import {
   getChunkContextSummary,
   generateComprehensiveReport
 } from '../services/apiClient';
+import { SourceFilterSelector, ALL_SOURCE_IDS } from './SourceFilterSelector';
 
 interface ResearchTabProps {
   settings: AppSettings;
@@ -82,6 +83,7 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [recursionLevel, setRecursionLevel] = useState<number>(2);
+  const [selectedSources, setSelectedSources] = useState<string[]>(() => ALL_SOURCE_IDS);
   const [jobs, setJobs] = useState<ResearchJobSummary[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ResearchJobDetail | null>(null);
@@ -218,7 +220,9 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
     setIsSubmitting(true);
     setCacheNotification(null);
     try {
-      const res = await createResearchJob(targetQuery.trim(), recursionLevel, forceRefresh, settings);
+      const isAllSources = ALL_SOURCE_IDS.every(s => selectedSources.includes(s));
+      const originsToSend = isAllSources ? undefined : selectedSources;
+      const res = await createResearchJob(targetQuery.trim(), recursionLevel, forceRefresh, settings, originsToSend);
       if (overrideQuery === undefined) {
         setQuery('');
       }
@@ -238,6 +242,9 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
   };
 
   const handleRetryJob = (failedJob: ResearchJobDetail) => {
+    if (failedJob.origins && failedJob.origins.length > 0) {
+      setSelectedSources(failedJob.origins);
+    }
     handleSubmit(undefined, true, failedJob.query);
   };
 
@@ -395,9 +402,17 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
                   </div>
                 </div>
 
-                <p className="text-xs font-medium text-slate-200 line-clamp-2 leading-relaxed mb-2">
+                <p className="text-xs font-medium text-slate-200 line-clamp-2 leading-relaxed mb-1.5">
                   {job.query}
                 </p>
+
+                {job.origins && job.origins.length > 0 && job.origins.length < 7 && (
+                  <div className="flex items-center gap-1 mb-1.5 flex-wrap">
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/70 text-emerald-300 border border-emerald-800/60 font-medium">
+                      {job.origins.map(o => o.toUpperCase()).join(' · ')}
+                    </span>
+                  </div>
+                )}
 
                 <div className="text-[10px] font-mono text-slate-400 truncate flex items-center gap-1.5 bg-slate-950/50 px-2 py-1 rounded border border-slate-800/60">
                   <Activity className="w-2.5 h-2.5 text-indigo-400 shrink-0" />
@@ -486,6 +501,12 @@ export const ResearchTab: React.FC<ResearchTabProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Source Selection & Exclusion Filter */}
+            <SourceFilterSelector
+              selectedSources={selectedSources}
+              onChange={setSelectedSources}
+            />
 
             {/* Query Input Box */}
             <div className="relative">
@@ -1171,6 +1192,12 @@ const ResearchReportViewer: React.FC<ResearchReportViewerProps> = ({
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-800/80 flex items-center gap-1 font-medium" title="Scientific audit of retrieved chunks">
                 <ShieldCheck className="w-3 h-3 text-emerald-400" />
                 Evidence Audit: {job.evaluation_summary.validated_count} Validated · {job.evaluation_summary.negated_count} Negated
+              </span>
+            )}
+            {job.origins && job.origins.length > 0 && (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-sky-300 border border-slate-700 flex items-center gap-1 font-medium" title={`Sources considered: ${job.origins.join(', ')}`}>
+                <BookOpen className="w-3 h-3 text-sky-400" />
+                Sources: {job.origins.map(o => o.toUpperCase()).join(' · ')}
               </span>
             )}
           </div>

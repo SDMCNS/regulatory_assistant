@@ -11,6 +11,7 @@ import { MemoryHub } from './components/MemoryHub';
 import { ExtractTool } from './components/ExtractTool';
 import { CacheExplorer } from './components/CacheExplorer';
 import { SettingsModal } from './components/SettingsModal';
+import { AboutModal } from './components/AboutModal';
 import { DocViewerModal } from './components/DocViewerModal';
 import { ResearchTab } from './components/ResearchTab';
 import { RegulationsWorkspace } from './components/RegulationsWorkspace';
@@ -28,6 +29,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('assistant');
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<SearchDocResponse | null>(null);
   const [targetedChunks, setTargetedChunks] = useState<string[]>([]);
   const [activeMemoryCount, setActiveMemoryCount] = useState<number>(0);
@@ -103,6 +105,32 @@ export default function App() {
     checkConnection(newSettings);
   };
 
+  // Sync theme with documentElement
+  useEffect(() => {
+    const isLight = settings.theme === 'light';
+    document.documentElement.classList.toggle('light', isLight);
+    document.documentElement.classList.toggle('dark', !isLight);
+  }, [settings.theme]);
+
+  const handleToggleTheme = () => {
+    const nextTheme = settings.theme === 'light' ? 'dark' : 'light';
+    const updated: AppSettings = { ...settings, theme: nextTheme };
+    handleSaveSettings(updated);
+  };
+
+  // Redirect if current active tab is disabled
+  useEffect(() => {
+    const isHidden =
+      (activeTab === 'governance' && !settings.showGovernanceTab) ||
+      (activeTab === 'builder' && !settings.showDocumentBuilderTab) ||
+      (activeTab === 'memory' && !settings.showQueryMemoryTab) ||
+      (activeTab === 'extract' && !settings.showSchemaExtractorTab) ||
+      (activeTab === 'cache' && !settings.showLocalCacheTab);
+    if (isHidden) {
+      setActiveTab('assistant');
+    }
+  }, [activeTab, settings]);
+
   const handleToggleTargetChunk = (chunkId: string) => {
     setTargetedChunks(prev => 
       prev.includes(chunkId) ? prev.filter(id => id !== chunkId) : [...prev, chunkId]
@@ -157,6 +185,10 @@ export default function App() {
         onPingConnection={() => checkConnection()}
         isPinging={isPinging}
         activeMemoryCount={activeMemoryCount}
+        settings={settings}
+        theme={settings.theme || 'dark'}
+        onToggleTheme={handleToggleTheme}
+        onOpenAbout={() => setIsAboutOpen(true)}
       />
 
       {/* Main Content Viewport */}
@@ -291,6 +323,13 @@ export default function App() {
         onSaveSettings={handleSaveSettings}
         connectionStatus={connectionStatus}
         onConnectionChange={setConnectionStatus}
+        onOpenAbout={() => setIsAboutOpen(true)}
+      />
+
+      {/* About AeroLex EU Modal */}
+      <AboutModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
       />
 
       {/* Full Regulatory Document Viewer Modal */}

@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Large raw chunks directory (keep only its README.md)
+chunks/*
+!chunks/README.md
+
+# Golden Chunks & Samples whitelist (overrides root .gitignore)
+!golden_chunks.jsonl
+!chunks_sample/**
+!aviation_qa_lora.jsonl
+
+# Legacy archive folder
+archive/
+
+# Generation and training checkpoints / caches
+*.db
+*.db-journal
+models/
+output/
+runs/
+.cache/
+.pytest_cache/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

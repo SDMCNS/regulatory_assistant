@@ -36,6 +36,9 @@ export interface UploadAnalysisResponse {
     sha256?: string;
     is_pdf?: boolean;
     is_xml?: boolean;
+    author?: string | null;
+    is_word?: boolean;
+    word_format?: string;
   };
   has_conflict: boolean;
   suggested_action: 'none' | 'supersede' | 'suppress';
@@ -111,6 +114,9 @@ export interface SearchResponse {
   metadata: Record<string, any>;
   primary_stakeholder?: string;
   stakeholder_scores?: Record<string, number>;
+  rerank_score?: number;
+  rerank_rank?: number;
+  original_rank?: number;
 }
 
 export interface SearchDocResponse extends SearchResponse {
@@ -219,6 +225,14 @@ export interface AppSettings {
   researchProvider?: 'local' | 'gemini';
   geminiApiKey?: string;
   geminiModel?: string;
+  showGovernanceTab?: boolean;
+  showDocumentBuilderTab?: boolean;
+  showQueryMemoryTab?: boolean;
+  showSchemaExtractorTab?: boolean;
+  showLocalCacheTab?: boolean;
+  enableReranker?: boolean;
+  rerankerModel?: string;
+  theme?: 'dark' | 'light';
 }
 
 export interface QueryMemoryItem {
@@ -305,6 +319,8 @@ export interface ResearchJobSummary {
   comprehensive_status?: 'NOT_STARTED' | 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   provider?: string | null;
   model?: string | null;
+  origins?: string[] | null;
+  document_ids?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -315,6 +331,8 @@ export interface EvaluationSummary {
   negated_count: number;
   target_domains: string[];
   excluded_domains: string[];
+  origins?: string[] | null;
+  document_ids?: string[] | null;
   negated_chunks: Record<string, string>;
   validated_chunks: Record<string, string>;
   surrounding_context_expanded?: boolean;
@@ -353,6 +371,7 @@ export interface RegulationItem {
   raw_title?: string | null;
   date?: string | null;
   origin: 'easa' | 'eu' | 'faa' | 'manual' | string;
+  subtopic?: string | null;
   source?: string | null;
   chunk_count: number;
   qualifier_count?: number;
@@ -362,6 +381,39 @@ export interface RegulationItem {
   deactivation_reason?: string | null;
   deactivated_at?: string | null;
   superseded_by?: string | null;
+  detected_years?: number[];
+  primary_year?: number | null;
+  obsolescence_flags?: string[];
+}
+
+export interface CandidateTitleItem {
+  document_id: string;
+  title: string;
+  origin?: string;
+  subtopic?: string | null;
+  year?: number | null;
+}
+
+export interface ObsolescenceCandidateFinding {
+  document_id: string;
+  title: string;
+  is_suspect_obsolete: boolean;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  likely_status?: string;
+  detected_year?: number | null;
+  reason: string;
+  suggested_action: string;
+  superseded_by?: string | null;
+}
+
+export interface AiObsolescenceScanResponse {
+  total_scanned: number;
+  flagged_count: number;
+  high_confidence_count: number;
+  medium_confidence_count: number;
+  low_confidence_count: number;
+  summary: string;
+  findings: ObsolescenceCandidateFinding[];
 }
 
 export interface GovernanceLogItem {
@@ -373,6 +425,29 @@ export interface GovernanceLogItem {
   performed_at: string;
 }
 
+export interface CategoryStatsItem {
+  total: number;
+  active: number;
+  deactivated: number;
+}
+
+export interface SkybraryTopicItem {
+  topic: string;
+  total: number;
+  active: number;
+  deactivated: number;
+}
+
+export interface SkybraryTopicGovernanceResponse {
+  topic: string;
+  deactivated_documents?: number;
+  reactivated_documents?: number;
+  affected_chunks: number;
+  reason?: string;
+  superseded_by?: string | null;
+  message: string;
+}
+
 export interface GovernanceStats {
   total_documents: number;
   active_documents: number;
@@ -380,7 +455,27 @@ export interface GovernanceStats {
   total_chunks: number;
   active_chunks: number;
   forgotten_chunks: number;
+  category_stats?: Record<string, CategoryStatsItem>;
   recent_logs: GovernanceLogItem[];
+}
+
+export interface BatchGovernanceResponse {
+  deactivated_documents?: number;
+  reactivated_documents?: number;
+  affected_chunks: number;
+  reason?: string;
+  superseded_by?: string | null;
+  message: string;
+}
+
+export interface CategoryGovernanceResponse {
+  category: string;
+  deactivated_documents?: number;
+  reactivated_documents?: number;
+  affected_chunks: number;
+  reason?: string;
+  superseded_by?: string | null;
+  message: string;
 }
 
 export interface CatalogResponse {
@@ -520,8 +615,12 @@ export interface CreateNoteRequest {
   document_id?: string;
   note_type: string;
   date?: string;
+  created_by: string;
   author?: string;
   project?: string;
+  is_indefinite?: boolean;
+  expires_at?: string | null;
+  keywords?: string[];
   tags?: string[];
   description?: string;
   auto_embed?: boolean;
@@ -534,10 +633,15 @@ export interface NoteSummaryItem {
   note_type: string;
   project: string;
   author: string;
+  created_by: string;
   date: string;
   chunk_count: number;
   is_embedded: boolean;
   tags: string[];
+  keywords: string[];
+  is_indefinite: boolean;
+  expires_at?: string | null;
+  is_expired?: boolean;
   created_at?: string;
 }
 
@@ -556,10 +660,15 @@ export interface NoteDetailResponse {
   note_type: string;
   project: string;
   author: string;
+  created_by: string;
   date: string;
   chunk_count: number;
   is_embedded: boolean;
   tags: string[];
+  keywords: string[];
+  is_indefinite: boolean;
+  expires_at?: string | null;
+  is_expired?: boolean;
   description?: string;
   created_at?: string;
   sections: NoteSectionInput[];

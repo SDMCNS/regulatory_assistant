@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 3840  # 3840 for kalm-embedding-gemma3-12b, 768 for nomic-embed-text
     HYDE_TIMEOUT: int = 90  # Seconds to wait for local LLM cold loading into VRAM
 
+    # Neural Reranker Configuration
+    RERANKER_ENABLED: bool = True
+    RERANKER_MODEL_NAME: str = "text-embedding-baai-bge-reranker-v2-m3-m3"
+    RERANKER_BASE_URL: str = "http://localhost:1234/v1"
+    RERANKER_CANDIDATE_POOL: int = 50  # Candidate pool size before reranking
+
     class Config:
         env_prefix = "REG_INGEST_"
 

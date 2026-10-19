@@ -1,4 +1,5 @@
-# AeroLex — Aviation Regulatory Assistant & Research Platform
+# AeroLex EU — Aviation Regulatory Assistant & Research Platform
+*SESAR Deployment Manager Modernization & Compliance Intelligence*
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-1.0.0-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat&logo=react)](https://react.dev)
@@ -6,15 +7,97 @@
 [![Vite](https://img.shields.io/badge/Vite-6.0-646CFF.svg?style=flat&logo=vite)](https://vitejs.dev)
 [![SQLite FTS5](https://img.shields.io/badge/SQLite-FTS5%20BM25-003B57.svg?style=flat&logo=sqlite)](https://www.sqlite.org/fts5.html)
 [![FAISS](https://img.shields.io/badge/FAISS-Dense%20Retrieval-0467DF.svg?style=flat)](https://github.com/facebookresearch/faiss)
+[![SESAR DM](https://img.shields.io/badge/SESAR-Deployment%20Manager-008080.svg?style=flat)](https://www.sesardeploymentmanager.eu)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An enterprise-grade, offline-first hybrid RAG (Retrieval-Augmented Generation) and regulatory intelligence workstation purpose-built for global civil aviation frameworks: **EASA Easy Access Rules**, **EU Formex Aviation Acts**, **FAA Title 14 CFR Regulations**, **SKYbrary**, **User-Authored Notes**, and **Custom Operating Manuals**.
+An enterprise-grade, offline-first hybrid RAG (Retrieval-Augmented Generation), public consultation analysis, and regulatory intelligence workstation purpose-built for the **SESAR Deployment Manager (SDM)**, Air Navigation Service Providers (ANSPs), National Aviation Authorities (NAAs), airlines, and aerospace manufacturers.
 
-AeroLex enables aerospace engineers, flight operations compliance auditors, safety managers, and air traffic system regulators to search, cross-reference, question, compare, and synthesize thousands of regulatory provisions with sub-millisecond retrieval and citation traceability.
+AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Rules**, **EU Formex Aviation Acts**, **FAA Title 14 CFR Regulations**, **SKYbrary Air Safety Knowledge**, **User-Authored Notes**, and **Custom Operating Manuals**.
 
 ---
 
-## Key Capabilities
+## What AeroLex EU Does
+
+1. **Aviation Regulatory Search & Cross-Referencing**: Sub-millisecond keyword retrieval and semantic search over tens of thousands of provisions, certification specifications (CS), acceptable means of compliance (AMC), guidance material (GM), and federal regulations.
+2. **Autonomous Adversarial Deep Research**: Multi-pass research agent that formulates hypotheses, extracts clauses, systematically challenges citations through an adversarial falsification gate, and synthesizes traceable compliance reports.
+3. **Public Consultation & Stakeholder Intelligence**: Ingestion and automated analysis of regulatory consultation documents (Word/PDF) and stakeholder feedback comments (CSV/Excel). Maps consensus, detects dissent, traces organizational alignment ("Direction of Travel"), diagnoses regulatory tensions, and performs silence accounting.
+4. **Multi-Regulation Workspace & Requirement Lens**: Side-by-side cross-document overlap matrix with real-time modal verb analysis (Mandates, Prohibitions, Recommendations, Guidance) and compliance dossier curation.
+5. **Knowledge Governance & Corpus Hygiene**: Real-time auditing of corpus health, obsolescence tracking against recent amendments, topic deactivation/activation, and duplicate detection.
+6. **Sovereign & Air-Gapped AI**: 100% offline-capable via local LLMs (LM Studio, Ollama, vLLM) with zero telemetry or data leakage, alongside cloud options (Google Gemini, OpenAI).
+
+---
+
+## How It Works
+
+```
+                                ┌────────────────────────────────────────────────────────┐
+                                │          AeroLex EU Modern Frontend (React 18)         │
+                                │  • Theme Switcher (Dark / Light) • Custom Tab Manager  │
+                                │  • SESAR DM About Modal • Interactive Match Stepper    │
+                                └───────────────────────────┬────────────────────────────┘
+                                                            │ REST / JSON API
+                                                            ▼
+                                ┌────────────────────────────────────────────────────────┐
+                                │             FastAPI Regulatory Engine                  │
+                                │  (/search, /research, /consultation, /regulations)     │
+                                └─────────────┬───────────────────────────┬──────────────┘
+                                              │                           │
+                    ┌─────────────────────────▼──────────────┐   ┌────────▼──────────────┐
+                    │      Multi-Stage Retrieval Engine      │   │   Inference Engine    │
+                    │  • SQLite FTS5 (BM25 + Porter Stem)   │   │ • Local LM Studio /   │
+                    │  • FAISS Vector Store (Nomic Embed)    │   │   Ollama (Offline)    │
+                    │  • Reciprocal Rank Fusion (RRF)        │   │ • Google Gemini Cloud │
+                    │  • Sequential Context Window (±N)      │   │   (3.5/3.8 Flash)     │
+                    └─────────────────────────┬──────────────┘   └───────────────────────┘
+                                              │
+                    ┌─────────────────────────▼──────────────┐
+                    │      Specialized Workspaces & Logic    │
+                    │  • Consultation Synthesis & Radar      │
+                    │  • Deep Adversarial Research Agent     │
+                    │  • Knowledge Governance & Forgetting   │
+                    │  • Requirement Lens & Dossier          │
+                    └────────────────────────────────────────┘
+```
+
+### 1. Ingestion & Structured Chunking
+- **EASA XML Parser**: Ingests Easy Access Rules directly, preserving the rich hierarchy of Cover Regulations, Annexes, Subparts, CS, AMC, and GM.
+- **EU Formex XML Parser**: Ingests Official Journal legal acts from EUR-Lex with full metadata, preamble recitals, articles, and corrigenda.
+- **FAA Title 14 CFR Parser**: Streaming XML parser segmenting multi-part CFR volumes into individual Parts (e.g., Part 21, 25, 91, 121, 135) with structured subparts and section-level chunking (`§ XX.YY`).
+- **Sequential Linking**: Every chunk records `previous_chunk_id` and `next_chunk_id` pointers, enabling instant retrieval of surrounding provisions.
+
+### 2. Multi-Stage Hybrid Retrieval (BM25 + FAISS + RRF)
+- **FTS5 BM25 Engine**: Optimized for exact aviation acronyms (`ATSEP`, `CPDLC`, `ADS-B`, `FTL`, `SMS`, `ACNS`) and specific clause codes (`CAT.OP.MPA.110`).
+- **Dense Vector Embeddings**: Uses high-dimensional embeddings (e.g., Nomic Embed v1.5) via FAISS for conceptual semantics and natural language regulatory intent.
+- **HyDE & Local LLM Expansion**: Optional generation of hypothetical regulatory clauses or synonym expansions to bridge vocabulary gaps.
+- **Reciprocal Rank Fusion**: Re-ranks and merges keyword and dense semantic results into a unified score distribution.
+
+### 3. Consultation Intelligence Suite
+- **Document & Feedback CSV Ingestion**: Automatically inspects stakeholder comment matrices (CSV/Excel) and extracts consultation document drafts (DOCX/PDF).
+- **Automated Column Mapping**: Heuristically detects Organization, Comment Text, Clause/Paragraph Reference, Proposed Amendment, and Sentiment columns.
+- **Direction of Travel & Spider/Radar Taxonomy**: Categorizes stakeholder feedback across canonical regulatory vectors (e.g., *Mandate Acceleration*, *Economic Proportionality*, *Harmonization*, *Interoperability*, *Safety Buffer*).
+- **Tension Diagnostics**: Identifies structural conflicts between stakeholder groups (e.g., Airlines vs. ANSPs vs. OEMs).
+- **Silence Accounting**: Automatically uncovers critical draft articles that received zero stakeholder comments, identifying potential blind spots before regulatory adoption.
+
+### 4. Autonomous Deep Research Engine
+- **Hypothesis & Query Generation**: Deconstructs complex aerospace compliance queries into multi-turn research vectors.
+- **Adversarial Falsification Gate**: Systematically analyzes retrieved candidates to eliminate false citations, ensuring that every quoted clause directly supports the legal reasoning.
+- **Surrounding Provision Expansion**: Automatically brings preceding and following clauses into the synthesis context to guarantee that parent definitions, operational conditions, and derogations are accounted for.
+- **Audit Ledger & Traceable Citations**: Produces fully interactive reports with mouseover previews, clickable references, and complete provenance records.
+
+### 5. Knowledge Governance & Corpus Hygiene
+- **Health & Consistency Auditing**: Tracks active vs. deactivated regulations, orphaned chunks, and index synchronization.
+- **Obsolescence Detection**: Identifies provisions potentially superseded by newer regulatory packages or corrigenda.
+- **Selective Deactivation**: Enables regulatory compliance officers to temporarily or permanently deactivate outdated regulations without database rebuilds.
+
+### 6. Modern User Experience & Customization
+- **Theme Switcher**: Instant one-click toggle between Dark Mode and Light Mode with persistent local storage.
+- **Customizable Workspace Tabs**: Toggle visibility of advanced tabs (Knowledge Governance, Document Builder, Query Memory, Schema Extractor, and Local Cache) via simple checkboxes in Settings.
+- **Interactive About Modal**: Comprehensive project briefing modal displaying the SESAR Deployment Manager badge, platform mission, and technological architecture.
+- **Interactive Document Viewer & Stepper**: Sequential document navigation with emerald highlighting for exact referenced matches and amber highlighting for incidental matches.
+
+---
+
+## Detailed Capabilities
 
 ### 1. Hybrid Multi-Stage Retrieval Engine
 - **Dense Vector Semantic Search (FAISS)**: Uses state-of-the-art embedding models to capture regulatory intent and natural language questions. Enhanced with **HyDE (Hypothetical Document Embeddings)** for query expansion with configurable timeout and safe cold-start fallback.
@@ -37,7 +120,19 @@ AeroLex enables aerospace engineers, flight operations compliance auditors, safe
 - **Interactive HTML Report Export**: Download complete research reports as standalone, beautifully styled HTML documents featuring collapsible report sections, collapsible appendices/tables, and interactive mouseover tooltips displaying full cited provision texts and legal context.
 - **Direct Workspace Integration**: Easily transition from a research report directly into the dedicated workspace by clicking **"Open All in Workspace"** to load all consulted regulatory sources into a cross-document overlap analysis.
 
-### 3. Dedicated Multi-Regulation Workspace & Cross-Document Overlap
+### 3. Public Consultation & Stakeholder Intelligence Suite
+- **End-to-End Session Lifecycle**: Upload consultation draft documents (.docx, .doc, .pdf, .xml) and stakeholder comment spreadsheets (.csv, .xlsx).
+- **Intelligent Column Inspection**: Real-time header detection with interactive overrides for Organization, Comment, Clause, Proposed Change, and Category columns.
+- **Direction of Travel (Radar / Spider Mapping)**: Maps stakeholder sentiments across aviation governance dimensions:
+  - *Technical Rigor vs. Simplification*
+  - *Operational Burden vs. Safety Enhancement*
+  - *Timetable Feasibility vs. Acceleration*
+  - *Harmonization vs. Subsidiarity*
+- **Tension Diagnostics**: Pinpoints contentious clauses where stakeholders hold polarized opinions, displaying side-by-side opposing quotes.
+- **Silence Accounting**: Scans consultation document sections against stakeholder feedback to reveal provisions that received zero review comments.
+- **Reviewer Triage & Disposition Matrix**: Tag, prioritize, and record official dispositions (Accepted, Rejected, Partially Accepted, Clarification Provided) with full export capabilities.
+
+### 4. Dedicated Multi-Regulation Workspace & Cross-Document Overlap
 - **Title-Level Catalog & Multi-Select**: Browse and search over 1,400+ EU aviation acts, comprehensive EASA Easy Access Rules, and FAA 14 CFR regulations with instant origin filtering (`all`, `eu`, `easa`, `faa`, `manual`) and sorting.
 - **FAA Regulations Ingestion (Title 14 CFR)**: Streaming XML parser for US Federal Aviation Administration regulations, splitting multi-part CFR volumes into discrete part-level documents (e.g. Part 21, Part 25, Part 91, Part 121, Part 135, Part 145) with structured subparts, section-level chunking (`§ XX.YY`), definitions, and GPOTABLE conversion.
 - **Corrected Regulatory Viewer Mapping**: High-fidelity document viewer renders authentic FAA Part structures, EASA Easy Access Rules, and EU acts without cross-origin collisions.
@@ -47,14 +142,14 @@ AeroLex enables aerospace engineers, flight operations compliance auditors, safe
 - **Cross-Regulation Overlap Analysis (SQLite FTS5)**: Execute high-speed search across selected documents to visualize how safety concepts and technical specifications overlap across regulations.
 - **Multi-Column Comparison Matrix**: Inspect matching sections across 20+ regulations simultaneously in a side-by-side grid or grouped list view with overlap rate calculations and distribution bars.
 
-### 4. Manuals & User-Authored Notes
+### 5. Manuals & User-Authored Notes
 - **Author & Publish Custom Manuals**: Dedicated frontend studio (`DocumentBuilder.tsx`) for authoring company standard operating procedures (SOPs), flight operations manuals (OM Part A/B/C/D), or SMS policies.
 - **User-Authored Notes**: Create structural meeting notes, daily journals, or project playbooks via the `NotesTab`. Notes are stored and chunked just like standard regulations and can be surfaced during semantic searches alongside official acts.
 - **Enforced Regulatory Hierarchy & Chunking**: Automatically enforces the exact same schema as official EASA and FAA regulations (`chunk_id`, `section_path`, `embedding_text`, `previous_chunk_id`, `next_chunk_id`).
 - **Live Chunking & Hierarchy Simulation**: Real-time simulation of how provisions will be chunked, linked, and indexed into dense vector and SQLite FTS5 representations before publishing.
 - **Instant FTS5 Indexing**: Automatically commits documents to SQLite, rebuilds the BM25 full-text index, flushes the catalog cache, and generates JSON representations for seamless viewing.
 
-### 5. High-Value Client-Side Regulatory Tools
+### 6. High-Value Client-Side Regulatory Tools
 - **"Requirement Lens"**: Real-time normative modal verb analyzer that parses and highlights legal obligations:
   - 🟢 **Mandates (`SHALL` / `MUST` / `IS REQUIRED TO`)**
   - 🔴 **Prohibitions (`SHALL NOT` / `MUST NOT` / `PROHIBITED`)**
@@ -65,7 +160,7 @@ AeroLex enables aerospace engineers, flight operations compliance auditors, safe
 - **Word-by-Word Diff Drawer**: Side-by-side dual chunk comparison featuring a word-level diff algorithm and percentage similarity metric.
 - **Compliance Working Dossier**: Pin critical regulatory clauses, annotate them with reviewer compliance rationales and audit notes, export formatted Markdown tables, or send all pinned clauses directly to the AI Assistant for synthesis.
 
-### 6. Interactive Document Viewer & Sequential Match Stepper
+### 7. Interactive Document Viewer & Sequential Match Stepper
 - **Full Regulatory Context Preservation**: Inspect complete multi-hundred or thousand-page regulations in full sequential order without filtering out non-matching sections, allowing auditors to read surrounding articles for context.
 - **Exact Referenced Match vs. Incidental Matches**:
   - **Exact Referenced Match**: The specific clause clicked or cited is given a glowing emerald highlight (`ring-2 ring-emerald-400`), a bold `🎯 REFERENCED MATCH` header badge, and a dedicated **`[🎯 Referenced Match]`** toolbar button (shortcut: <kbd>r</kbd>) to instantly return to it at any time.
@@ -73,13 +168,14 @@ AeroLex enables aerospace engineers, flight operations compliance auditors, safe
 - **Match Stepper & Navigation**: Step through matches via `Prev` / `Next` buttons, keyboard shortcuts (<kbd>↓</kbd>/<kbd>j</kbd>/<kbd>n</kbd> and <kbd>↑</kbd>/<kbd>k</kbd>/<kbd>p</kbd>), or jump directly using the provision dropdown.
 - **In-Browser Text Similarity**: Live client-side fuzzy search with keyword hit counters and real-time highlighted in-text snippets.
 
-### 7. Conversational Regulatory Assistant & Chat Reports
+### 8. Conversational Regulatory Assistant & Chat Reports
 - **Context-Aware Dialogue**: Multi-turn chat with hybrid retrieval across EASA, EU, FAA, Skybrary, Notes, and company manuals.
 - **Conversation Renaming & Organization**: Rename active and past chat threads directly in the sidebar for clean audit organization.
 - **Legible Regulatory Standards Citations**: Displays human-readable document titles and descriptions in citation headers instead of raw database IDs.
 - **HTML Chat Report Export**: Export chat sessions as standalone interactive HTML reports with expandable messages, mouseover citation previews, and referenced regulatory standards summaries.
 
-### 8. Cache Explorer
+### 9. Knowledge Governance & Cache Explorer
+- **Corpus Auditing & Deactivation**: Monitor active vs. deactivated documents across all origins, review recent governance actions, and deactivate obsolete acts without losing historical reference records.
 - **Cache Explorer**: Audit locally cached documents, inspect storage footprint, and view cached texts offline.
 
 ---
@@ -190,6 +286,27 @@ npm run dev
 
 ## API Reference
 
+### `CONSULTATION & STAKEHOLDER INTELLIGENCE` Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/consultation/sessions` | Create a new consultation session by uploading draft documents (Word/PDF) and feedback comments (CSV/Excel). |
+| `GET` | `/consultation/sessions` | List all existing consultation sessions with summary metrics. |
+| `GET` | `/consultation/sessions/{session_id}` | Retrieve full consultation session details, including parsed sections and enriched comments. |
+| `POST` | `/consultation/sessions/inspect-csv` | Pre-inspect a feedback CSV to auto-detect columns and return sample headers. |
+| `POST` | `/consultation/sessions/{session_id}/synthesize` | Trigger AI-powered consultation synthesis, thematic clustering, tension diagnostics, and Direction of Travel metrics. |
+| `PUT` | `/consultation/sessions/{session_id}/comments/{comment_id}` | Update human reviewer disposition, consideration notes, and classification tags. |
+| `GET` | `/consultation/sessions/{session_id}/export-matrix` | Export the complete disposition review matrix as an Excel/CSV document. |
+
+### `KNOWLEDGE GOVERNANCE` Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/regulations/governance/stats` | Retrieve global knowledge governance metrics, active vs deactivated acts, and audit logs. |
+| `POST` | `/regulations/governance/{document_id}/deactivate` | Deactivate a specific regulation from active search and research indexing. |
+| `POST` | `/regulations/governance/{document_id}/activate` | Re-activate a previously deactivated regulation. |
+| `POST` | `/regulations/governance/batch/deactivate` | Deactivate multiple regulations in a single batch operation. |
+| `POST` | `/regulations/governance/category/{category}/deactivate` | Deactivate an entire regulatory category or origin. |
+| `POST` | `/regulations/governance/ai-obsolescence-scan` | Perform an AI-assisted scan of the corpus to identify potentially superseded provisions. |
+
 ### `REGULATIONS` Endpoints
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
@@ -265,26 +382,36 @@ python -m ingestion.retrieval.embed_chunks
 .
 ├── api/                             # FastAPI application & endpoints
 │   ├── main.py                      # Application entrypoint & route registration
-│   ├── regulations.py               # Regulations catalog, manual builder & workspace FTS endpoints
+│   ├── consultation.py              # Consultation session lifecycle, spider mapping & CSV parsing
+│   ├── regulations.py               # Regulations catalog, governance, manual builder & workspace FTS
 │   ├── research.py                  # Deep research engine with surrounding context sequence expansion
+│   ├── upload.py                    # Multi-format user document upload and extraction
 │   └── utils.py                     # LLM call wrappers (LM Studio & Gemini) & database pool
 ├── frontend/                        # React 18 + Vite frontend
+│   ├── public/
+│   │   └── sesar_logo.png           # SESAR Deployment Manager badge asset
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── AboutModal.tsx       # SESAR Deployment Manager mission & architectural briefing modal
 │   │   │   ├── AskAssistant.tsx     # Context-aware regulatory chat
+│   │   │   ├── ConsultationWorkspace.tsx # Stakeholder consultation synthesis & Direction of Travel
+│   │   │   ├── StakeholderSpiderModal.tsx # Direction of Travel spider/radar comparison chart
 │   │   │   ├── DocumentBuilder.tsx  # Interactive manual regulatory document builder & schema publisher
+│   │   │   ├── KnowledgeGovernance.tsx # Corpus hygiene, obsolescence scanner & topic deactivator
 │   │   │   ├── RegulationsWorkspace.tsx # Multi-regulation workspace & overlap analyzer
 │   │   │   ├── ResearchTab.tsx      # Autonomous deep research UI, dual-tab inspector & audit ledger
 │   │   │   ├── SearchExplorer.tsx   # Hybrid semantic/keyword search with "Get Context" and "Focus"
 │   │   │   ├── DocViewerModal.tsx   # Structured section document viewer (EASA, EU, FAA, Manual)
 │   │   │   ├── NotesTab.tsx         # User-authored note creator and viewer
 │   │   │   ├── CacheExplorer.tsx    # IndexedDB offline storage explorer
-│   │   │   ├── ErrorBoundary.tsx    # Crash protection & recovery boundary
-│   │   │   └── SettingsModal.tsx    # Local & Gemini LLM settings and timeout configuration
+│   │   │   ├── TopBar.tsx           # Navigation header, tab switcher, theme toggle & About trigger
+│   │   │   ├── SettingsModal.tsx    # Connection settings, tab visibility toggles & theme preferences
+│   │   │   └── ErrorBoundary.tsx    # Crash protection & recovery boundary
 │   │   ├── services/apiClient.ts    # Typed API client & IndexedDB cache manager
 │   │   ├── types.ts                 # TypeScript type definitions
 │   │   └── App.tsx                  # Root navigation & state orchestration
 ├── ingestion/                       # Ingestion pipeline & retrieval engines
+│   ├── consultation/                # Consultation metrics, sentiment analysis & spider mapping
 │   ├── parsers/                     # EASA XML, EU Formex XML, and FAA 14 CFR XML parsers
 │   ├── chunkers/                    # Semantic, section-based, and FAA legal chunkers
 │   ├── retrieval/                   # FAISS, SQLite FTS5, surrounding context & Hybrid RRF algorithms

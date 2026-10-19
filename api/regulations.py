@@ -14,8 +14,20 @@ from ingestion.parsers.json_to_doc import find_json_file, render_document
 from ingestion.retrieval.search_chunks import get_embeddings_batch
 from ingestion.retrieval.faiss_index import LocalVectorIndex
 from ingestion.core.models import EmbeddingRecord, EmbeddingType
-from ingestion.core.governance import ensure_governance_schema, deactivate_document, activate_document, get_governance_stats
-from api.utils import get_document_metadata, log_debug_info
+from ingestion.core.governance import (
+    ensure_governance_schema, 
+    deactivate_document, 
+    activate_document, 
+    get_governance_stats,
+    batch_deactivate_documents,
+    batch_activate_documents,
+    deactivate_category,
+    activate_category,
+    get_skybrary_topics_stats,
+    deactivate_skybrary_topic,
+    activate_skybrary_topic
+)
+from api.utils import get_document_metadata, log_debug_info, call_unified_chat
 
 router = APIRouter()
 
@@ -99,6 +111,58 @@ def get_document_markdown_content(document_id: str) -> str:
         print(f"Error assembling chunks from sqlite for {document_id}: {e}")
         
     return ""
+
+def extract_title_years_and_flags(title: str, date: str, doc_id: str, source: str, origin: str):
+    """
+    Extracts all 4-digit years and recognizes obsolescence pattern indicators from title and metadata.
+    """
+    text = f"{title} {doc_id}".lower()
+
+    # 1. Year detection
+    years = []
+    if date:
+        m = re.search(r'\b(19[7-9]\d|20[0-3]\d)\b', str(date))
+        if m:
+            years.append(int(m.group(1)))
+
+    for m in re.finditer(r'\b(19[7-9]\d|20[0-3]\d)\b', title):
+        years.append(int(m.group(1)))
+
+    years = sorted(list(set(years)))
+    primary_year = years[-1] if years else None
+
+    # 2. Pattern recognition flags
+    flags = []
+    if primary_year:
+        if primary_year <= 2014:
+            flags.append("legacy_pre_2015")
+        elif primary_year <= 2019:
+            flags.append("aging_2015_2019")
+        elif primary_year <= 2024:
+            flags.append("review_2020_2024")
+        else:
+            flags.append("recent_2025_plus")
+
+    if any(k in text for k in ["draft", "proposed", "interim", "provisional", "preliminary"]):
+        flags.append("draft")
+
+    if any(k in text for k in ["superseded", "repealed", "withdrawn", "obsolete", "revoked", "replaced", "former", "legacy"]):
+        flags.append("superseded_keyword")
+
+    if re.search(r'\b(issue [01]|amendment [01]|rev [0a]|revision [01])\b', text):
+        flags.append("early_revision")
+
+    if any(k in text for k in ["216/2008", "1592/2002", "jar-", "jar 25", "jar ops", "jar-fcl"]):
+        flags.append("known_repealed")
+
+    if any(k in text for k in ["covid", "pandemic", "temporary exemption"]):
+        flags.append("covid_temporary")
+
+    if origin == "skybrary" and primary_year and primary_year <= 2018:
+        flags.append("old_skybrary")
+
+    return years, primary_year, flags
+
 
 def load_cached_catalog() -> List[Dict[str, Any]]:
     global _CATALOG_CACHE
@@ -219,12 +283,23 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
 
             stk = doc_stakeholders.get(doc_id, None)
 
+            # Subtopic (especially for Skybrary categories)
+            subtopic = None
+            if origin == "skybrary":
+                subtopic = (meta_dict.get("category") or "").strip() or "Uncategorized"
+            elif meta_dict.get("category"):
+                subtopic = str(meta_dict.get("category")).strip()
+
+            # Extract years and obsolescence pattern tags
+            det_years, prim_year, obs_flags = extract_title_years_and_flags(clean_title, date, doc_id, source, origin)
+
             items.append({
                 "document_id": doc_id,
                 "title": clean_title,
                 "raw_title": raw_title,
                 "date": date,
                 "origin": origin,
+                "subtopic": subtopic,
                 "source": source,
                 "chunk_count": chunk_count,
                 "qualifier_count": q_cnt,
@@ -233,7 +308,10 @@ def load_cached_catalog() -> List[Dict[str, Any]]:
                 "is_active": bool(r["is_active"]),
                 "deactivation_reason": r["deactivation_reason"],
                 "deactivated_at": r["deactivated_at"],
-                "superseded_by": r["superseded_by"]
+                "superseded_by": r["superseded_by"],
+                "detected_years": det_years,
+                "primary_year": prim_year,
+                "obsolescence_flags": obs_flags
             })
             
     _CATALOG_CACHE["items"] = items
@@ -251,6 +329,7 @@ class RegulationItem(BaseModel):
     raw_title: Optional[str] = None
     date: Optional[str] = None
     origin: str
+    subtopic: Optional[str] = None
     source: Optional[str] = None
     chunk_count: int
     qualifier_count: int = 0
@@ -260,6 +339,9 @@ class RegulationItem(BaseModel):
     deactivation_reason: Optional[str] = None
     deactivated_at: Optional[str] = None
     superseded_by: Optional[str] = None
+    detected_years: List[int] = []
+    primary_year: Optional[int] = None
+    obsolescence_flags: List[str] = []
 
 class CatalogResponse(BaseModel):
     total: int
@@ -333,6 +415,26 @@ class DeactivateDocumentRequest(BaseModel):
     reason: str = Field(..., min_length=2, description="Reason for deactivating / superseding this document")
     superseded_by: Optional[str] = Field(None, description="Optional ID or title of the superseding regulation")
 
+class BatchDeactivateRequest(BaseModel):
+    document_ids: List[str] = Field(..., min_items=1, description="List of document IDs to batch deactivate")
+    reason: str = Field(..., min_length=2, description="Common reason for deactivation / suppression")
+    superseded_by: Optional[str] = Field(None, description="Optional ID or title of superseding regulation")
+
+class BatchActivateRequest(BaseModel):
+    document_ids: List[str] = Field(..., min_items=1, description="List of document IDs to batch reactivate")
+
+class CategoryDeactivateRequest(BaseModel):
+    reason: str = Field(..., min_length=2, description="Reason for suppressing entire category")
+    superseded_by: Optional[str] = Field(None, description="Optional ID or title of superseding regulation")
+
+class SkybraryTopicDeactivateRequest(BaseModel):
+    topic: str = Field(..., min_length=1, description="Name of the SKYbrary subtopic to suppress")
+    reason: str = Field(..., min_length=2, description="Reason for suppressing this SKYbrary subtopic")
+    superseded_by: Optional[str] = Field(None, description="Optional ID or title of superseding guidance")
+
+class SkybraryTopicActivateRequest(BaseModel):
+    topic: str = Field(..., min_length=1, description="Name of the SKYbrary subtopic to reactivate")
+
 class GovernanceStatsResponse(BaseModel):
     total_documents: int
     active_documents: int
@@ -340,7 +442,43 @@ class GovernanceStatsResponse(BaseModel):
     total_chunks: int
     active_chunks: int
     forgotten_chunks: int
+    category_stats: Optional[Dict[str, Dict[str, int]]] = None
     recent_logs: List[Dict[str, Any]]
+
+
+class CandidateTitleItem(BaseModel):
+    document_id: str
+    title: str
+    origin: Optional[str] = None
+    subtopic: Optional[str] = None
+    year: Optional[int] = None
+
+class AiObsolescenceScanRequest(BaseModel):
+    documents: List[CandidateTitleItem] = Field(..., max_items=150, description="Batch of document titles to analyze for obsolescence")
+    focus: Optional[str] = Field("all", description="'all', 'older_than_2020', 'review_2020_2024', 'skybrary', 'easa_eu'")
+    provider: Optional[str] = Field("local", description="LLM provider: 'local' or 'gemini'")
+    gemini_api_key: Optional[str] = Field(None, description="Optional Gemini API key")
+    gemini_model: Optional[str] = Field("gemini-3.5-flash", description="Optional Gemini model name")
+
+class ObsolescenceCandidateFinding(BaseModel):
+    document_id: str
+    title: str
+    is_suspect_obsolete: bool = True
+    confidence: str # "HIGH", "MEDIUM", "LOW"
+    likely_status: Optional[str] = "OBSOLETE"
+    detected_year: Optional[int] = None
+    reason: str
+    suggested_action: str
+    superseded_by: Optional[str] = None
+
+class AiObsolescenceScanResponse(BaseModel):
+    total_scanned: int
+    flagged_count: int
+    high_confidence_count: int
+    medium_confidence_count: int
+    low_confidence_count: int
+    summary: str
+    findings: List[ObsolescenceCandidateFinding]
 
 
 # -------------------------------------------------------------
@@ -351,8 +489,13 @@ class GovernanceStatsResponse(BaseModel):
 def api_get_regulations_catalog(
     query: Optional[str] = Query(None, description="Title-level search query (searches title and document ID)"),
     origin: Optional[str] = Query("all", description="Filter by origin: 'all', 'eu', 'easa', 'faa', 'manual', 'skybrary', 'note', or 'user'"),
+    subtopic: Optional[str] = Query(None, description="Filter by subtopic / category (e.g. for Skybrary subtopics)"),
     status: Optional[str] = Query("all", description="Filter by status: 'all', 'active', 'deactivated'"),
     stakeholder: Optional[str] = Query(None, description="Filter by stakeholder domain: 'airline', 'ansp', 'airport', 'economics', 'maintenance', 'flight_crew'"),
+    year_min: Optional[int] = Query(None, description="Minimum publication or referenced year (e.g. 2020)"),
+    year_max: Optional[int] = Query(None, description="Maximum publication or referenced year (e.g. 2024)"),
+    pattern_flag: Optional[str] = Query(None, description="Filter by obsolescence pattern: 'legacy_pre_2015', 'aging_2015_2019', 'review_2020_2024', 'draft', 'superseded_keyword', 'early_revision', 'known_repealed', 'covid_temporary', 'old_skybrary'"),
+    fuzzy: Optional[bool] = Query(False, description="Enable fuzzy / smart title & year matching"),
     sort_by: Optional[str] = Query("chunks", description="Sort by 'chunks', 'title', or 'date'"),
     sort_order: Optional[str] = Query("desc", description="Sort order: 'asc' or 'desc'"),
     limit: Optional[int] = Query(500, ge=1, le=2000, description="Max regulations to return"),
@@ -360,11 +503,12 @@ def api_get_regulations_catalog(
 ):
     """
     Returns the comprehensive catalog of European aviation regulations indexed in the database.
-    Supports title-level search, origin filtering (EASA vs EU), status filtering (active vs deactivated), stakeholder domain filtering, and sorting.
+    Supports title-level search, origin filtering (EASA vs EU), subtopic filtering (Skybrary categories), status filtering (active vs deactivated), stakeholder domain filtering, year ranges (e.g. 2020-2024), obsolescence patterns, and sorting.
     """
     # Safely extract values if called directly outside FastAPI
     q_clean = query.strip() if (isinstance(query, str) and query.strip()) else None
     origin_str = (origin.lower() if isinstance(origin, str) else "all")
+    sub_clean = (subtopic.lower().strip() if isinstance(subtopic, str) and subtopic.strip() else None)
     status_str = (status.lower() if isinstance(status, str) else "all")
     stk_clean = (stakeholder.lower().strip() if isinstance(stakeholder, str) and stakeholder.strip() else None)
     sort_by_str = (sort_by.lower() if isinstance(sort_by, str) else "chunks")
@@ -385,15 +529,59 @@ def api_get_regulations_catalog(
     if origin_str != "all":
         filtered = [item for item in filtered if item["origin"] == origin_str]
 
+    # 2b. Filter by subtopic (e.g. SKYbrary category)
+    if sub_clean and sub_clean != "all":
+        filtered = [
+            item for item in filtered
+            if (item.get("subtopic") or "").lower().strip() == sub_clean
+        ]
+
     # 3. Filter by stakeholder
     if stk_clean and stk_clean != "all":
         filtered = [item for item in filtered if (item.get("primary_stakeholder") or "").lower() == stk_clean]
+
+    # 3b. Filter by year range (e.g. 2020 - 2024)
+    if year_min is not None:
+        filtered = [
+            item for item in filtered
+            if (item.get("primary_year") is not None and item["primary_year"] >= year_min)
+            or any(y >= year_min for y in item.get("detected_years", []))
+        ]
+    if year_max is not None:
+        filtered = [
+            item for item in filtered
+            if (item.get("primary_year") is not None and item["primary_year"] <= year_max)
+            or any(y <= year_max for y in item.get("detected_years", []))
+        ]
+
+    # 3c. Filter by obsolescence pattern flag
+    if pattern_flag and pattern_flag.lower().strip() not in ("all", "none", ""):
+        p_clean = pattern_flag.lower().strip()
+        filtered = [
+            item for item in filtered
+            if p_clean in [f.lower() for f in item.get("obsolescence_flags", [])]
+        ]
         
-    # 4. Title-level search
+    # 4. Title-level search (standard or fuzzy/range-aware)
     if q_clean:
-        terms = q_clean.lower().split()
+        # Check if query explicitly contains a year range like "2020-2024" or "2018 - 2022"
+        yr_range_match = re.search(r'\b(19[7-9]\d|20[0-3]\d)\s*[-–]\s*(19[7-9]\d|20[0-3]\d)\b', q_clean)
+        extracted_min_yr = int(yr_range_match.group(1)) if yr_range_match else None
+        extracted_max_yr = int(yr_range_match.group(2)) if yr_range_match else None
+
+        clean_text_q = re.sub(r'\b(19[7-9]\d|20[0-3]\d)\s*[-–]\s*(19[7-9]\d|20[0-3]\d)\b', '', q_clean).strip()
+        terms = clean_text_q.lower().split() if clean_text_q else []
         
         def matches_query(item: Dict[str, Any]) -> bool:
+            # If a year range was in query, ensure item has year in that span
+            if extracted_min_yr is not None and extracted_max_yr is not None:
+                has_year_in_range = any(extracted_min_yr <= y <= extracted_max_yr for y in item.get("detected_years", []))
+                if not has_year_in_range:
+                    return False
+
+            if not terms:
+                return True
+
             text = (item["title"] + " " + item["document_id"]).lower()
             return all(term in text for term in terms)
             
@@ -423,6 +611,364 @@ def api_get_regulations_catalog(
 def api_get_governance_stats():
     """Returns knowledge governance and forgetting statistics."""
     return get_governance_stats()
+
+
+@router.post("/governance/batch/deactivate", tags=["REGULATIONS"])
+def api_batch_deactivate_documents(req: BatchDeactivateRequest):
+    """
+    Deactivates multiple documents and their chunks in a single operation.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = batch_deactivate_documents(
+            document_ids=req.document_ids, 
+            reason=req.reason, 
+            superseded_by=req.superseded_by
+        )
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/batch/activate", tags=["REGULATIONS"])
+def api_batch_activate_documents(req: BatchActivateRequest):
+    """
+    Reactivates multiple previously deactivated documents and restores their chunks to search.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = batch_activate_documents(document_ids=req.document_ids)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/category/{category}/deactivate", tags=["REGULATIONS"])
+def api_category_deactivate(category: str, req: CategoryDeactivateRequest):
+    """
+    Deactivates an entire category/origin of documents and their chunks.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = deactivate_category(category=category, reason=req.reason, superseded_by=req.superseded_by)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/category/{category}/activate", tags=["REGULATIONS"])
+def api_category_activate(category: str):
+    """
+    Reactivates an entire category/origin of documents and restores their chunks to search.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = activate_category(category=category)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/governance/skybrary/topics", tags=["REGULATIONS"])
+def api_get_skybrary_topics():
+    """
+    Returns aggregated statistics for all sub-topics/categories in SKYbrary.
+    """
+    return get_skybrary_topics_stats()
+
+
+@router.post("/governance/skybrary/topic/deactivate", tags=["REGULATIONS"])
+def api_deactivate_skybrary_topic(req: SkybraryTopicDeactivateRequest):
+    """
+    Deactivates and suppresses all documents under a given SKYbrary subtopic with a common reason.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = deactivate_skybrary_topic(topic=req.topic, reason=req.reason, superseded_by=req.superseded_by)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/skybrary/topic/activate", tags=["REGULATIONS"])
+def api_activate_skybrary_topic(req: SkybraryTopicActivateRequest):
+    """
+    Reactivates all documents under a given SKYbrary subtopic.
+    """
+    global _CATALOG_CACHE
+    try:
+        res = activate_skybrary_topic(topic=req.topic)
+        _CATALOG_CACHE["timestamp"] = 0  # Invalidate catalog cache
+        return res
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/governance/ai-obsolescence-scan", response_model=AiObsolescenceScanResponse, tags=["REGULATIONS"])
+def api_ai_obsolescence_scan(req: AiObsolescenceScanRequest):
+    """
+    Scans a batch of document titles using aviation regulatory heuristics and LLM inference
+    to identify candidate obsolete, superseded, or aged documents for suppression.
+    """
+    docs_to_scan = req.documents[:120]  # Cap at 120 per batch for low latency
+    if not docs_to_scan:
+        return AiObsolescenceScanResponse(
+            total_scanned=0,
+            flagged_count=0,
+            high_confidence_count=0,
+            medium_confidence_count=0,
+            low_confidence_count=0,
+            summary="No documents provided for obsolescence scanning.",
+            findings=[]
+        )
+
+    # 1. Rule-based heuristic findings (guarantees zero-failure baseline)
+    heuristic_findings: Dict[str, ObsolescenceCandidateFinding] = {}
+    for d in docs_to_scan:
+        det_years, prim_yr, flags = extract_title_years_and_flags(
+            d.title, "", d.document_id, "", d.origin or ""
+        )
+        yr = d.year or prim_yr
+        title_lower = (d.title + " " + d.document_id).lower()
+
+        if "known_repealed" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="HIGH",
+                likely_status="REPEALED",
+                detected_year=yr,
+                reason="Regulation (EC) 216/2008 and earlier basic frameworks were repealed and superseded by EASA Basic Regulation (EU) 2018/1139.",
+                suggested_action="Deactivate and supersede with Regulation (EU) 2018/1139",
+                superseded_by="Regulation (EU) 2018/1139"
+            )
+        elif "covid_temporary" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="HIGH",
+                likely_status="EXPIRED",
+                detected_year=yr,
+                reason="Emergency temporary pandemic exemption measure; expired following cessation of COVID-19 emergency circumstances.",
+                suggested_action="Suppress expired temporary exemption",
+                superseded_by=None
+            )
+        elif "draft" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="HIGH",
+                likely_status="DRAFT",
+                detected_year=yr,
+                reason="Draft, provisional, or proposed version likely superseded by final enacted instrument.",
+                suggested_action="Verify if final adopted act exists and suppress draft",
+                superseded_by=None
+            )
+        elif "early_revision" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="HIGH",
+                likely_status="SUPERSEDED",
+                detected_year=yr,
+                reason="Initial or early iteration (Issue 0/1 or Amendment 0/1); subject to subsequent regulatory revisions.",
+                suggested_action="Review for later amendment and deactivate initial issue",
+                superseded_by=None
+            )
+        elif "legacy_pre_2015" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="MEDIUM",
+                likely_status="OBSOLETE",
+                detected_year=yr,
+                reason=f"Legacy document dating from {yr or 'pre-2015'}; high likelihood of being superseded by modern consolidated rules.",
+                suggested_action="Review against current EU/EASA consolidated rules",
+                superseded_by=None
+            )
+        elif "old_skybrary" in flags:
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="MEDIUM",
+                likely_status="OUTDATED",
+                detected_year=yr,
+                reason=f"SKYbrary article published in {yr or 'pre-2018'}; operational procedures and avionics references may be superseded.",
+                suggested_action="Review for modern RNP/ATM practices or suppress from primary search",
+                superseded_by=None
+            )
+        elif "review_2020_2024" in flags and req.focus in ("review_2020_2024", "all"):
+            heuristic_findings[d.document_id] = ObsolescenceCandidateFinding(
+                document_id=d.document_id,
+                title=d.title,
+                is_suspect_obsolete=True,
+                confidence="LOW",
+                likely_status="REVIEW_NEEDED",
+                detected_year=yr,
+                reason=f"Dated between 2020 and 2024 ({yr}); requires review for newer amending regulations or subsequent corrigenda.",
+                suggested_action="Verify against recent 2024/2025 regulatory amendments",
+                superseded_by=None
+            )
+
+    # 2. LLM-Assisted Analysis
+    llm_findings: List[ObsolescenceCandidateFinding] = []
+    llm_summary = ""
+
+    prompt_docs = [
+        {
+            "document_id": d.document_id,
+            "title": d.title,
+            "origin": d.origin,
+            "subtopic": d.subtopic,
+            "year": d.year or heuristic_findings.get(d.document_id, {}).detected_year
+        }
+        for d in docs_to_scan
+    ]
+
+    system_prompt = (
+        "You are an expert Senior Aviation Regulatory Specialist and EASA/EU/FAA Legal Archivist. "
+        "Analyze the provided batch of aviation document titles and identify regulations, specifications, or SKYbrary articles "
+        "that are likely OBSOLETE, SUPERSEDED, REPEALED, TEMPORARY EXEMPTIONS, or in need of review. "
+        "Return ONLY a valid JSON object matching the requested schema."
+    )
+
+    user_prompt = f"""Analyze these {len(prompt_docs)} aviation documents:
+{json.dumps(prompt_docs, indent=2)}
+
+Focus area: {req.focus}
+
+For each document that is a candidate for obsolescence or review:
+1. Identify if it is suspect obsolete.
+2. Assign confidence: 'HIGH' (repealed/superseded/expired), 'MEDIUM' (likely superseded/old revision/aging guidance), 'LOW' (requires review against newer amendments).
+3. Provide a clear reason explaining why it is suspected obsolete.
+4. Provide a suggested action and optional superseded_by reference.
+
+Return ONLY a JSON object:
+{{
+  "findings": [
+    {{
+      "document_id": "<id>",
+      "title": "<title>",
+      "is_suspect_obsolete": true,
+      "confidence": "HIGH" | "MEDIUM" | "LOW",
+      "detected_year": <int or null>,
+      "reason": "<clear explanation>",
+      "suggested_action": "<recommendation>",
+      "superseded_by": "<optional newer regulation or null>"
+    }}
+  ],
+  "summary": "<summary of findings>"
+}}
+"""
+
+    try:
+        raw_res = call_unified_chat(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=3000,
+            temperature=0.1,
+            provider=req.provider or "local",
+            gemini_api_key=req.gemini_api_key,
+            gemini_model=req.gemini_model or "gemini-3.5-flash"
+        )
+
+        cleaned_json = raw_res.strip()
+        if cleaned_json.startswith("```"):
+            cleaned_json = re.sub(r"^```(?:json)?\s*", "", cleaned_json)
+            cleaned_json = re.sub(r"\s*```$", "", cleaned_json)
+
+        parsed = json.loads(cleaned_json)
+        llm_summary = parsed.get("summary", "")
+        raw_items = parsed.get("findings", [])
+
+        valid_doc_ids = {d.document_id for d in docs_to_scan}
+        for item in raw_items:
+            doc_id = str(item.get("document_id") or "").strip()
+            if doc_id in valid_doc_ids and item.get("is_suspect_obsolete"):
+                conf = str(item.get("confidence") or "MEDIUM").upper()
+                if conf not in ("HIGH", "MEDIUM", "LOW"):
+                    conf = "MEDIUM"
+                llm_findings.append(ObsolescenceCandidateFinding(
+                    document_id=doc_id,
+                    title=str(item.get("title") or next((d.title for d in docs_to_scan if d.document_id == doc_id), "")),
+                    is_suspect_obsolete=True,
+                    confidence=conf,
+                    likely_status=str(item.get("likely_status") or ("REPEALED" if item.get("superseded_by") else "OBSOLETE")),
+                    detected_year=item.get("detected_year"),
+                    reason=str(item.get("reason") or "Identified by AI analysis as candidate obsolete document."),
+                    suggested_action=str(item.get("suggested_action") or "Review for superseding regulation"),
+                    superseded_by=item.get("superseded_by")
+                ))
+
+    except Exception as e:
+        log_debug_info("AI_OBSOLESCENCE_SCAN_ERROR", {"error": str(e)})
+        llm_summary = f"AI analysis supplemented with legal rule-based pattern detection ({len(heuristic_findings)} candidate flags identified)."
+
+    # 3. Merge findings (LLM findings take precedence, augmented by heuristic findings)
+    final_findings_map: Dict[str, ObsolescenceCandidateFinding] = {}
+    for f in llm_findings:
+        final_findings_map[f.document_id] = f
+
+    for doc_id, hf in heuristic_findings.items():
+        if doc_id not in final_findings_map:
+            final_findings_map[doc_id] = hf
+        elif hf.confidence == "HIGH" and final_findings_map[doc_id].confidence != "HIGH":
+            # Upgrade confidence if heuristic is definitively known repealed
+            final_findings_map[doc_id].confidence = "HIGH"
+            if hf.superseded_by and not final_findings_map[doc_id].superseded_by:
+                final_findings_map[doc_id].superseded_by = hf.superseded_by
+
+    # Sort findings by confidence (HIGH first, then MEDIUM, then LOW)
+    conf_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    sorted_findings = sorted(
+        final_findings_map.values(),
+        key=lambda x: (conf_order.get(x.confidence, 3), -(x.detected_year or 0))
+    )
+
+    high_c = sum(1 for f in sorted_findings if f.confidence == "HIGH")
+    med_c = sum(1 for f in sorted_findings if f.confidence == "MEDIUM")
+    low_c = sum(1 for f in sorted_findings if f.confidence == "LOW")
+
+    if not llm_summary:
+        llm_summary = (
+            f"Obsolescence review completed on {len(docs_to_scan)} documents. "
+            f"Identified {high_c} high-confidence, {med_c} medium-confidence, and {low_c} review candidate titles."
+        )
+
+    return AiObsolescenceScanResponse(
+        total_scanned=len(docs_to_scan),
+        flagged_count=len(sorted_findings),
+        high_confidence_count=high_c,
+        medium_confidence_count=med_c,
+        low_confidence_count=low_c,
+        summary=llm_summary,
+        findings=sorted_findings
+    )
 
 
 @router.post("/governance/{document_id:path}/deactivate", tags=["REGULATIONS"])
@@ -1008,8 +1554,8 @@ def embed_chunks_for_document(chunk_records: List[Dict[str, Any]]) -> int:
 
 class NoteSectionInput(BaseModel):
     section_number: Optional[str] = Field(None, description="Optional section number or timestamp (e.g. '1', '10:30')")
-    heading: str = Field(..., min_length=1, description="Section heading or topic title")
-    content: str = Field(..., min_length=1, description="Markdown or text content of the section")
+    heading: str = Field(default="Section", description="Section heading or topic title")
+    content: str = Field(default="", description="Markdown or text content of the section")
     tags: Optional[List[str]] = Field(default=[], description="Optional section tags")
 
 class CreateNoteRequest(BaseModel):
@@ -1017,9 +1563,13 @@ class CreateNoteRequest(BaseModel):
     document_id: Optional[str] = Field(None, description="Optional custom ID (e.g. NOTE_PROJECT_XYZ_STATUS)")
     note_type: str = Field(default="general_note", description="Type: meeting_minutes, daily_journal, project_note, general_note")
     date: Optional[str] = Field(default="", description="Date (YYYY-MM-DD)")
-    author: Optional[str] = Field(default="User", description="Author, attendee list, or recorder")
+    created_by: Optional[str] = Field(None, description="Creator / author of the note ('who created it')")
+    author: Optional[str] = Field(None, description="Author alias (maps to created_by)")
     project: Optional[str] = Field(default="", description="Associated project or topic (e.g. 'Project XYZ')")
-    tags: Optional[List[str]] = Field(default=[], description="Tags or keywords")
+    is_indefinite: bool = Field(default=True, description="Whether the note has indefinite validity or expires")
+    expires_at: Optional[str] = Field(None, description="Expiration date (YYYY-MM-DD) if is_indefinite is False")
+    keywords: Optional[List[str]] = Field(default=[], description="Keywords associated with the note")
+    tags: Optional[List[str]] = Field(default=[], description="Tags or categorization labels")
     description: Optional[str] = Field(default="", description="High level overview or meeting attendees summary")
     sections: List[NoteSectionInput] = Field(..., min_items=1, description="Structured sections/entries of the note")
     auto_embed: Optional[bool] = Field(default=True, description="Immediately generate vector embeddings via LM Studio")
@@ -1030,8 +1580,13 @@ class NoteSummaryItem(BaseModel):
     note_type: str
     date: str
     author: str
+    created_by: str
     project: str
     tags: List[str]
+    keywords: List[str]
+    is_indefinite: bool
+    expires_at: Optional[str] = None
+    is_expired: bool = False
     chunk_count: int
     is_embedded: bool
     created_at: str
@@ -1042,8 +1597,13 @@ class NoteDetailResponse(BaseModel):
     note_type: str
     date: str
     author: str
+    created_by: str
     project: str
     tags: List[str]
+    keywords: List[str]
+    is_indefinite: bool
+    expires_at: Optional[str] = None
+    is_expired: bool = False
     description: str
     chunk_count: int
     is_embedded: bool
@@ -1059,6 +1619,118 @@ class NoteActionResponse(BaseModel):
     is_embedded: bool
     message: str
 
+class GenerateNoteKeywordsRequest(BaseModel):
+    title: str = Field(..., min_length=1, description="Title of the note")
+    content: Optional[str] = Field(default="", description="Optional full content or summary text")
+    sections: Optional[List[NoteSectionInput]] = Field(default=None, description="Structured sections")
+    project: Optional[str] = Field(default=None, description="Project context")
+    provider: Optional[str] = Field(default="local", description="LLM provider: 'local' (LM Studio) or 'gemini'")
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
+
+class GenerateNoteKeywordsResponse(BaseModel):
+    success: bool
+    keywords: List[str]
+    message: str
+
+
+@router.post("/notes/generate-keywords", response_model=GenerateNoteKeywordsResponse, tags=["REGULATIONS"])
+def api_generate_note_keywords(req: GenerateNoteKeywordsRequest):
+    """
+    Uses the local LLM (or Gemini) to analyze note title, project, and section contents,
+    extracting 4 to 8 high-value aviation regulatory and operational keywords.
+    """
+    # Assemble content
+    content_parts = []
+    if req.title:
+        content_parts.append(f"Title: {req.title.strip()}")
+    if req.project:
+        content_parts.append(f"Project: {req.project.strip()}")
+    if req.content:
+        content_parts.append(f"Summary: {req.content.strip()}")
+    if req.sections:
+        for s in req.sections:
+            if s.heading or s.content:
+                content_parts.append(f"Section {s.heading}: {s.content.strip()[:400]}")
+
+    full_context = "\n".join(content_parts)[:2500]
+
+    system_prompt = (
+        "You are an expert aviation knowledge manager and ontology specialist. "
+        "Your task is to analyze note content and extract 4 to 8 concise, specific, high-value domain keywords or phrases. "
+        "Focus on regulatory standards (e.g. Part-ADR, Part-ORO, CS-AWO, ICAO), systems (e.g. SMR, CPDLC, ADS-B, ILS), "
+        "operational procedures (e.g. Low Visibility Procedures, De-icing, Fatigue Risk), or project initiatives. "
+        "Respond ONLY with a valid JSON array of strings, for example: [\"Keyword 1\", \"Keyword 2\", \"Keyword 3\"]. "
+        "Do not include any preamble, markdown code blocks, or explanations."
+    )
+    user_prompt = f"Extract keywords for this note:\n\n{full_context}"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        raw_resp = call_unified_chat(
+            messages=messages,
+            provider="gemini" if req.provider == "gemini" else "local",
+            gemini_api_key=req.gemini_api_key,
+            gemini_model=req.gemini_model,
+            temperature=0.2,
+            max_tokens=300
+        )
+        clean_text = raw_resp.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:].strip()
+        if clean_text.startswith("```"):
+            clean_text = clean_text[3:].strip()
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3].strip()
+
+        parsed_keywords = []
+        try:
+            val = json.loads(clean_text)
+            if isinstance(val, list):
+                parsed_keywords = [str(k).strip() for k in val if str(k).strip()]
+        except Exception:
+            # Fallback regex extraction of quoted strings
+            parsed_keywords = re.findall(r'"([^"\\]+)"', clean_text)
+
+        # Clean and deduplicate
+        final_keywords = []
+        for kw in parsed_keywords:
+            clean_kw = kw.strip().strip("-*• ")
+            if clean_kw and len(clean_kw) <= 40 and clean_kw not in final_keywords:
+                final_keywords.append(clean_kw)
+
+        if final_keywords:
+            return GenerateNoteKeywordsResponse(
+                success=True,
+                keywords=final_keywords[:8],
+                message=f"Generated {len(final_keywords[:8])} keywords using {req.provider or 'LLM'}."
+            )
+    except Exception as e:
+        print(f"LLM keyword generation failed: {e}. Falling back to rule-based keyword extraction...")
+
+    # Graceful heuristic fallback: extract aviation acronyms & key domain terms
+    acronyms = re.findall(r'\b[A-Z]{2,}(?:-[A-Z0-9]+)?\b', full_context)
+    words = [w for w in re.findall(r'\b[A-Za-z]{4,}\b', full_context) if w.lower() not in {"this", "that", "with", "from", "have", "note", "section", "about", "project", "title"}]
+    fallback_pool = []
+    for ac in acronyms:
+        if ac not in fallback_pool and len(ac) <= 12:
+            fallback_pool.append(ac)
+    for w in words[:6]:
+        cap = w.capitalize()
+        if cap not in fallback_pool:
+            fallback_pool.append(cap)
+
+    fallback_keywords = fallback_pool[:6] if fallback_pool else ["Aviation Note", "Operational Knowledge"]
+    return GenerateNoteKeywordsResponse(
+        success=True,
+        keywords=fallback_keywords,
+        message="Generated keywords via domain heuristic extraction (LLM offline)."
+    )
+
 
 @router.post("/notes", response_model=NoteActionResponse, tags=["REGULATIONS"])
 def api_create_note(req: CreateNoteRequest):
@@ -1066,9 +1738,17 @@ def api_create_note(req: CreateNoteRequest):
     Creates and indexes user-generated documentation (daily journals, minutes of meetings, or project notes).
     Chunks the note by user-defined sections with full contextual metadata, saves to SQLite,
     updates SQLite FTS5, and computes vector embeddings for full semantic search.
+    Enforces author ('who created it'), expiration policy (indefinite vs expires_at), and keywords.
     """
     if not req.sections:
         raise HTTPException(status_code=400, detail="Note must contain at least one section.")
+
+    creator_str = (req.created_by or req.author or "").strip()
+    if not creator_str:
+        raise HTTPException(
+            status_code=400, 
+            detail="Creator ('who created it') is required. Please specify who recorded or created this note."
+        )
 
     if req.document_id and req.document_id.strip():
         raw_id = req.document_id.strip()
@@ -1080,20 +1760,36 @@ def api_create_note(req: CreateNoteRequest):
         clean_doc_id = f"NOTE_{title_slug}_{int(time.time())}"
 
     date_str = req.date.strip() if req.date and req.date.strip() else time.strftime("%Y-%m-%d")
-    author_str = req.author.strip() if req.author and req.author.strip() else "User"
     project_str = req.project.strip() if req.project and req.project.strip() else ""
     note_type_str = req.note_type.strip() if req.note_type and req.note_type.strip() else "general_note"
     tags_list = [t.strip() for t in (req.tags or []) if t and t.strip()]
 
+    # Keywords handling
+    keywords_list = [k.strip() for k in (req.keywords or []) if k and k.strip()]
+    for t in tags_list:
+        if t not in keywords_list:
+            keywords_list.append(t)
+
+    # Expiration handling
+    is_indefinite = bool(req.is_indefinite)
+    expires_at = (req.expires_at or "").strip() if not is_indefinite else None
+    if not is_indefinite and not expires_at:
+        # Default expiration to 1 year if marked as expiring without date
+        expires_at = time.strftime("%Y-%m-%d", time.localtime(time.time() + 365*24*3600))
+
     doc_metadata = {
         "title": req.title.strip(),
-        "source": author_str,
-        "author": author_str,
+        "source": creator_str,
+        "author": creator_str,
+        "created_by": creator_str,
         "date": date_str,
         "language": "eng",
         "project": project_str,
         "note_type": note_type_str,
         "tags": tags_list,
+        "keywords": keywords_list,
+        "is_indefinite": is_indefinite,
+        "expires_at": expires_at,
         "description": (req.description or "").strip(),
         "type": "Note",
         "origin": "note",
@@ -1142,12 +1838,17 @@ def api_create_note(req: CreateNoteRequest):
         emb_lines = [
             f"Document: {req.title.strip()}",
             f"Type: {note_type_str.replace('_', ' ').title()}",
-            f"Date: {date_str}"
+            f"Date: {date_str}",
+            f"Created by: {creator_str}"
         ]
         if project_str:
             emb_lines.append(f"Project: {project_str}")
-        if author_str and author_str != "User":
-            emb_lines.append(f"Recorded by: {author_str}")
+        if keywords_list:
+            emb_lines.append(f"Keywords: {', '.join(keywords_list)}")
+        if not is_indefinite and expires_at:
+            emb_lines.append(f"Expiration: {expires_at}")
+        elif is_indefinite:
+            emb_lines.append("Validity: Indefinite")
         if tags_list:
             emb_lines.append(f"Tags: {', '.join(tags_list)}")
         emb_lines.append(f"Section: {sec_heading}\n\n{sec_content}")
@@ -1159,12 +1860,16 @@ def api_create_note(req: CreateNoteRequest):
             "section_number": sec_num,
             "section_title": sec_heading,
             "origin": "note",
-            "source": author_str,
+            "source": creator_str,
             "doc_type": "note",
             "note_type": note_type_str,
             "project": project_str,
-            "author": author_str,
+            "author": creator_str,
+            "created_by": creator_str,
             "date": date_str,
+            "is_indefinite": is_indefinite,
+            "expires_at": expires_at,
+            "keywords": keywords_list,
             "tags": tags_list
         }
 
@@ -1202,8 +1907,18 @@ def api_create_note(req: CreateNoteRequest):
             cursor.execute("""
                 INSERT OR REPLACE INTO documents (document_id, title, date, language, source, metadata_json)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (clean_doc_id, req.title.strip(), date_str, "eng", author_str, json.dumps(doc_metadata)))
+            """, (clean_doc_id, req.title.strip(), date_str, "eng", creator_str, json.dumps(doc_metadata)))
 
+            # Delete any previous chunks for this document
+            try:
+                cursor.execute("""
+                    INSERT INTO chunks_fts(chunks_fts, rowid, source_text, section_path, document_id)
+                    SELECT 'delete', rowid, source_text, section_path, document_id 
+                    FROM chunks 
+                    WHERE document_id = ?;
+                """, (clean_doc_id,))
+            except Exception:
+                pass
             cursor.execute("DELETE FROM chunks WHERE document_id = ?", (clean_doc_id,))
 
             for c in chunks_to_insert:
@@ -1222,15 +1937,16 @@ def api_create_note(req: CreateNoteRequest):
                     c["next_chunk_id"],
                     c["metadata_json"]
                 ))
+                new_rowid = cursor.lastrowid
+                try:
+                    cursor.execute("""
+                        INSERT INTO chunks_fts (rowid, source_text, section_path, document_id)
+                        VALUES (?, ?, ?, ?);
+                    """, (new_rowid, c["source_text"], json.dumps(c["section_path"]), c["document_id"]))
+                except Exception:
+                    pass
 
             conn.commit()
-
-            try:
-                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
-                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize');")
-                conn.commit()
-            except Exception as fts_err:
-                print(f"Warning: FTS rebuild for note: {fts_err}")
 
         # Save JSON file for document viewer
         try:
@@ -1289,6 +2005,7 @@ def api_list_notes(project: Optional[str] = Query(None, description="Optional fi
             """)
             rows = cursor.fetchall()
 
+            today_str = time.strftime("%Y-%m-%d")
             notes = []
             for r in rows:
                 meta = {}
@@ -1302,14 +2019,28 @@ def api_list_notes(project: Optional[str] = Query(None, description="Optional fi
                 if project and project.lower() not in note_proj.lower():
                     continue
 
+                author_val = meta.get("created_by") or meta.get("author") or r["source"] or "User"
+                is_indef = bool(meta.get("is_indefinite", True))
+                exp_date = meta.get("expires_at")
+                is_exp = False
+                if not is_indef and exp_date:
+                    is_exp = str(exp_date).strip() < today_str
+
+                keywords_val = meta.get("keywords") or meta.get("tags") or []
+
                 notes.append({
                     "document_id": r["document_id"],
                     "title": r["title"] or r["document_id"],
                     "note_type": meta.get("note_type") or "general_note",
                     "date": r["date"] or "",
-                    "author": meta.get("author") or r["source"] or "User",
+                    "author": author_val,
+                    "created_by": author_val,
                     "project": note_proj,
                     "tags": meta.get("tags") or [],
+                    "keywords": keywords_val,
+                    "is_indefinite": is_indef,
+                    "expires_at": exp_date if not is_indef else None,
+                    "is_expired": is_exp,
                     "chunk_count": r["chunk_count"] or 0,
                     "is_embedded": bool(meta.get("is_embedded", False)),
                     "created_at": meta.get("created_at") or r["date"] or ""
@@ -1357,7 +2088,6 @@ def api_get_note(document_id: str):
                 heading = cm.get("section_title") or ""
                 sec_num = cm.get("section_number") or ""
                 src_txt = cr["source_text"] or ""
-                # Strip leading '## Heading\n\n' if stored that way
                 content = re.sub(r'^##\s+[^\n]+\n+', '', src_txt).strip() if src_txt.startswith("## ") else src_txt
 
                 sections.append({
@@ -1368,15 +2098,29 @@ def api_get_note(document_id: str):
                 })
 
             markdown_doc = get_document_markdown_content(document_id)
+            today_str = time.strftime("%Y-%m-%d")
+            author_val = meta.get("created_by") or meta.get("author") or doc_row["source"] or "User"
+            is_indef = bool(meta.get("is_indefinite", True))
+            exp_date = meta.get("expires_at")
+            is_exp = False
+            if not is_indef and exp_date:
+                is_exp = str(exp_date).strip() < today_str
+
+            keywords_val = meta.get("keywords") or meta.get("tags") or []
 
             return {
                 "document_id": doc_row["document_id"],
                 "title": doc_row["title"],
                 "note_type": meta.get("note_type") or "general_note",
                 "date": doc_row["date"] or "",
-                "author": meta.get("author") or doc_row["source"] or "User",
+                "author": author_val,
+                "created_by": author_val,
                 "project": meta.get("project") or "",
                 "tags": meta.get("tags") or [],
+                "keywords": keywords_val,
+                "is_indefinite": is_indef,
+                "expires_at": exp_date if not is_indef else None,
+                "is_expired": is_exp,
                 "description": meta.get("description") or "",
                 "chunk_count": len(chunk_rows),
                 "is_embedded": bool(meta.get("is_embedded", False)),
@@ -1397,15 +2141,19 @@ def api_delete_note(document_id: str):
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
-            cursor.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
-            conn.commit()
-
             try:
-                cursor.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild');")
-                conn.commit()
-            except Exception:
-                pass
+                cursor.execute("""
+                    INSERT INTO chunks_fts(chunks_fts, rowid, source_text, section_path, document_id)
+                    SELECT 'delete', rowid, source_text, section_path, document_id 
+                    FROM chunks 
+                    WHERE document_id = ?;
+                """, (document_id,))
+            except Exception as fts_del_err:
+                print(f"Warning: FTS delete for note: {fts_del_err}")
+
+            cursor.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+            cursor.execute("DELETE FROM documents WHERE document_id = ?", (document_id,))
+            conn.commit()
 
         # Remove JSON representation if present
         try:

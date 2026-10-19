@@ -32,6 +32,9 @@ pdf_test/
 
 # Large Datasets & Model Training
 LoRa/*.jsonl
+*.npy
+ICAO/icao_rag/storage/
+.pytest_cache/
 
 # Logs & Generated Summaries
 *.log

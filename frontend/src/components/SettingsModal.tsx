@@ -2,10 +2,10 @@
  * Settings Modal: Configure FastAPI URL, test connectivity, configure memory context & regulatory filters
  */
 
-import React, { useState } from 'react';
-import { X, Check, RefreshCw, AlertTriangle, ShieldCheck, Database, HardDrive, Terminal, Sparkles, Cloud, Cpu, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Check, RefreshCw, AlertTriangle, ShieldCheck, Database, HardDrive, Terminal, Sparkles, Cloud, Cpu, Eye, EyeOff, SlidersHorizontal, FileText, Brain, Code2, Sun, Moon, Info, Layers } from 'lucide-react';
 import { AppSettings, ConnectionStatus } from '../types';
-import { pingFastApi, saveSettings, testGeminiApiKey } from '../services/apiClient';
+import { pingFastApi, saveSettings, testGeminiApiKey, testReranker } from '../services/apiClient';
 import { clearMemory, getQueryMemory } from '../services/memoryService';
 
 interface SettingsModalProps {
@@ -15,6 +15,7 @@ interface SettingsModalProps {
   onSaveSettings: (newSettings: AppSettings) => void;
   connectionStatus: ConnectionStatus;
   onConnectionChange: (status: ConnectionStatus) => void;
+  onOpenAbout?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -24,12 +25,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveSettings,
   connectionStatus,
   onConnectionChange,
+  onOpenAbout,
 }) => {
   const [form, setForm] = useState<AppSettings>(() => {
     const initial = { ...settings };
     if (!initial.geminiModel || initial.geminiModel.startsWith('gemini-1.') || initial.geminiModel.startsWith('gemini-2.')) {
       initial.geminiModel = 'gemini-3.5-flash';
     }
+    initial.showGovernanceTab = Boolean(initial.showGovernanceTab);
+    initial.showDocumentBuilderTab = Boolean(initial.showDocumentBuilderTab);
+    initial.showQueryMemoryTab = Boolean(initial.showQueryMemoryTab);
+    initial.showSchemaExtractorTab = Boolean(initial.showSchemaExtractorTab);
+    initial.showLocalCacheTab = Boolean(initial.showLocalCacheTab);
+    initial.enableReranker = initial.enableReranker !== false;
+    initial.rerankerModel = initial.rerankerModel || 'text-embedding-baai-bge-reranker-v2-m3-m3';
+    initial.theme = initial.theme === 'light' ? 'light' : 'dark';
     return initial;
   });
   const [testing, setTesting] = useState(false);
@@ -41,6 +51,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [testingGemini, setTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string; model?: string } | null>(null);
+
+  // Reranker Settings state
+  const [testingReranker, setTestingReranker] = useState(false);
+  const [rerankerTestResult, setRerankerTestResult] = useState<{
+    success: boolean;
+    message: string;
+    device?: string;
+    resolved_model?: string;
+    test_inference_seconds?: number;
+    test_score?: number;
+    error?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const initial = { ...settings };
+      if (!initial.geminiModel || initial.geminiModel.startsWith('gemini-1.') || initial.geminiModel.startsWith('gemini-2.')) {
+        initial.geminiModel = 'gemini-3.5-flash';
+      }
+      initial.showGovernanceTab = Boolean(initial.showGovernanceTab);
+      initial.showDocumentBuilderTab = Boolean(initial.showDocumentBuilderTab);
+      initial.showQueryMemoryTab = Boolean(initial.showQueryMemoryTab);
+      initial.showSchemaExtractorTab = Boolean(initial.showSchemaExtractorTab);
+      initial.showLocalCacheTab = Boolean(initial.showLocalCacheTab);
+      initial.enableReranker = initial.enableReranker !== false;
+      initial.rerankerModel = initial.rerankerModel || 'text-embedding-baai-bge-reranker-v2-m3-m3';
+      initial.theme = initial.theme === 'light' ? 'light' : 'dark';
+      setForm(initial);
+      setTestResult(connectionStatus);
+      setMemoryCount(getQueryMemory().length);
+      setRerankerTestResult(null);
+    }
+  }, [isOpen, settings, connectionStatus]);
+
+  const handleThemeChange = (newTheme: 'dark' | 'light') => {
+    setForm(prev => ({ ...prev, theme: newTheme }));
+    document.documentElement.classList.toggle('light', newTheme === 'light');
+    document.documentElement.classList.toggle('dark', newTheme !== 'light');
+  };
+
+  const handleClose = () => {
+    const isLight = settings.theme === 'light';
+    document.documentElement.classList.toggle('light', isLight);
+    document.documentElement.classList.toggle('dark', !isLight);
+    onClose();
+  };
 
   if (!isOpen) return null;
 
@@ -86,6 +142,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleTestReranker = async () => {
+    setTestingReranker(true);
+    setRerankerTestResult(null);
+    try {
+      const res = await testReranker(form.rerankerModel, form);
+      setRerankerTestResult(res);
+    } catch (e: any) {
+      setRerankerTestResult({
+        success: false,
+        message: e.message || 'Error communicating with reranker service.',
+        error: e.message
+      });
+    } finally {
+      setTestingReranker(false);
+    }
+  };
+
   const handleSave = () => {
     saveSettings(form);
     onSaveSettings(form);
@@ -112,8 +185,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <p className="text-xs text-slate-400">Configure connection to your local FastAPI server and query memory preferences</p>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors"
+            onClick={handleClose}
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -515,6 +588,130 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          {/* Section: Neural Reranker Preprocessing & Screening */}
+          <div className="space-y-4 pt-4 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Neural Reranker Preprocessing & Relevance Screening
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800 font-medium">
+                Retrieval Filtering
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Evaluates retrieved candidate chunks using a cross-encoder neural model, scoring deep semantic relevance and screening out superficially matched but contextually irrelevant provisions (e.g. filtering out helicopter operations matching &quot;CAT&quot; from CAT III all-weather inquiries).
+            </p>
+
+            {/* Toggle Enable */}
+            <div className="flex items-start justify-between gap-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800">
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium text-slate-200">Enable Neural Reranker Preprocessing</div>
+                <div className="text-xs text-slate-400">
+                  Active for /llm/ask, /search/hybrid, and research activities. Re-ranks wider candidate pools before prompt assembly.
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={form.enableReranker !== false}
+                onChange={(e) => setForm({ ...form, enableReranker: e.target.checked })}
+                className="mt-1 w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-slate-900 border-slate-700"
+              />
+            </div>
+
+            {/* Model Input & Presets */}
+            {form.enableReranker !== false && (
+              <div className="space-y-3 p-3.5 bg-slate-950/40 rounded-xl border border-slate-800">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-300">
+                      Reranker Model Identifier
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleTestReranker}
+                      disabled={testingReranker}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-emerald-400 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/80 rounded-md transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${testingReranker ? 'animate-spin' : ''}`} />
+                      {testingReranker ? 'Testing...' : 'Test Reranker'}
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={form.rerankerModel || ''}
+                    onChange={(e) => setForm({ ...form, rerankerModel: e.target.value })}
+                    placeholder="text-embedding-baai-bge-reranker-v2-m3-m3"
+                    className="w-full px-3 py-2 text-xs bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+
+                {/* Quick Model Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                  <span className="text-[11px] text-slate-400">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, rerankerModel: 'text-embedding-baai-bge-reranker-v2-m3-m3' })}
+                    className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-900/60 rounded font-mono text-[10px]"
+                  >
+                    LM Studio (bge-reranker-v2-m3)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, rerankerModel: 'BAAI/bge-reranker-v2-m3' })}
+                    className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded font-mono text-[10px]"
+                  >
+                    BAAI/bge-reranker-v2-m3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, rerankerModel: 'BAAI/bge-reranker-large' })}
+                    className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 rounded font-mono text-[10px]"
+                  >
+                    BAAI/bge-reranker-large
+                  </button>
+                </div>
+
+                {/* Test Result Indicator */}
+                {rerankerTestResult && (
+                  <div
+                    className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
+                      rerankerTestResult.success
+                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                    }`}
+                  >
+                    {rerankerTestResult.success ? (
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="space-y-0.5">
+                      <div className="font-semibold">
+                        {rerankerTestResult.success ? 'Reranker Model Operational' : 'Reranker Initialization Failed'}
+                      </div>
+                      <div className="text-[11px] opacity-90">{rerankerTestResult.message}</div>
+                      {rerankerTestResult.success && (
+                        <div className="text-[10px] text-slate-400 font-mono mt-1 flex gap-3">
+                          <span>Device: {rerankerTestResult.device?.toUpperCase()}</span>
+                          {rerankerTestResult.test_inference_seconds !== undefined && (
+                            <span>Latency: {(rerankerTestResult.test_inference_seconds * 1000).toFixed(1)}ms</span>
+                          )}
+                          {rerankerTestResult.test_score !== undefined && (
+                            <span>Sample Score: {rerankerTestResult.test_score}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Section 4: Regulatory Defaults */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-800">
             <div className="space-y-2">
@@ -551,7 +748,229 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 5: Memory Storage Management */}
+          {/* Section 5: Appearance & Theme */}
+          <div className="space-y-3 pt-4 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
+                Interface Theme
+              </label>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                Appearance
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Select your preferred visual style. AeroLex EU dynamically tailors color contrast and surface layers.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleThemeChange('dark')}
+                className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
+                  (form.theme || 'dark') === 'dark'
+                    ? 'bg-slate-800/80 border-sky-500 text-sky-400 shadow-sm'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Moon className="w-4 h-4 text-sky-400" />
+                  <div className="text-left">
+                    <span className="text-xs font-medium text-slate-200 block">Dark Mode</span>
+                    <span className="text-[10px] text-slate-400 block">Default dark canvas</span>
+                  </div>
+                </div>
+                {(form.theme || 'dark') === 'dark' && <Check className="w-4 h-4 text-sky-400" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleThemeChange('light')}
+                className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
+                  form.theme === 'light'
+                    ? 'bg-slate-800/80 border-amber-500 text-amber-500 shadow-sm'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sun className="w-4 h-4 text-amber-400" />
+                  <div className="text-left">
+                    <span className="text-xs font-medium text-slate-200 block">Light Mode</span>
+                    <span className="text-[10px] text-slate-400 block">Crisp, clean light theme</span>
+                  </div>
+                </div>
+                {form.theme === 'light' && <Check className="w-4 h-4 text-amber-500" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Section 6: Navigation & Tab Visibility */}
+          <div className="space-y-4 pt-4 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-sky-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                  Navigation & Tab Visibility
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                UI Customization
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Customize which tabs appear in the top navigation bar. Toggle specialized tools and diagnostic views on demand.
+            </p>
+
+            <div className="space-y-2.5">
+              {/* Governance */}
+              <div
+                onClick={() => setForm({ ...form, showGovernanceTab: !form.showGovernanceTab })}
+                className={`flex items-start justify-between gap-4 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  form.showGovernanceTab
+                    ? 'bg-purple-950/20 border-purple-800/60 hover:bg-purple-950/30'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className={`w-4 h-4 mt-0.5 shrink-0 ${form.showGovernanceTab ? 'text-purple-400' : 'text-slate-400'}`} />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-200">Governance</div>
+                    <div className="text-xs text-slate-400">
+                      Audit regulatory corpus, inspect obsolescence candidates, and manage document status.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!form.showGovernanceTab}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setForm({ ...form, showGovernanceTab: e.target.checked });
+                  }}
+                  className="mt-1 w-4 h-4 rounded text-purple-600 focus:ring-purple-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+              </div>
+
+              {/* Document Builder */}
+              <div
+                onClick={() => setForm({ ...form, showDocumentBuilderTab: !form.showDocumentBuilderTab })}
+                className={`flex items-start justify-between gap-4 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  form.showDocumentBuilderTab
+                    ? 'bg-teal-950/20 border-teal-800/60 hover:bg-teal-950/30'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <FileText className={`w-4 h-4 mt-0.5 shrink-0 ${form.showDocumentBuilderTab ? 'text-teal-400' : 'text-slate-400'}`} />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-200">Document Builder</div>
+                    <div className="text-xs text-slate-400">
+                      Drafting workspace, custom section composition, and export tools.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!form.showDocumentBuilderTab}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setForm({ ...form, showDocumentBuilderTab: e.target.checked });
+                  }}
+                  className="mt-1 w-4 h-4 rounded text-teal-600 focus:ring-teal-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+              </div>
+
+              {/* Query Memory */}
+              <div
+                onClick={() => setForm({ ...form, showQueryMemoryTab: !form.showQueryMemoryTab })}
+                className={`flex items-start justify-between gap-4 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  form.showQueryMemoryTab
+                    ? 'bg-sky-950/20 border-sky-800/60 hover:bg-sky-950/30'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Brain className={`w-4 h-4 mt-0.5 shrink-0 ${form.showQueryMemoryTab ? 'text-sky-400' : 'text-slate-400'}`} />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-200">Query Memory</div>
+                    <div className="text-xs text-slate-400">
+                      View past assistant inquiries, re-ask queries, and pin context items.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!form.showQueryMemoryTab}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setForm({ ...form, showQueryMemoryTab: e.target.checked });
+                  }}
+                  className="mt-1 w-4 h-4 rounded text-sky-600 focus:ring-sky-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+              </div>
+
+              {/* Schema Extractor */}
+              <div
+                onClick={() => setForm({ ...form, showSchemaExtractorTab: !form.showSchemaExtractorTab })}
+                className={`flex items-start justify-between gap-4 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  form.showSchemaExtractorTab
+                    ? 'bg-sky-950/20 border-sky-800/60 hover:bg-sky-950/30'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Code2 className={`w-4 h-4 mt-0.5 shrink-0 ${form.showSchemaExtractorTab ? 'text-sky-400' : 'text-slate-400'}`} />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-200">Schema Extractor</div>
+                    <div className="text-xs text-slate-400">
+                      Technical utility to inspect XML/Formex schemas and structural document trees.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!form.showSchemaExtractorTab}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setForm({ ...form, showSchemaExtractorTab: e.target.checked });
+                  }}
+                  className="mt-1 w-4 h-4 rounded text-sky-600 focus:ring-sky-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+              </div>
+
+              {/* Local Cache */}
+              <div
+                onClick={() => setForm({ ...form, showLocalCacheTab: !form.showLocalCacheTab })}
+                className={`flex items-start justify-between gap-4 p-3 rounded-lg border cursor-pointer transition-colors ${
+                  form.showLocalCacheTab
+                    ? 'bg-sky-950/20 border-sky-800/60 hover:bg-sky-950/30'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <Database className={`w-4 h-4 mt-0.5 shrink-0 ${form.showLocalCacheTab ? 'text-sky-400' : 'text-slate-400'}`} />
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-medium text-slate-200">Local Cache</div>
+                    <div className="text-xs text-slate-400">
+                      Diagnostic tool to view cached files, vector chunk tables, and storage size.
+                    </div>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!form.showLocalCacheTab}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    setForm({ ...form, showLocalCacheTab: e.target.checked });
+                  }}
+                  className="mt-1 w-4 h-4 rounded text-sky-600 focus:ring-sky-500 bg-slate-900 border-slate-700 cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 6: Memory Storage Management */}
           <div className="pt-4 border-t border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs text-slate-400">
@@ -595,22 +1014,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-800 bg-slate-900/90 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="px-4 py-2 text-xs font-medium text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors flex items-center gap-1.5"
-          >
-            <Check className="w-3.5 h-3.5" />
-            <span>Save Preferences</span>
-          </button>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-800 bg-slate-900/90 shrink-0">
+          <div>
+            {onOpenAbout && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleClose();
+                  onOpenAbout();
+                }}
+                className="text-xs text-slate-400 hover:text-sky-400 hover:underline flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Info className="w-3.5 h-3.5 text-sky-400" />
+                <span>About AeroLex EU</span>
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleClose}
+              className="px-4 py-2 text-xs font-medium text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="px-4 py-2 text-xs font-medium text-white bg-sky-600 hover:bg-sky-500 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Save Preferences</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,0 +1,177 @@
+{
+  "timestamp": "2026-10-12T23:36:20.538264",
+  "base_model": {
+    "model_name": "Base Model (Unadapted)",
+    "response_text": "## Analysis of PROVISION R-17 \u2014 Maintenance of surveillance service\n\n### A. REQUIREMENTS\n\n**Obligations:**\n\n1. **Actor:** Air navigation service provider.\n    * **Trigger:** Service is required by the applicable operational agreement AND the service is during published operating hours.\n    * **Action:** Maintain the surveillance service.\n    * **Qualification:** None specified beyond the trigger conditions.\n2. **Actor:** Provider.\n    * **Trigger:** Primary surveillance source becomes unavailable.\n    * **Action:** Notify the affected operational units.\n    * **Qualification:** Without undue delay.\n3. **Actor:** Provider.\n    * **Trigger:** Primary source unavailable AND an assessed alternative is available AND relevant operational procedures permit its use.\n    * **Action:** Continue the service using the alternative surveillance source.\n    * **Qualification:** The alternative source must have been assessed as suitable for the intended operational use.\n4. **Actor:** Provider.\n    * **Trigger:** Primary source unavailable AND no assessed alternative is available.\n    * **Action:** Notify the affected operational units AND apply the contingency arrangements established for that service.\n    * **Qualification:** None specified beyond the trigger conditions.\n\n**Permissions:**\n\n1. **Actor:** Provider.\n    * **Trigger:** Primary source unavailable AND an assessed alternative is available AND relevant operational procedures permit its use.\n    * **Action:** Continue the service using the alternative surveillance source.\n    * **Qualification:** The alternative source must have been assessed as suitable for the intended operational use.\n\n**Conditions:**\n\n1. **Condition:** Service is required by the applicable operational agreement. (Prerequisite for Obligation 1)\n2. **Condition:** Service is during published operating hours. (Prerequisite for Obligation 1)\n3. **Condition:** Primary surveillance source becomes unavailable. (Trigger for Obligation 2)\n4. **Condition:** Alternative source has been assessed as suitable for the intended operational use. (Prerequisite for Permission/Obligation 3)\n5. **Condition:** Relevant operational procedures permit the use of the alternative source. (Prerequisite for Permission/Obligation 3)\n6. **Condition:** Neither primary source nor assessed alternative is available. (Trigger for Obligation 4)\n\n**Contingencies:**\n\n1. **Contingency:** Application of contingency arrangements established for the service. (Action required when both primary and alternative fail).\n\n---\n\n### B. DECISION LOGIC\n\n1. **Is the service required by the operational agreement AND is it during published operating hours?**\n    * **YES:** Proceed to maintain the surveillance service (Obligation 1).\n    * **NO:** (Provision R-17 does not dictate action; the service is not required under this provision).\n\n2. **Is the primary surveillance source available?**\n    * **YES:** Continue normal operation (Implied continuation of Obligation 1).\n    * **NO:** Proceed to Step 3.\n\n3. **Is an alternative surveillance source available AND has it been assessed as suitable AND do the relevant operational procedures permit its use?**\n    * **YES:** Continue the service using the alternative source (Permission/Obligation 3).\n    * **NO:** Proceed to Step 4.\n\n4. **Is there an assessed alternative source available?**\n    * **YES:** Proceed to Step 3 (re-evaluation, though the structure implies this path is only reached if Step 3 failed, meaning the alternative is *not* suitable or permitted).\n    * **NO:** Proceed to Step 5.\n\n5. **(If Step 3 failed because the alternative was unsuitable/unpermitted, or if Step 3 was skipped because no alternative existed):**\n    * **Is the primary source unavailable AND is there no assessed alternative available?**\n        * **YES:** Notify affected operational units AND apply established contingency arrangements (Obligation 4).\n        * **NO:** (This state should not be reached if Step 2 was answered NO).\n\n---\n\n### C. MODALITY AND QUALIFICATIONS\n\n* **\"Shall\"**: Indicates a mandatory, non-negotiable duty or requirement placed upon the specified actor. Failure to comply constitutes a breach of the provision.\n* **\"May\"**: Indicates a discretionary permission granted to the specified actor. Compliance is optional, provided all conditions are met.\n* **\"Where\"**: Functions as a conditional qualifier, setting the precise context or prerequisite under which the subsequent action or state applies.\n* **\"Only where\"**: Functions as a restrictive qualifier, limiting the scope of the preceding permission or action exclusively to instances where the subsequent condition is met.\n* **\"Without undue delay\"**: Imposes a temporal constraint on the action of notification. This constraint is qualitative, requiring promptness relative to the circumstances, but the provision does not define a measurable timeframe.\n* **\"Neither... nor\"**: Creates a compound negative condition. The subsequent action is triggered only when *both* preceding conditions (the unavailability of the primary source AND the unavailability of the assessed alternative) are simultaneously true.\n\n---\n\n### D. LIMITS OF THE TEXT\n\nThis provision alone cannot conclude:\n\n1. **Automatic Authorization of Alternatives:** The availability or technical suitability of an alternative source is insufficient for authorization. The source *must* have been previously \"assessed as suitable\" and the \"relevant operational procedures\" must explicitly \"permit its use.\"\n2. **Definition of \"Undue Delay\":** The provision provides no mechanism to quantify or enforce the timing of notification; it relies entirely on external context to define what constitutes \"undue delay.\"\n3. **Contingency Arrangement Sufficiency:** The provision mandates the *application* of contingency arrangements but does not define what those arrangements are, nor does it require the provider to create them.\n4. **Operational Agreement Scope:** The provision relies on the existence and content of an \"applicable operational agreement\" to determine when maintenance is required, but it does not define the scope of that agreement.\n\n---\n\n### E. STRUCTURED OUTPUT\n\n| Provision | Actor | Trigger or condition | Obligation or permission | Qualification. |\n| :--- | :--- | :--- | :--- | :--- |\n| R-17.1 | Provider | Service required by agreement AND during published hours. | Maintain surveillance service. | None. |\n| R-17.2 | Provider | Primary surveillance source becomes unavailable. | Notify affected operational units. | Without undue delay. |\n| R-17.3 | Provider | Primary source unavailable AND alternative is suitable AND procedures permit use. | Continue service using alternative source. | Alternative must be assessed as suitable AND procedures must permit use. |\n| R-17.3 | Provider | (See above) | (Permission to continue service). | Alternative must be assessed as suitable AND procedures must permit use. |\n| R-17.4 | Provider | Primary source unavailable AND no assessed alternative is available. | Notify affected operational units AND apply contingency arrangements. | None. |",
+    "latency_sec": 118.7056447,
+    "tokens_generated": 1536,
+    "tokens_per_sec": 12.93957000850188,
+    "dimension_scores": {
+      "structure": {
+        "name": "Structural & Sectional Adherence",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Section A (REQUIREMENTS) identified",
+          "Section B (DECISION LOGIC) identified",
+          "Section C (MODALITY AND QUALIFICATIONS) identified",
+          "Section D (LIMITS OF THE TEXT) identified",
+          "Section E header identified",
+          "Structured Markdown table with required schema present"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "modality": {
+        "name": "Regulatory Modality & Actor Grounding",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Modal 'shall' explained with sound regulatory meaning",
+          "Modal 'may' explained with sound regulatory meaning",
+          "Modal 'where' explained with sound regulatory meaning",
+          "Modal 'only where' explained with sound regulatory meaning",
+          "Modal 'neither' explained with sound regulatory meaning",
+          "Modal 'without undue delay' explained with sound regulatory meaning",
+          "Both primary actors (ANSP/Provider and Affected Operational Units) correctly recognized"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "decision_logic": {
+        "name": "Decision Logic & Branching Fidelity",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Branch 1: Primary source available logic fully captured",
+          "Branch 2: Alternative source logic with dual prerequisite (assessed + permitted) captured",
+          "Conjunctive dual requirement (suitability assessment AND procedural permission) preserved",
+          "Branch 3: Total loss / contingency application logic accurately distinguished",
+          "Clear sequential numbering (1, 2, 3) employed in decision logic"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "negative_constraints": {
+        "name": "Epistemic Restraint & Negative Constraints",
+        "score": 85.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Negative Constraint Honored: Refrained from assigning arbitrary time limit to 'without undue delay'",
+          "Negative Constraint Honored: Treated provision as closed authoritative fictional text"
+        ],
+        "failed_checks": [
+          "Failed to explicitly distinguish technical availability from operational authorization",
+          "Failed to clearly enumerate textual gaps and non-supplied details"
+        ],
+        "observations": []
+      },
+      "analytical_quality": {
+        "name": "Regulatory Precision & Analytical Quality",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Table thoroughly indexes all four sub-provisions (1, 2, 3, 4)",
+          "High analytical vocabulary density (8 legal terms)",
+          "Professional regulatory tone with zero conversational padding",
+          "Optimal regulatory density (983 words)"
+        ],
+        "failed_checks": [],
+        "observations": []
+      }
+    },
+    "composite_score": 97.0
+  },
+  "lora_model": {
+    "model_name": "LoRA Adapted Model",
+    "response_text": "## A. REQUIREMENTS\n\n1. **Provider:** Must maintain the surveillance service. **Trigger:** During published operating hours when the service is required by the applicable operational agreement. **Action:** Maintain the service. **Qualification:** None.\n2. **Provider:** Must notify affected operational units. **Trigger:** When the primary surveillance source becomes unavailable. **Action:** Notify affected operational units. **Qualification:** Without undue delay.\n3. **Provider:** May continue the service using an alternative surveillance source. **Trigger:** Primary source is unavailable. **Action:** Continue service using alternative source. **Qualification:** Only where that source has been assessed as suitable for the intended operational use AND the relevant operational procedures permit its use.\n4. **Provider:** Must notify affected operational units and apply contingency arrangements. **Trigger:** Neither the primary source nor an assessed alternative is available. **Action:** Notify affected operational units AND apply contingency arrangements established for that service. **Qualification:** None.\n\n## B. DECISION LOGIC\n\n1. **Primary source available:** Maintain the surveillance service during published operating hours where required by the operational agreement.\n2. **Primary source unavailable, suitable alternative available, and procedures permit its use:** Continue the service using the alternative surveillance source.\n3. **Primary source unavailable, no suitable alternative available, or procedures do not permit its use:** Notify affected operational units and apply the contingency arrangements established for that service.\n\n## C. MODALITY AND QUALIFICATIONS\n\n*   **Shall:** Indicates a mandatory obligation.\n*   **May:** Indicates a permitted action, subject to specified conditions.\n*   **Where:** Introduces a condition that must be met for the preceding statement to apply.\n*   **Only where:** Imposes a strict limitation on the scope of the permitted action.\n*   **Without undue delay:** Requires prompt action, but no specific time limit is provided.\n*   **Neither... nor:** Establishes a condition where both specified elements are absent.\n\n## D. LIMITS OF THE TEXT\n\nThe provision does not state that an alternative source is automatically authorised merely because it is technically available; its suitability must be assessed, and its use must be permitted by relevant operational procedures.\n\n## E. STRUCTURED OUTPUT\n\n| Provision | Actor | Trigger or condition | Obligation or permission | Qualification |\n| :--- | :--- | :--- | :--- | :--- |\n| R-17.1 | Provider | During published operating hours when required by operational agreement | Maintain surveillance service | None |\n| R-17.2 | Provider | Primary surveillance source becomes unavailable | Notify affected operational units | Without undue delay |\n| R-17.3 | Provider | Primary source unavailable | Continue service using alternative source | Only where source is assessed as suitable AND procedures permit its use |\n| R-17.4 | Provider | Neither primary nor assessed alternative is available | Notify affected operational units AND apply contingency arrangements | None |\nmodel\n| Provision | Actor | Trigger or condition | Obligation or permission | Qualification |\n| :--- | :--- | :--- | :--- | :--- |\n| R-17.1 | Air navigation service provider | During published operating hours where the service is required by the applicable operational agreement | Maintain the surveillance service | None |\n| R-17.2 | Provider | Primary surveillance source becomes unavailable | Notify affected operational units | Without undue delay |\n| R-17.3 | Provider | Primary source unavailable | Continue service using alternative source | Only where that source has been assessed as suitable for the intended operational use and the relevant operational procedures permit its use |\n| R-17.4 | Provider | Neither the primary source nor an assessed alternative is available | Notify affected operational units and apply contingency arrangements established for that service | None |\nmodel\n**A. REQUIREMENTS**\n1. **Provider:** Must maintain the surveillance service. **Trigger:** During published operating hours when the service is required by the applicable operational agreement. **Action:** Maintain the service. **Qualification:** None.\n2. **Provider:** Must notify affected operational units. **Trigger:** When the primary surveillance source becomes unavailable. **Action:** Notify affected operational units. **Qualification:** Without undue delay.\n3. **Provider:** May continue the service using an alternative surveillance source. **Trigger:** Primary source is unavailable. **Action:** Continue service using alternative source. **Qualification:** Only where that source has been assessed as suitable for the intended operational use AND the relevant operational procedures permit its use.\n4. **Provider:** Must notify affected operational units and apply contingency arrangements. **Trigger:** Neither the primary source nor an assessed alternative is available. **Action:** Notify affected operational units AND apply contingency arrangements established for that service. **Qualification:** None.\n\n**B. DECISION LOGIC**\n1. **Primary source available:** Maintain the surveillance service during published operating hours where required by the operational agreement.\n2. **Primary source unavailable, suitable alternative available, and procedures permit its use:** Continue the service using the alternative surveillance source.\n3. **Primary source unavailable, no suitable alternative available, or procedures do not permit its use:** Notify affected operational units and apply the contingency arrangements established for that service.\n\n**C. MODALITY AND QUALIFICATIONS**\n*   **Shall:** Indicates a mandatory obligation.\n*   **May:** Indicates a permitted action, subject to specified conditions.\n*   **Where:** Introduces a condition that must be met for the preceding statement to apply.\n*   **Only where:** Imposes a strict limitation on the scope of the permitted action.\n*   **Without undue delay:** Requires prompt action, but no specific time limit is provided.\n*   **Neither... nor:** Establishes a condition where both specified elements are absent.\n\n**D. LIMITS OF THE TEXT**\nThe provision does not state that an alternative source is automatically authorised merely because it is technically available; its suitability must be assessed, and its use must be permitted by relevant operational procedures.\n\n**E. STRUCTURED OUTPUT**\n| Provision | Actor | Trigger or condition | Obligation or permission | Qualification. |\n| :--- | :--- | :--- | :--- | :--- |\n| R-17.1 | Air navigation service provider | During published operating hours when required by operational agreement | Maintain surveillance service | None |\n| R-17.2 | Provider | Primary surveillance source becomes unavailable | Notify affected operational units | Without undue delay |\n| R-17.3 | Provider | Primary source unavailable | Continue service using alternative source | Only where source is assessed as suitable AND procedures permit its use |\n| R-17.4 | Provider | Neither primary nor assessed alternative is available | Notify affected operational units AND apply contingency arrangements established for that service | None |\nmodel\n**A. REQUIREMENTS**\n1. **Provider:** Must maintain the surveillance service. **Trigger:** During published operating hours when the service is required by the applicable operational agreement. **Action:** Maintain the service. **Qualification:** None.\n2. **Provider:** Must notify affected operational units. **Trigger:** When the primary surveillance source becomes unavailable. **Action:** Notify affected operational units. **Qualification:** Without undue delay.\n3. **Provider:** May continue the service using an alternative surveillance source. **Trigger:** Primary source is unavailable. **Action:** Continue service using alternative",
+    "latency_sec": 180.21665380000013,
+    "tokens_generated": 1536,
+    "tokens_per_sec": 8.52307468600884,
+    "dimension_scores": {
+      "structure": {
+        "name": "Structural & Sectional Adherence",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Section A (REQUIREMENTS) identified",
+          "Section B (DECISION LOGIC) identified",
+          "Section C (MODALITY AND QUALIFICATIONS) identified",
+          "Section D (LIMITS OF THE TEXT) identified",
+          "Section E header identified",
+          "Structured Markdown table with required schema present"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "modality": {
+        "name": "Regulatory Modality & Actor Grounding",
+        "score": 94.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Modal 'shall' explained with sound regulatory meaning",
+          "Modal 'may' explained with sound regulatory meaning",
+          "Modal 'where' explained with sound regulatory meaning",
+          "Modal 'only where' referenced without deep regulatory rationale",
+          "Modal 'neither' explained with sound regulatory meaning",
+          "Modal 'without undue delay' explained with sound regulatory meaning",
+          "Both primary actors (ANSP/Provider and Affected Operational Units) correctly recognized"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "decision_logic": {
+        "name": "Decision Logic & Branching Fidelity",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Branch 1: Primary source available logic fully captured",
+          "Branch 2: Alternative source logic with dual prerequisite (assessed + permitted) captured",
+          "Conjunctive dual requirement (suitability assessment AND procedural permission) preserved",
+          "Branch 3: Total loss / contingency application logic accurately distinguished",
+          "Clear sequential numbering (1, 2, 3) employed in decision logic"
+        ],
+        "failed_checks": [],
+        "observations": []
+      },
+      "negative_constraints": {
+        "name": "Epistemic Restraint & Negative Constraints",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Negative Constraint Honored: Technical availability does NOT imply automatic authorization",
+          "Negative Constraint Honored: Refrained from assigning arbitrary time limit to 'without undue delay'",
+          "Negative Constraint Honored: Treated provision as closed authoritative fictional text"
+        ],
+        "failed_checks": [
+          "Failed to clearly enumerate textual gaps and non-supplied details"
+        ],
+        "observations": []
+      },
+      "analytical_quality": {
+        "name": "Regulatory Precision & Analytical Quality",
+        "score": 100.0,
+        "weight": 0.2,
+        "passed_checks": [
+          "Table thoroughly indexes all four sub-provisions (1, 2, 3, 4)",
+          "High analytical vocabulary density (5 legal terms)",
+          "Professional regulatory tone with zero conversational padding",
+          "Optimal regulatory density (1115 words)"
+        ],
+        "failed_checks": [],
+        "observations": []
+      }
+    },
+    "composite_score": 98.8
+  },
+  "delta": {
+    "composite": 1.8,
+    "dimensions": {
+      "structure": 0.0,
+      "modality": -6.0,
+      "decision_logic": 0.0,
+      "negative_constraints": 15.0,
+      "analytical_quality": 0.0
+    }
+  }
+}

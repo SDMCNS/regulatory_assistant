@@ -1,15 +1,32 @@
-# AeroLex — Aviation Regulation Assistant (Frontend)
+# AeroLex EU — Aviation Regulation Assistant (Frontend)
+*SESAR Deployment Manager Compliance & Consultation Workstation*
 
-A modern, high-performance web interface for querying local and cloud LLMs and semantic search knowledge bases over **Global Aviation Regulations** (EASA Easy Access Rules, EU Formex standards, FAA Title 14 CFR regulations, and custom user-authored flight manuals), featuring deep research workflows, persistent query memory, and structured data extraction.
+A modern, high-performance web interface for querying local and cloud LLMs and semantic search knowledge bases over **Global Aviation Regulations** (EASA Easy Access Rules, EU Formex standards, FAA Title 14 CFR regulations, and custom user-authored flight manuals), featuring public consultation synthesis, deep research workflows, persistent query memory, and structured data extraction.
 
 ---
 
 ## Features
 
+- **About AeroLex EU & SESAR Deployment Manager Modal (`AboutModal.tsx`)**:
+  - Interactive mission modal presenting the purpose, capabilities, and system architecture of AeroLex EU.
+  - Showcases official **SESAR Deployment Manager (SDM)** branding and highlights support for key European aviation frameworks (SESAR Common Projects, ATM/ANS, Part-FCL, Part-ATM, Part-ORO, Part-SPA, Part-CAT).
+  - Explains the dual offline/cloud AI paradigm and legal citation traceability.
+- **Dark / Light Theme Toggle**:
+  - One-click header toggle (<kbd>Sun</kbd> / <kbd>Moon</kbd>) with immediate CSS hydration.
+  - Theme selector in Settings modal with persistent preference storage in `localStorage`.
+- **Customizable Workspace Tab Visibility**:
+  - Tidy UI with advanced tabs hidden by default: **Knowledge Governance**, **Document Builder**, **Query Memory**, **Schema Extractor**, and **Local Cache**.
+  - Simple checkbox switches in the Settings modal allow compliance officers to enable or disable tabs on demand.
+- **Public Consultation & Stakeholder Intelligence (`ConsultationWorkspace.tsx`)**:
+  - End-to-end ingestion and analysis of consultation documents (DOCX, PDF) and stakeholder comment spreadsheets (CSV, Excel).
+  - **Direction of Travel (Radar / Spider Mapping)**: Visualizes organizational stances on canonical aviation vectors.
+  - **Tension Diagnostics**: Identifies polarized debates and conflicting stakeholder positions across articles.
+  - **Silence Accounting**: Uncovers draft articles that received zero comments to flag potential regulatory blind spots.
+  - **Reviewer Triage**: Allows reviewers to set dispositions (Accepted, Rejected, Partially Accepted) and export matrices.
 - **Multi-Origin Hybrid Search (`GET /search`, `GET /search/keyword`)**:
   - High-speed SQLite FTS5 BM25 search with Porter stemming and FAISS dense vector retrieval.
-  - Multi-origin filtering: `ALL`, `EASA`, `EU`, `FAA` (Title 14 CFR), and `MANUAL` (custom manuals/SOPs).
-  - Tailored for aviation acronyms (e.g., `ATSEP`, `AMC-20`, `FTL`, `SMS`, `FAR`), part numbers, and clause codes (`CAT.OP.MPA`, `§ 25.1309`, `§ 121.311`).
+  - Multi-origin filtering: `ALL`, `EASA`, `EU`, `FAA` (Title 14 CFR), `SKYBRARY`, `NOTES`, and `MANUAL` (custom manuals/SOPs).
+  - Tailored for aviation acronyms (e.g., `ATSEP`, `AMC-20`, `FTL`, `SMS`, `FAR`, `CPDLC`, `ADS-B`), part numbers, and clause codes (`CAT.OP.MPA`, `§ 25.1309`, `§ 121.311`).
   - Optional local LLM query expansion (`use_llm=true`) generating synonyms and domain terms.
 - **Context Expansion & Implications ("Get Context")**:
   - Fetch immediate preceding and subsequent provisions (window ±2) from the same regulation.
@@ -27,6 +44,8 @@ A modern, high-performance web interface for querying local and cloud LLMs and s
   - Multi-regulation selection and cross-document overlap analysis with multi-column comparison matrix.
   - Requirement Lens (normative modal verb analysis: SHALL, MUST, SHOULD, MAY).
   - Word-by-word diff drawer and compliance working dossier.
+- **Knowledge Governance & Obsolescence (`KnowledgeGovernance.tsx`)**:
+  - Real-time audit of active vs. deactivated acts, category-level deactivation, and AI obsolescence scanning.
 - **Manual Document Builder (`DocumentBuilder.tsx`)**:
   - Interactive authoring studio for custom company manuals, SOPs, and flight ops procedures.
   - Real-time hierarchy simulation and automated regulatory chunking matching EASA/FAA standards.
@@ -36,6 +55,7 @@ A modern, high-performance web interface for querying local and cloud LLMs and s
 - **Settings & Connection Manager**:
   - Configure local LM Studio (`/v1`) or Google Gemini Cloud API keys and models.
   - Configurable LM Studio timeout settings with safe fallback against GPU cold-starts.
+  - Tab visibility switches and dark/light theme management.
 
 ---
 

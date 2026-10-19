@@ -102,7 +102,23 @@ SKYbrary data (such as accident investigations and safety reports) typically use
 
 ---
 
-## 6. Verifying Data Population
+## 6. Building the Regulatory Knowledge Graph (Kùzu DB)
+
+AeroLex features an embedded property graph database powered by [Kùzu](https://kuzudb.com/) that maps Implementing Rules (Hard Law), AMCs/GMs (Soft Law), certification specifications, cross-references, aviation concepts, and stakeholder obligations across all European aviation domains.
+
+```bash
+# 1. Parse all EASA Easy Access XML rulebooks and build the Kùzu graph database
+python -m ingestion.graph.builder
+
+# 2. Compute dense vector semantic parallels (SIMILAR_TO edges) across provisions
+python -m ingestion.graph.similarity
+```
+
+The graph is compiled and stored in `ingestion/data/graph/kuzu_db/easa.kuzu`. You can immediately inspect graph metrics via the API (`GET /graph/stats`) or visually explore compliance chains, blast radius subgraphs, and concept topologies in the frontend **Knowledge Graph** workspace tab.
+
+---
+
+## 7. Verifying Data Population
 
 You can verify that data is successfully populated using the provided CLI diagnostic scripts:
 
@@ -116,7 +132,7 @@ python ingestion/retrieval/keyword_search.py "ATSEP" --top_k 5
 
 ---
 
-## 7. LoRa Fine-Tuning Dataset Generation
+## 8. LoRa Fine-Tuning Dataset Generation
 
 If you wish to fine-tune your own local Large Language Model (e.g., using LoRa) to "speak" accurately in the context of aviation regulations, you can generate a synthetic instruction-tuning dataset based directly on the ingested chunks.
 

@@ -11,6 +11,7 @@ import requests
 import textwrap
 import re
 import json
+from typing import Optional, List, Dict, Any
 
 from ingestion.core.config import settings
 from ingestion.core.models import EmbeddingType

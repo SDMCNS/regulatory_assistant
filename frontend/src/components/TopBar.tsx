@@ -7,7 +7,7 @@ import React from 'react';
 import { Sliders, ShieldCheck, AlertCircle, RefreshCw, Zap, Sun, Moon, Info, Upload } from 'lucide-react';
 import { ConnectionStatus, AppSettings } from '../types';
 
-export type ActiveTab = 'assistant' | 'search' | 'research' | 'workspace' | 'consultation' | 'governance' | 'builder' | 'notes' | 'memory' | 'extract' | 'cache';
+export type ActiveTab = 'assistant' | 'search' | 'graph' | 'research' | 'workspace' | 'consultation' | 'governance' | 'builder' | 'notes' | 'memory' | 'extract' | 'cache';
 
 interface TopBarProps {
   activeTab: ActiveTab;
@@ -77,6 +77,18 @@ export const TopBar: React.FC<TopBarProps> = ({
           }`}
         >
           Regulation Search
+        </button>
+
+        <button
+          onClick={() => onSelectTab('graph')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+            activeTab === 'graph'
+              ? 'bg-slate-800 text-cyan-400 shadow-sm border border-slate-700/60'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          <span>Knowledge Graph</span>
         </button>
 
         <button

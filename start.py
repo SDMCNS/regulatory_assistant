@@ -41,6 +41,14 @@ def main():
                             key = f"REG_INGEST_{key}"
                         os.environ[key] = val
 
+    if args.command in ("api", "ingest") and sys.version_info >= (3, 13):
+        import shutil
+        if shutil.which("py"):
+            chk = subprocess.run(["py", "-3.11", "-c", "import sys; print(sys.version)"], capture_output=True, text=True)
+            if chk.returncode == 0:
+                print("Running under Python 3.11 for Kùzu graph and embedding compatibility...")
+                sys.exit(subprocess.call(["py", "-3.11", str(Path(__file__).resolve())] + sys.argv[1:]))
+
     if args.command == "api":
         import uvicorn
         print("Starting FastAPI server...")

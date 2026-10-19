@@ -1,0 +1,790 @@
+"""
+traversal.py - Regulatory Graph Traversal & GraphRAG Query Engine for EASA.
+
+Provides multi-hop Cypher traversals over Kùzu:
+1. get_compliance_chain: Discovers IR + AMCs + GMs + Annex + Stakeholders.
+2. get_blast_radius: Discovers all rules referencing or dependent on a target provision.
+3. get_concept_subgraph: Aggregates all rules governing an aviation concept across Annexes.
+4. find_compliance_path: Finds shortest legal path connecting two provisions.
+5. build_graph_rag_context: Enriches semantic search seeds with structural legal context.
+"""
+
+from pathlib import Path
+from typing import Dict, Any, List, Optional
+import re
+import kuzu
+from ingestion.core.config import settings
+
+
+_global_engine = None
+
+
+def get_engine(db_path: Optional[Path] = None) -> "EasaGraphEngine":
+    """Returns singleton EasaGraphEngine instance."""
+    global _global_engine
+    if _global_engine is None:
+        target_path = Path(db_path or settings.KUZU_DB_PATH)
+        _global_engine = EasaGraphEngine(target_path)
+    return _global_engine
+
+
+class EasaGraphEngine:
+    """Client for querying the EASA Kùzu knowledge graph."""
+
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = Path(db_path or settings.KUZU_DB_PATH)
+        if not self.db_path.exists():
+            raise FileNotFoundError(f"Kùzu database not found at {self.db_path}. Build graph first.")
+        self.db = kuzu.Database(str(self.db_path), read_only=True)
+        self.conn = kuzu.Connection(self.db)
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Returns node and relationship counts across the knowledge graph."""
+        res_nodes = self.conn.execute("""
+            MATCH (p:Provision)
+            RETURN p.content_type, count(*)
+        """)
+        provisions_by_type = {}
+        while res_nodes.has_next():
+            row = res_nodes.get_next()
+            provisions_by_type[row[0]] = row[1]
+
+        res_rels = {}
+        rel_tables = [
+            "CONTAINS_ANNEX", "BELONGS_TO_ANNEX", "SATISFIES",
+            "EXPLAINS", "CROSS_REFERENCES", "GOVERNS_CONCEPT", "APPLIES_TO", "SIMILAR_TO"
+        ]
+        for rel in rel_tables:
+            try:
+                r = self.conn.execute(f"MATCH ()-[e:{rel}]->() RETURN count(*);")
+                res_rels[rel.lower()] = r.get_next()[0] if r.has_next() else 0
+            except Exception:
+                res_rels[rel.lower()] = 0
+
+        total_provisions = sum(provisions_by_type.values())
+        return {
+            "total_provisions": total_provisions,
+            "provisions_by_type": provisions_by_type,
+            "relationships": res_rels
+        }
+
+    def get_compliance_chain(self, query_code: str) -> Dict[str, Any]:
+        """
+        Retrieves the full Hard Law <-> Soft Law compliance chain for a rule code:
+        - The Implementing Rule (IR)
+        - Acceptable Means of Compliance (AMC)
+        - Guidance Material (GM)
+        - Parent Annex
+        - Governed Concepts & Obligated Stakeholders
+        """
+        query_clean = query_code.strip()
+        clean_base = re.sub(r'^(?:AMC\d*|GM\d*)\s+', '', query_clean, flags=re.IGNORECASE).strip()
+        clean_base = re.sub(r'\(.*?\)', '', clean_base).strip()
+
+        # Find primary provision
+        res_prov = self.conn.execute(f"""
+            MATCH (p:Provision)
+            WHERE p.code = '{query_clean}' OR p.base_code = '{query_clean}' OR p.code = '{clean_base}' OR p.base_code = '{clean_base}'
+            RETURN p.id, p.code, p.base_code, p.title, p.content_type, p.legal_force, p.subject, p.text
+            LIMIT 10;
+        """)
+
+        found_provisions = []
+        while res_prov.has_next():
+            row = res_prov.get_next()
+            found_provisions.append({
+                "id": row[0],
+                "code": row[1],
+                "base_code": row[2],
+                "title": row[3],
+                "content_type": row[4],
+                "legal_force": row[5],
+                "subject": row[6],
+                "text_snippet": row[7][:300] + "..." if len(row[7]) > 300 else row[7]
+            })
+
+        if not found_provisions:
+            return {"error": f"No provision found matching code '{query_code}'"}
+
+        # Identify anchor IR
+        anchor_ir = next((p for p in found_provisions if p["content_type"] == "IR"), found_provisions[0])
+
+        # If the queried node is an AMC or GM, check if we can resolve its parent IR
+        if anchor_ir["content_type"] in ("AMC", "GM") and anchor_ir.get("base_code"):
+            res_parent = self.conn.execute(f"""
+                MATCH (ir:Provision)
+                WHERE (ir.code = '{anchor_ir["base_code"]}' OR ir.id = '{anchor_ir["base_code"]}') AND ir.content_type = 'IR'
+                RETURN ir.id, ir.code, ir.base_code, ir.title, ir.content_type, ir.legal_force, ir.subject, ir.text
+                LIMIT 1;
+            """)
+            if res_parent.has_next():
+                row = res_parent.get_next()
+                anchor_ir = {
+                    "id": row[0],
+                    "code": row[1],
+                    "base_code": row[2],
+                    "title": row[3],
+                    "content_type": row[4],
+                    "legal_force": row[5],
+                    "subject": row[6],
+                    "text_snippet": row[7][:300] + "..." if len(row[7]) > 300 else row[7]
+                }
+
+        anchor_id = anchor_ir["id"]
+        base_code = anchor_ir["base_code"]
+
+        # 1. Fetch all AMCs (SATISFIES)
+        res_amc = self.conn.execute(f"""
+            MATCH (amc:Provision)-[:SATISFIES]->(ir:Provision {{id: '{anchor_id}'}})
+            RETURN amc.id, amc.code, amc.title, amc.legal_force, amc.text
+        """)
+        amcs = []
+        while res_amc.has_next():
+            row = res_amc.get_next()
+            amcs.append({
+                "id": row[0],
+                "code": row[1],
+                "title": row[2],
+                "legal_force": row[3],
+                "text_snippet": row[4][:250] + "..." if len(row[4]) > 250 else row[4]
+            })
+
+        # 2. Fetch all GMs (EXPLAINS)
+        res_gm = self.conn.execute(f"""
+            MATCH (gm:Provision)-[:EXPLAINS]->(ir:Provision {{id: '{anchor_id}'}})
+            RETURN gm.id, gm.code, gm.title, gm.legal_force, gm.text
+        """)
+        gms = []
+        while res_gm.has_next():
+            row = res_gm.get_next()
+            gms.append({
+                "id": row[0],
+                "code": row[1],
+                "title": row[2],
+                "legal_force": row[3],
+                "text_snippet": row[4][:250] + "..." if len(row[4]) > 250 else row[4]
+            })
+
+        # 3. Fetch Annex info
+        res_annex = self.conn.execute(f"""
+            MATCH (p:Provision {{id: '{anchor_id}'}})-[:BELONGS_TO_ANNEX]->(a:Annex)
+            RETURN a.code, a.name
+        """)
+        annex_info = res_annex.get_next() if res_annex.has_next() else ("General", "General Provisions")
+
+        # 4. Fetch Governed Concepts
+        res_concepts = self.conn.execute(f"""
+            MATCH (p:Provision {{id: '{anchor_id}'}})-[g:GOVERNS_CONCEPT]->(c:Concept)
+            RETURN c.name, c.category, g.relevance
+        """)
+        concepts = []
+        while res_concepts.has_next():
+            row = res_concepts.get_next()
+            concepts.append({"name": row[0], "category": row[1], "relevance": row[2]})
+
+        # 5. Fetch Obligated Stakeholders
+        res_stakeholders = self.conn.execute(f"""
+            MATCH (p:Provision {{id: '{anchor_id}'}})-[a:APPLIES_TO]->(s:Stakeholder)
+            RETURN s.name, s.role_type, a.obligation
+        """)
+        stakeholders = []
+        while res_stakeholders.has_next():
+            row = res_stakeholders.get_next()
+            stakeholders.append({"name": row[0], "role_type": row[1], "obligation": row[2]})
+
+        # 6. Fetch Outgoing Cross-References (What does this rule cite?)
+        res_cites = self.conn.execute(f"""
+            MATCH (p:Provision {{id: '{anchor_id}'}})-[:CROSS_REFERENCES]->(target:Provision)
+            RETURN target.code, target.title, target.subject, target.content_type
+            LIMIT 15
+        """)
+        cites = []
+        while res_cites.has_next():
+            row = res_cites.get_next()
+            cites.append({"code": row[0], "title": row[1], "subject": row[2], "content_type": row[3]})
+
+        # 7. Fetch Semantic Parallels (SIMILAR_TO)
+        similar = []
+        try:
+            res_sim = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{anchor_id}'}})-[r:SIMILAR_TO]->(target:Provision)
+                OPTIONAL MATCH (target)-[:BELONGS_TO_ANNEX]->(a:Annex)
+                RETURN target.id, target.code, target.title, target.content_type, target.legal_force, r.score, r.method, r.reason, a.code
+                ORDER BY r.score DESC
+                LIMIT 8;
+            """)
+            while res_sim.has_next():
+                row = res_sim.get_next()
+                similar.append({
+                    "id": row[0],
+                    "code": row[1],
+                    "title": row[2],
+                    "content_type": row[3],
+                    "legal_force": row[4],
+                    "score": round(float(row[5]), 3),
+                    "method": row[6],
+                    "reason": row[7],
+                    "annex": row[8] or "EASA"
+                })
+        except Exception:
+            pass
+
+        return {
+            "query": query_code,
+            "anchor_rule": anchor_ir,
+            "annex": {"code": annex_info[0], "name": annex_info[1]},
+            "amc_count": len(amcs),
+            "acceptable_means_of_compliance": amcs,
+            "gm_count": len(gms),
+            "guidance_material": gms,
+            "concepts": concepts,
+            "stakeholders": stakeholders,
+            "outgoing_citations": cites,
+            "similar_provisions": similar
+        }
+
+    def get_blast_radius(self, query_code: str) -> Dict[str, Any]:
+        """
+        Calculates the regulatory blast-radius:
+        All provisions that cite or depend on this provision.
+        """
+        query_clean = query_code.strip()
+        res_target = self.conn.execute(f"""
+            MATCH (p:Provision)
+            WHERE p.code = '{query_clean}' OR p.base_code = '{query_clean}'
+            RETURN p.id, p.code, p.title, p.content_type
+            LIMIT 1;
+        """)
+        if not res_target.has_next():
+            return {"error": f"Target provision '{query_code}' not found."}
+
+        target = res_target.get_next()
+        target_id = target[0]
+
+        # 1. Rules citing this provision
+        res_incoming = self.conn.execute(f"""
+            MATCH (source:Provision)-[:CROSS_REFERENCES]->(target:Provision {{id: '{target_id}'}})
+            RETURN source.code, source.title, source.subject, source.content_type
+        """)
+        citing_rules = []
+        while res_incoming.has_next():
+            row = res_incoming.get_next()
+            citing_rules.append({
+                "code": row[0],
+                "title": row[1],
+                "subject": row[2],
+                "content_type": row[3]
+            })
+
+        # 2. Associated AMCs / GMs
+        soft_law = []
+        res_sat = self.conn.execute(f"""
+            MATCH (soft:Provision)-[:SATISFIES]->(target:Provision {{id: '{target_id}'}})
+            RETURN soft.code, soft.title
+        """)
+        while res_sat.has_next():
+            row = res_sat.get_next()
+            soft_law.append({"code": row[0], "title": row[1], "rel_type": "SATISFIES"})
+
+        res_exp = self.conn.execute(f"""
+            MATCH (soft:Provision)-[:EXPLAINS]->(target:Provision {{id: '{target_id}'}})
+            RETURN soft.code, soft.title
+        """)
+        while res_exp.has_next():
+            row = res_exp.get_next()
+            soft_law.append({"code": row[0], "title": row[1], "rel_type": "EXPLAINS"})
+
+        return {
+            "target": {"id": target[0], "code": target[1], "title": target[2], "content_type": target[3]},
+            "direct_dependent_rules_count": len(citing_rules),
+            "direct_dependent_rules": citing_rules,
+            "attached_soft_law_count": len(soft_law),
+            "attached_soft_law": soft_law
+        }
+
+    def get_concept_subgraph(self, concept_name: str) -> Dict[str, Any]:
+        """
+        Finds all regulatory provisions governing a specific aviation concept,
+        grouped by Annex and legal force.
+        """
+        res_concept = self.conn.execute(f"""
+            MATCH (c:Concept)
+            WHERE c.name =~ '(?i).*{concept_name}.*'
+            RETURN c.id, c.name, c.category
+            LIMIT 1;
+        """)
+        if not res_concept.has_next():
+            return {"error": f"Concept '{concept_name}' not found in taxonomy."}
+
+        concept_id, c_name, c_cat = res_concept.get_next()
+
+        res_provs = self.conn.execute(f"""
+            MATCH (p:Provision)-[g:GOVERNS_CONCEPT]->(c:Concept {{id: '{concept_id}'}})
+            RETURN p.code, p.title, p.subject, p.content_type, p.legal_force, g.relevance
+        """)
+
+        provisions_by_annex: Dict[str, List[Dict[str, Any]]] = {}
+        while res_provs.has_next():
+            row = res_provs.get_next()
+            annex = row[2] or "General"
+            if annex not in provisions_by_annex:
+                provisions_by_annex[annex] = []
+            provisions_by_annex[annex].append({
+                "code": row[0],
+                "title": row[1],
+                "content_type": row[3],
+                "legal_force": row[4],
+                "relevance": row[5]
+            })
+
+        total_provisions = sum(len(v) for v in provisions_by_annex.values())
+        return {
+            "concept": {"name": c_name, "category": c_cat},
+            "total_governing_provisions": total_provisions,
+            "provisions_by_annex": provisions_by_annex
+        }
+
+    def get_node_details(self, node_id_or_code: str) -> Dict[str, Any]:
+        """
+        Deep-inspection of any graph node (Provision, Annex, Concept, or Stakeholder),
+        returning full verbatim contents, upstream/downstream legal hierarchy,
+        incoming and outgoing citations, and operational context.
+        """
+        identifier = node_id_or_code.strip()
+        clean_id = identifier
+        for pfx in ("CITE_", "DEP_", "PROV_", "TARGET_"):
+            if clean_id.startswith(pfx):
+                clean_id = clean_id[len(pfx):]
+                break
+        if clean_id.startswith("SOFT_"):
+            clean_id = clean_id[5:]
+            if "_SATISFIES_" in clean_id:
+                clean_id = clean_id.split("_SATISFIES_")[0]
+            elif "_EXPLAINS_" in clean_id:
+                clean_id = clean_id.split("_EXPLAINS_")[0]
+
+        # 1. Check if it's a Provision
+        res_p = self.conn.execute(f"""
+            MATCH (p:Provision)
+            WHERE p.id = '{identifier}' OR p.id = '{clean_id}'
+               OR p.code = '{identifier}' OR p.code = '{clean_id}'
+               OR p.base_code = '{identifier}' OR p.base_code = '{clean_id}'
+               OR p.code STARTS WITH '{clean_id}'
+            RETURN p.id, p.code, p.base_code, p.title, p.content_type, p.legal_force, p.subject, p.text, p.word_count
+            LIMIT 1;
+        """)
+
+        if res_p.has_next():
+            row = res_p.get_next()
+            prov_id, prov_code, base_code, title, c_type, legal_force, subject, full_text, word_count = row
+
+            # Parent Annex
+            annex_info = None
+            res_annex = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[:BELONGS_TO_ANNEX]->(a:Annex)
+                RETURN a.id, a.code, a.name
+                LIMIT 1;
+            """)
+            if res_annex.has_next():
+                a_row = res_annex.get_next()
+                annex_info = {"id": a_row[0], "code": a_row[1], "name": a_row[2]}
+
+            # Upstream Legal Context (What does this provision satisfy or explain?)
+            upstream = []
+            res_up_sat = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[:SATISFIES]->(target:Provision)
+                RETURN target.id, target.code, target.title, target.content_type, target.legal_force
+            """)
+            while res_up_sat.has_next():
+                u = res_up_sat.get_next()
+                upstream.append({"id": u[0], "code": u[1], "title": u[2], "content_type": u[3], "legal_force": u[4], "rel": "SATISFIES"})
+
+            res_up_exp = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[:EXPLAINS]->(target:Provision)
+                RETURN target.id, target.code, target.title, target.content_type, target.legal_force
+            """)
+            while res_up_exp.has_next():
+                u = res_up_exp.get_next()
+                upstream.append({"id": u[0], "code": u[1], "title": u[2], "content_type": u[3], "legal_force": u[4], "rel": "EXPLAINS"})
+
+            # Downstream Soft Law (What AMCs / GMs attach to this provision?)
+            downstream_amcs = []
+            res_down_amc = self.conn.execute(f"""
+                MATCH (amc:Provision)-[:SATISFIES]->(p:Provision {{id: '{prov_id}'}})
+                RETURN amc.id, amc.code, amc.title, amc.legal_force, amc.text, amc.word_count
+            """)
+            while res_down_amc.has_next():
+                d = res_down_amc.get_next()
+                downstream_amcs.append({
+                    "id": d[0], "code": d[1], "title": d[2], "legal_force": d[3],
+                    "text_preview": d[4][:240] + "..." if len(d[4]) > 240 else d[4],
+                    "word_count": d[5]
+                })
+
+            downstream_gms = []
+            res_down_gm = self.conn.execute(f"""
+                MATCH (gm:Provision)-[:EXPLAINS]->(p:Provision {{id: '{prov_id}'}})
+                RETURN gm.id, gm.code, gm.title, gm.legal_force, gm.text, gm.word_count
+            """)
+            while res_down_gm.has_next():
+                d = res_down_gm.get_next()
+                downstream_gms.append({
+                    "id": d[0], "code": d[1], "title": d[2], "legal_force": d[3],
+                    "text_preview": d[4][:240] + "..." if len(d[4]) > 240 else d[4],
+                    "word_count": d[5]
+                })
+
+            # Citations: Outgoing
+            outgoing_citations = []
+            res_out = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[:CROSS_REFERENCES]->(target:Provision)
+                RETURN target.id, target.code, target.title, target.content_type
+            """)
+            while res_out.has_next():
+                o = res_out.get_next()
+                outgoing_citations.append({"id": o[0], "code": o[1], "title": o[2], "content_type": o[3]})
+
+            # Citations: Incoming (Blast Radius dependencies)
+            incoming_citations = []
+            res_in = self.conn.execute(f"""
+                MATCH (source:Provision)-[:CROSS_REFERENCES]->(p:Provision {{id: '{prov_id}'}})
+                RETURN source.id, source.code, source.title, source.content_type
+            """)
+            while res_in.has_next():
+                i = res_in.get_next()
+                incoming_citations.append({"id": i[0], "code": i[1], "title": i[2], "content_type": i[3]})
+
+            # Stakeholders
+            stakeholders = []
+            res_stk = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[r:APPLIES_TO]->(s:Stakeholder)
+                RETURN s.id, s.name, s.role_type, r.obligation
+            """)
+            while res_stk.has_next():
+                s = res_stk.get_next()
+                stakeholders.append({"id": s[0], "name": s[1], "role_type": s[2], "obligation": s[3]})
+
+            # Concepts
+            concepts = []
+            res_c = self.conn.execute(f"""
+                MATCH (p:Provision {{id: '{prov_id}'}})-[r:GOVERNS_CONCEPT]->(c:Concept)
+                RETURN c.id, c.name, c.category, r.relevance
+            """)
+            while res_c.has_next():
+                c = res_c.get_next()
+                concepts.append({"id": c[0], "name": c[1], "category": c[2], "relevance": c[3]})
+
+            # Semantic Parallels (SIMILAR_TO)
+            similar_provisions = []
+            try:
+                res_sim = self.conn.execute(f"""
+                    MATCH (p:Provision {{id: '{prov_id}'}})-[r:SIMILAR_TO]->(target:Provision)
+                    OPTIONAL MATCH (target)-[:BELONGS_TO_ANNEX]->(a:Annex)
+                    RETURN target.id, target.code, target.title, target.content_type, target.legal_force, r.score, r.method, r.reason, a.code
+                    ORDER BY r.score DESC
+                    LIMIT 10;
+                """)
+                while res_sim.has_next():
+                    row = res_sim.get_next()
+                    score_val = float(row[5])
+                    similar_provisions.append({
+                        "id": row[0],
+                        "code": row[1],
+                        "title": row[2],
+                        "content_type": row[3],
+                        "legal_force": row[4],
+                        "score": round(score_val, 3),
+                        "score_pct": int(round(score_val * 100)),
+                        "method": row[6],
+                        "reason": row[7],
+                        "annex": row[8] or "EASA"
+                    })
+            except Exception:
+                pass
+
+            # Synthesize GraphRAG Context block
+            rag_lines = [
+                f"# EASA REGULATORY CONTEXT: {prov_code} - {title}",
+                f"- Legal Tier: {legal_force} ({c_type})",
+                f"- Annex: {annex_info['code'] if annex_info else 'General'} ({annex_info['name'] if annex_info else ''})",
+                f"- Word Count: {word_count}",
+                "",
+                "## Verbatim Text",
+                full_text,
+                ""
+            ]
+
+            if upstream:
+                rag_lines.append("## Upstream Regulatory Mandate")
+                for u in upstream:
+                    rag_lines.append(f"- [{u['rel']}] {u['code']}: {u['title']} ({u['legal_force']})")
+                rag_lines.append("")
+
+            if downstream_amcs:
+                rag_lines.append("## Acceptable Means of Compliance (Presumption of Compliance)")
+                for a in downstream_amcs:
+                    rag_lines.append(f"- {a['code']}: {a['title']}")
+                rag_lines.append("")
+
+            if downstream_gms:
+                rag_lines.append("## Guidance Material (Explanatory Guidance)")
+                for g in downstream_gms:
+                    rag_lines.append(f"- {g['code']}: {g['title']}")
+                rag_lines.append("")
+
+            if outgoing_citations:
+                rag_lines.append("## Direct Regulatory Citations (Cross-References)")
+                for c in outgoing_citations:
+                    rag_lines.append(f"- Cites {c['code']}: {c['title']}")
+                rag_lines.append("")
+
+            if incoming_citations:
+                rag_lines.append(f"## Dependent Provisions ({len(incoming_citations)} Inbound Dependencies)")
+                for i in incoming_citations[:8]:
+                    rag_lines.append(f"- Cited by {i['code']}: {i['title']}")
+                if len(incoming_citations) > 8:
+                    rag_lines.append(f"- ...and {len(incoming_citations) - 8} more provisions")
+                rag_lines.append("")
+
+            if stakeholders:
+                rag_lines.append("## Obligated Stakeholders")
+                for s in stakeholders:
+                    rag_lines.append(f"- {s['name']} ({s['role_type']}): {s['obligation']}")
+                rag_lines.append("")
+
+            if concepts:
+                rag_lines.append("## Operational Concepts Governed")
+                for c in concepts:
+                    rag_lines.append(f"- {c['name']} ({c['category']})")
+                rag_lines.append("")
+
+            if similar_provisions:
+                rag_lines.append("## Semantic Parallels across Regulations (SIMILAR_TO)")
+                for sim in similar_provisions:
+                    rag_lines.append(f"- [{sim['score_pct']}% Match] {sim['code']}: {sim['title']} ({sim['annex']}) - {sim['reason']}")
+                rag_lines.append("")
+
+            rag_md = "\n".join(rag_lines)
+            return {
+                "kind": "Provision",
+                "id": prov_id,
+                "code": prov_code,
+                "base_code": base_code,
+                "title": title,
+                "content_type": c_type,
+                "legal_force": legal_force,
+                "subject": subject,
+                "text": full_text,
+                "full_text": full_text,
+                "text_snippet": full_text[:300] if len(full_text) > 300 else full_text,
+                "word_count": word_count,
+                "annex": annex_info,
+                "upstream": upstream,
+                "upstream_rules": upstream,
+                "downstream_amcs": downstream_amcs,
+                "acceptable_means_of_compliance": downstream_amcs,
+                "downstream_gms": downstream_gms,
+                "guidance_material": downstream_gms,
+                "outgoing_citations": outgoing_citations,
+                "incoming_citations": incoming_citations,
+                "stakeholders": stakeholders,
+                "concepts": concepts,
+                "similar_provisions": similar_provisions,
+                "graph_rag_markdown": rag_md,
+                "graphrag_context": rag_md
+            }
+
+        # 2. Check if it's an Annex
+        clean_annex = clean_id.replace("ANNEX_", "").strip()
+        res_a = self.conn.execute(f"""
+            MATCH (a:Annex)
+            WHERE a.id = '{identifier}' OR a.id = '{clean_id}'
+               OR a.code = '{clean_annex}' OR a.name =~ '(?i).*{clean_annex}.*'
+            RETURN a.id, a.code, a.name
+            LIMIT 1;
+        """)
+        if res_a.has_next():
+            a = res_a.get_next()
+            res_cnt = self.conn.execute(f"""
+                MATCH (p:Provision)-[:BELONGS_TO_ANNEX]->(a:Annex {{id: '{a[0]}'}})
+                RETURN p.content_type, count(*)
+            """)
+            type_counts = {}
+            while res_cnt.has_next():
+                row = res_cnt.get_next()
+                type_counts[row[0]] = row[1]
+
+            annex_text = f"Regulatory Annex {a[1]}: {a[2]}. Contains {sum(type_counts.values())} codified provisions governing European air operations."
+            rag_annex = [
+                f"# EASA REGULATORY ANNEX: {a[1]} - {a[2]}",
+                f"- Codified provisions: {sum(type_counts.values())}",
+                "- Provisions breakdown: " + ", ".join(f"{k}: {v}" for k, v in type_counts.items()),
+                "",
+                "## Scope & Description",
+                annex_text
+            ]
+            return {
+                "kind": "Annex",
+                "id": a[0],
+                "code": a[1],
+                "name": a[2],
+                "title": f"Annex {a[1]}: {a[2]}",
+                "content_type": "ANNEX",
+                "type_breakdown": type_counts,
+                "total_provisions": sum(type_counts.values()),
+                "text": annex_text,
+                "full_text": annex_text,
+                "text_snippet": annex_text,
+                "graph_rag_markdown": "\n".join(rag_annex),
+                "graphrag_context": "\n".join(rag_annex)
+            }
+
+        # 3. Check if Concept
+        clean_concept = clean_id.replace("CONCEPT_", "").replace("CON_", "").replace("_", " ").strip()
+        res_con = self.conn.execute(f"""
+            MATCH (c:Concept)
+            WHERE c.id = '{identifier}' OR c.id = '{clean_id}'
+               OR c.name =~ '(?i).*{clean_concept}.*'
+            RETURN c.id, c.name, c.category
+            LIMIT 1;
+        """)
+        if res_con.has_next():
+            c = res_con.get_next()
+            sub = self.get_concept_subgraph(c[1])
+            c_text = f"Aviation Concept: {c[1]} (Category: {c[2]}). Governed across multiple EASA Annexes by {sub.get('total_governing_provisions', 0)} provisions."
+            rag_concept = [
+                f"# AVIATION CONCEPT: {c[1]}",
+                f"- Category: {c[2]}",
+                f"- Total governing provisions: {sub.get('total_governing_provisions', 0)}",
+                "",
+                "## Scope",
+                c_text
+            ]
+            return {
+                "kind": "Concept",
+                "id": c[0],
+                "code": c[1],
+                "name": c[1],
+                "title": f"Concept: {c[1]} ({c[2]})",
+                "category": c[2],
+                "content_type": "CONCEPT",
+                "total_provisions": sub.get("total_governing_provisions", 0),
+                "provisions_by_annex": sub.get("provisions_by_annex", {}),
+                "text": c_text,
+                "full_text": c_text,
+                "text_snippet": c_text,
+                "graph_rag_markdown": "\n".join(rag_concept),
+                "graphrag_context": "\n".join(rag_concept)
+            }
+
+        # 4. Check Stakeholder
+        clean_stk = clean_id.replace("STAKEHOLDER_", "").replace("STK_", "").replace("_", " ").strip()
+        res_s = self.conn.execute(f"""
+            MATCH (s:Stakeholder)
+            WHERE s.id = '{identifier}' OR s.id = '{clean_id}'
+               OR s.name =~ '(?i).*{clean_stk}.*'
+            RETURN s.id, s.name, s.role_type
+            LIMIT 1;
+        """)
+        if res_s.has_next():
+            s = res_s.get_next()
+            res_rules = self.conn.execute(f"""
+                MATCH (p:Provision)-[r:APPLIES_TO]->(s:Stakeholder {{id: '{s[0]}'}})
+                RETURN p.code, p.title, r.obligation
+                LIMIT 20;
+            """)
+            rules = []
+            while res_rules.has_next():
+                row = res_rules.get_next()
+                rules.append({"code": row[0], "title": row[1], "obligation": row[2]})
+
+            stk_text = f"Regulated Stakeholder: {s[1]} ({s[2]}). Obligated across provisions within the Air Operations framework."
+            rag_stk = [
+                f"# AVIATION STAKEHOLDER: {s[1]}",
+                f"- Role Type: {s[2]}",
+                "",
+                "## Regulatory Obligations",
+                stk_text
+            ]
+            for r_item in rules[:10]:
+                rag_stk.append(f"- {r_item['code']}: {r_item['title']} ({r_item['obligation']})")
+
+            return {
+                "kind": "Stakeholder",
+                "id": s[0],
+                "code": s[1],
+                "name": s[1],
+                "title": f"Stakeholder: {s[1]} ({s[2]})",
+                "role_type": s[2],
+                "content_type": "STAKEHOLDER",
+                "sample_obligations": rules,
+                "text": stk_text,
+                "full_text": stk_text,
+                "text_snippet": stk_text,
+                "graph_rag_markdown": "\n".join(rag_stk),
+                "graphrag_context": "\n".join(rag_stk)
+            }
+
+        return {"error": f"Node '{identifier}' not found in graph."}
+
+    def find_compliance_path(self, source_code: str, target_code: str, max_depth: int = 3) -> Dict[str, Any]:
+        """
+        Finds citation or hierarchical paths connecting two provisions.
+        """
+        query = f"""
+            MATCH p = (a:Provision)-[:CROSS_REFERENCES*1..{max_depth}]->(b:Provision)
+            WHERE (a.code = '{source_code}' OR a.base_code = '{source_code}')
+              AND (b.code = '{target_code}' OR b.base_code = '{target_code}')
+            RETURN [n IN nodes(p) | n.code] as path_codes
+            LIMIT 5;
+        """
+        try:
+            res = self.conn.execute(query)
+            paths = []
+            while res.has_next():
+                paths.append(res.get_next()[0])
+            return {
+                "source": source_code,
+                "target": target_code,
+                "paths_found": len(paths),
+                "paths": paths
+            }
+        except Exception as e:
+            return {"error": str(e), "source": source_code, "target": target_code}
+
+    def build_graph_rag_context(self, seed_codes: List[str]) -> str:
+        """
+        Takes seed codes (e.g. from vector search results) and expands their 1-hop
+        compliance neighborhood into a clean, formatted structural context block.
+        """
+        context_parts = []
+        for code in seed_codes:
+            chain = self.get_compliance_chain(code)
+            if "error" in chain:
+                continue
+
+            rule = chain["anchor_rule"]
+            annex = chain["annex"]
+            amcs = chain["acceptable_means_of_compliance"]
+            gms = chain["guidance_material"]
+
+            part = [
+                f"### [REGULATION] {rule['code']} - {rule['title']}",
+                f"**Legal Force:** {rule['legal_force']} (Implementing Rule)",
+                f"**Annex:** {annex['code']} ({annex['name']})",
+                f"**Mandatory Text:** {rule['text_snippet']}",
+            ]
+
+            if amcs:
+                part.append("\n**Acceptable Means of Compliance (AMC - Presumption of Compliance):**")
+                for amc in amcs[:2]:
+                    part.append(f"- **{amc['code']}:** {amc['title']}")
+
+            if gms:
+                part.append("\n**Guidance Material (GM - Explanatory Context):**")
+                for gm in gms[:2]:
+                    part.append(f"- **{gm['code']}:** {gm['title']}")
+
+            context_parts.append("\n".join(part))
+
+        return "\n\n---\n\n".join(context_parts)

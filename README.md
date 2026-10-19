@@ -5,6 +5,8 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat&logo=react)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6.svg?style=flat&logo=typescript)](https://www.typescriptlang.org)
 [![Vite](https://img.shields.io/badge/Vite-6.0-646CFF.svg?style=flat&logo=vite)](https://vitejs.dev)
+[![Kùzu Graph DB](https://img.shields.io/badge/Kùzu-Embedded%20Graph%20DB-8A2BE2.svg?style=flat)](https://kuzudb.com)
+[![D3.js](https://img.shields.io/badge/D3.js-Force--Directed%20Graphs-F9A03C.svg?style=flat&logo=d3.js)](https://d3js.org)
 [![SQLite FTS5](https://img.shields.io/badge/SQLite-FTS5%20BM25-003B57.svg?style=flat&logo=sqlite)](https://www.sqlite.org/fts5.html)
 [![FAISS](https://img.shields.io/badge/FAISS-Dense%20Retrieval-0467DF.svg?style=flat)](https://github.com/facebookresearch/faiss)
 [![SESAR DM](https://img.shields.io/badge/SESAR-Deployment%20Manager-008080.svg?style=flat)](https://www.sesardeploymentmanager.eu)
@@ -12,19 +14,20 @@
 
 An enterprise-grade, offline-first hybrid RAG (Retrieval-Augmented Generation), public consultation analysis, and regulatory intelligence workstation purpose-built for the **SESAR Deployment Manager (SDM)**, Air Navigation Service Providers (ANSPs), National Aviation Authorities (NAAs), airlines, and aerospace manufacturers.
 
-AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Rules**, **EU Formex Aviation Acts**, **FAA Title 14 CFR Regulations**, **SKYbrary Air Safety Knowledge**, **User-Authored Notes**, and **Custom Operating Manuals**.
+AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Rules**, **EU Formex Aviation Acts**, **FAA Title 14 CFR Regulations**, **EUROCAE Technical Standards**, **SKYbrary Air Safety Knowledge**, **User-Authored Notes**, and **Custom Operating Manuals**.
 
 ---
 
 ## What AeroLex EU Does
 
 1. **Aviation Regulatory Search & Cross-Referencing**: Sub-millisecond keyword retrieval and semantic search over tens of thousands of provisions, certification specifications (CS), acceptable means of compliance (AMC), guidance material (GM), and federal regulations.
-2. **Autonomous Adversarial Deep Research**: Multi-pass research agent that formulates hypotheses, extracts clauses, systematically challenges citations through an adversarial falsification gate, and synthesizes traceable compliance reports.
-3. **Public Consultation & Stakeholder Intelligence**: Ingestion and automated analysis of regulatory consultation documents (Word/PDF) and stakeholder feedback comments (CSV/Excel). Maps consensus, detects dissent, traces organizational alignment ("Direction of Travel"), diagnoses regulatory tensions, and performs silence accounting.
-4. **Multi-Regulation Workspace & Requirement Lens**: Side-by-side cross-document overlap matrix with real-time modal verb analysis (Mandates, Prohibitions, Recommendations, Guidance) and compliance dossier curation.
-5. **Knowledge Governance & Corpus Hygiene**: Real-time auditing of corpus health, obsolescence tracking against recent amendments, topic deactivation/activation, and duplicate detection.
-6. **Sovereign & Air-Gapped AI**: 100% offline-capable via local LLMs (LM Studio, Ollama, vLLM) with zero telemetry or data leakage, alongside cloud options (Google Gemini, OpenAI).
-
+2. **Regulatory Knowledge Graph Explorer & GraphRAG**: High-performance embedded graph database (Kùzu) mapping Hard Law Implementing Rules, Soft Law AMCs/GMs, certification specifications, stakeholders, and aviation concepts. Features dual-entry discovery (exact code autocomplete & HyDE vector search), D3 force-directed subgraphs (Compliance Chains, Blast Radius, Concept Ontologies), and complete 360° Node Inspection dossiers.
+3. **Autonomous Adversarial Deep Research**: Multi-pass research agent that formulates hypotheses, extracts clauses, systematically challenges citations through an adversarial falsification gate, and synthesizes traceable compliance reports.
+4. **Public Consultation & Stakeholder Intelligence**: Ingestion and automated analysis of regulatory consultation documents (Word/PDF) and stakeholder feedback comments (CSV/Excel). Maps consensus, detects dissent, traces organizational alignment ("Direction of Travel"), diagnoses regulatory tensions, and performs silence accounting.
+5. **Multi-Regulation Workspace & Requirement Lens**: Side-by-side cross-document overlap matrix with real-time modal verb analysis (Mandates, Prohibitions, Recommendations, Guidance) and compliance dossier curation.
+6. **User Document Intelligence & Multimodal Diagram Extraction**: Automated document ingestion supporting PDF diagram/table detection, Gemini Vision HyDE graphical summarization, and executive comparison for duplicate and superseded document management.
+7. **Knowledge Governance & Corpus Hygiene**: Real-time auditing of corpus health, obsolescence tracking against recent amendments, topic deactivation/activation, and duplicate detection.
+8. **Sovereign & Air-Gapped AI**: 100% offline-capable via local LLMs (LM Studio, Ollama, vLLM) with zero telemetry or data leakage, alongside cloud options (Google Gemini, OpenAI).
 ---
 
 ## How It Works
@@ -33,68 +36,77 @@ AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Ru
                                 ┌────────────────────────────────────────────────────────┐
                                 │          AeroLex EU Modern Frontend (React 18)         │
                                 │  • Theme Switcher (Dark / Light) • Custom Tab Manager  │
-                                │  • SESAR DM About Modal • Interactive Match Stepper    │
+                                │  • SESAR DM About Modal • D3 Force-Directed Graph UI   │
                                 └───────────────────────────┬────────────────────────────┘
                                                             │ REST / JSON API
                                                             ▼
                                 ┌────────────────────────────────────────────────────────┐
                                 │             FastAPI Regulatory Engine                  │
-                                │  (/search, /research, /consultation, /regulations)     │
+                                │  (/graph, /search, /research, /consultation, /upload)  │
                                 └─────────────┬───────────────────────────┬──────────────┘
                                               │                           │
                     ┌─────────────────────────▼──────────────┐   ┌────────▼──────────────┐
-                    │      Multi-Stage Retrieval Engine      │   │   Inference Engine    │
-                    │  • SQLite FTS5 (BM25 + Porter Stem)   │   │ • Local LM Studio /   │
-                    │  • FAISS Vector Store (Nomic Embed)    │   │   Ollama (Offline)    │
-                    │  • Reciprocal Rank Fusion (RRF)        │   │ • Google Gemini Cloud │
-                    │  • Sequential Context Window (±N)      │   │   (3.5/3.8 Flash)     │
+                    │      Multi-Stage Retrieval & Graph     │   │   Inference Engine    │
+                    │  • Kùzu Embedded Graph Engine          │   │ • Local LM Studio /   │
+                    │  • SQLite FTS5 (BM25 + Porter Stem)   │   │   Ollama (Offline)    │
+                    │  • FAISS Vector Store (Nomic Embed)    │   │ • Google Gemini Cloud │
+                    │  • HyDE Vector Anchor Synthesis        │   │   (3.5/3.8 Flash,     │
+                    │  • Reciprocal Rank Fusion (RRF)        │   │    Gemini Vision)     │
                     └─────────────────────────┬──────────────┘   └───────────────────────┘
                                               │
                     ┌─────────────────────────▼──────────────┐
                     │      Specialized Workspaces & Logic    │
+                    │  • Knowledge Graph Explorer & GraphRAG │
                     │  • Consultation Synthesis & Radar      │
                     │  • Deep Adversarial Research Agent     │
-                    │  • Knowledge Governance & Forgetting   │
                     │  • Requirement Lens & Dossier          │
+                    │  • User Document & Diagram Ingestion   │
+                    │  • Knowledge Governance & Forgetting   │
                     └────────────────────────────────────────┘
 ```
 
-### 1. Ingestion & Structured Chunking
+### 1. Regulatory Knowledge Graph & Multi-Source Federation (Kùzu DB)
+- **Embedded Property Graph**: Powered by Kùzu, structuring EASA regulations into explicit typed nodes (`Document`, `Annex`, `Provision`, `Concept`, `Stakeholder`) and legal relationships (`SATISFIES`, `EXPLAINS`, `CROSS_REFERENCES`, `GOVERNS_CONCEPT`, `APPLIES_TO`, `SIMILAR_TO`).
+- **Dual-Entry Discovery**: Instant provision code autocomplete with fast selection and **HyDE (Hypothetical Document Embeddings)** vector discovery that translates operational scenarios into synthesized regulatory anchors.
+- **Interactive D3 Visualizations**: Force-directed subgraphs for compliance chains, blast radius dependency analysis, and cross-annex concept ontologies.
+- **Multi-Source Catalog Federation**: Unifies EASA Easy Access Rules, EU Formex Acts, FAA Title 14 CFR, EUROCAE technical standards, and SKYbrary air safety publications (with 70+ categories & sub-topics filtering).
+
+### 2. Ingestion, Structured Chunking & Multimodal Extraction
 - **EASA XML Parser**: Ingests Easy Access Rules directly, preserving the rich hierarchy of Cover Regulations, Annexes, Subparts, CS, AMC, and GM.
 - **EU Formex XML Parser**: Ingests Official Journal legal acts from EUR-Lex with full metadata, preamble recitals, articles, and corrigenda.
 - **FAA Title 14 CFR Parser**: Streaming XML parser segmenting multi-part CFR volumes into individual Parts (e.g., Part 21, 25, 91, 121, 135) with structured subparts and section-level chunking (`§ XX.YY`).
+- **User Document & Diagram Extraction**: Automated PDF/Office document analysis with page-level diagram/table detection, Gemini Vision HyDE graphical summarization, and executive comparison for duplicate and superseded document management.
 - **Sequential Linking**: Every chunk records `previous_chunk_id` and `next_chunk_id` pointers, enabling instant retrieval of surrounding provisions.
 
-### 2. Multi-Stage Hybrid Retrieval (BM25 + FAISS + RRF)
+### 3. Multi-Stage Hybrid Retrieval (BM25 + FAISS + RRF)
 - **FTS5 BM25 Engine**: Optimized for exact aviation acronyms (`ATSEP`, `CPDLC`, `ADS-B`, `FTL`, `SMS`, `ACNS`) and specific clause codes (`CAT.OP.MPA.110`).
 - **Dense Vector Embeddings**: Uses high-dimensional embeddings (e.g., Nomic Embed v1.5) via FAISS for conceptual semantics and natural language regulatory intent.
-- **HyDE & Local LLM Expansion**: Optional generation of hypothetical regulatory clauses or synonym expansions to bridge vocabulary gaps.
+- **HyDE & Local LLM Expansion**: Generation of hypothetical regulatory clauses or synonym expansions to bridge vocabulary gaps.
 - **Reciprocal Rank Fusion**: Re-ranks and merges keyword and dense semantic results into a unified score distribution.
 
-### 3. Consultation Intelligence Suite
+### 4. Consultation Intelligence Suite
 - **Document & Feedback CSV Ingestion**: Automatically inspects stakeholder comment matrices (CSV/Excel) and extracts consultation document drafts (DOCX/PDF).
 - **Automated Column Mapping**: Heuristically detects Organization, Comment Text, Clause/Paragraph Reference, Proposed Amendment, and Sentiment columns.
 - **Direction of Travel & Spider/Radar Taxonomy**: Categorizes stakeholder feedback across canonical regulatory vectors (e.g., *Mandate Acceleration*, *Economic Proportionality*, *Harmonization*, *Interoperability*, *Safety Buffer*).
 - **Tension Diagnostics**: Identifies structural conflicts between stakeholder groups (e.g., Airlines vs. ANSPs vs. OEMs).
 - **Silence Accounting**: Automatically uncovers critical draft articles that received zero stakeholder comments, identifying potential blind spots before regulatory adoption.
 
-### 4. Autonomous Deep Research Engine
+### 5. Autonomous Deep Research Engine
 - **Hypothesis & Query Generation**: Deconstructs complex aerospace compliance queries into multi-turn research vectors.
 - **Adversarial Falsification Gate**: Systematically analyzes retrieved candidates to eliminate false citations, ensuring that every quoted clause directly supports the legal reasoning.
 - **Surrounding Provision Expansion**: Automatically brings preceding and following clauses into the synthesis context to guarantee that parent definitions, operational conditions, and derogations are accounted for.
 - **Audit Ledger & Traceable Citations**: Produces fully interactive reports with mouseover previews, clickable references, and complete provenance records.
 
-### 5. Knowledge Governance & Corpus Hygiene
+### 6. Knowledge Governance & Corpus Hygiene
 - **Health & Consistency Auditing**: Tracks active vs. deactivated regulations, orphaned chunks, and index synchronization.
 - **Obsolescence Detection**: Identifies provisions potentially superseded by newer regulatory packages or corrigenda.
 - **Selective Deactivation**: Enables regulatory compliance officers to temporarily or permanently deactivate outdated regulations without database rebuilds.
 
-### 6. Modern User Experience & Customization
+### 7. Modern User Experience & Customization
 - **Theme Switcher**: Instant one-click toggle between Dark Mode and Light Mode with persistent local storage.
-- **Customizable Workspace Tabs**: Toggle visibility of advanced tabs (Knowledge Governance, Document Builder, Query Memory, Schema Extractor, and Local Cache) via simple checkboxes in Settings.
+- **Customizable Workspace Tabs**: Toggle visibility of advanced tabs (Knowledge Graph, Knowledge Governance, Document Builder, Query Memory, Schema Extractor, and Local Cache) via simple checkboxes in Settings.
 - **Interactive About Modal**: Comprehensive project briefing modal displaying the SESAR Deployment Manager badge, platform mission, and technological architecture.
 - **Interactive Document Viewer & Stepper**: Sequential document navigation with emerald highlighting for exact referenced matches and amber highlighting for incidental matches.
-
 ---
 
 ## Detailed Capabilities
@@ -178,6 +190,36 @@ AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Ru
 - **Corpus Auditing & Deactivation**: Monitor active vs. deactivated documents across all origins, review recent governance actions, and deactivate obsolete acts without losing historical reference records.
 - **Cache Explorer**: Audit locally cached documents, inspect storage footprint, and view cached texts offline.
 
+### 10. Regulatory Knowledge Graph Explorer & GraphRAG (Kùzu + D3.js)
+- **Embedded Property Graph Engine**: Powered by [Kùzu](https://kuzudb.com/), structuring European and international aviation rules into typed nodes (`Document`, `Annex`, `Provision`, `Concept`, `Stakeholder`) and legal relationships (`CONTAINS_ANNEX`, `BELONGS_TO_ANNEX`, `SATISFIES`, `EXPLAINS`, `CROSS_REFERENCES`, `GOVERNS_CONCEPT`, `APPLIES_TO`, `SIMILAR_TO`).
+- **Dual-Entry Graph Discovery**:
+  - **Exact Provision Code Autocomplete**: Instant search with type-ahead provision matching and interactive dropdown navigation. Selecting any provision immediately renders its full visual graph.
+  - **HyDE Vector Anchor Search**: Converts complex natural language operational scenarios (e.g. *"minimum fuel reserves and point of safe return for isolated aerodrome operations"*) into synthesized legal anchors via local or cloud LLMs, embeds them, and discovers nearest regulatory nodes across all sources.
+- **Interactive D3 Force-Directed Subgraphs**:
+  - **Compliance Chain Graph**: Renders the complete vertical hierarchy for any focal provision — connecting the root Implementing Rule (Hard Law) to its parent Annex, downstream Acceptable Means of Compliance (AMCs), Guidance Material (GMs), governed Concepts, and responsible Stakeholders.
+  - **Blast Radius Graph**: Regulatory impact and dependency analysis visualizing all provisions citing the focal rule (upstream dependent rules) and all target rules cited by it (downstream dependencies).
+  - **Concept Ontology Subgraph**: Cross-Annex thematic topology connecting high-level concepts (e.g., Fuel Planning, SMS, FTL, Airworthiness) to governing provisions across diverse European rulebooks.
+- **Multi-Source Knowledge Federation**:
+  - **EASA Easy Access Rules**: 42 comprehensive aviation rulebooks (Air Operations, Aircrew, Aerodromes, ATM/ANS, Airworthiness, Drones/UAS).
+  - **EU Formex Aviation Acts**: Primary and secondary EU aviation legislation with EUR-Lex metadata.
+  - **FAA Title 14 CFR**: Federal Aviation Regulations with Parts 21, 25, 91, 121, 135, and 145.
+  - **SKYbrary Air Safety Knowledge**: Air safety publications with filtering across 70+ categories and sub-topics.
+  - **EUROCAE Standards**: Technical specifications and guidance documents (ED-12C, ED-78A, ED-102B, etc.) with automatic acronym interpretation.
+- **360° Node Inspector Modal & GraphRAG Dossier**:
+  - **Verbatim Text**: Full unabridged clause text with clean formatting.
+  - **Legal Hierarchy**: Upstream hard law provisions and parent annexes.
+  - **Downstream Soft Law**: Interactive lists of associated AMCs and GMs.
+  - **Dependencies & Citations**: Direct links to cited and citing provisions.
+  - **Semantic Parallels (`SIMILAR_TO`)**: Cosine similarity matches surfacing parallel requirements across other regulatory domains.
+  - **GraphRAG Markdown Context**: Automatically generated synthesis package ready to copy or inject directly into LLM prompts for grounded compliance reasoning.
+- **Compliance Path Finding**: Computes and renders the shortest citation path between any two regulatory provisions in the graph.
+
+### 11. User Document Intelligence & Multimodal Diagram Extraction
+- **Multi-Format Upload Analysis**: Ingests user PDFs, Word documents, text files, and XML packages with content hashing (SHA-256) and automated format classification.
+- **Page-Level Diagram & Table Detection**: Scans uploaded PDFs (`ingestion/user_docs/detector.py`) to detect visual elements, system architectures, wiring diagrams, flowcharts, and technical tables.
+- **Gemini Vision HyDE Graphical Summaries**: Employs multimodal vision models to generate structured textual descriptions of detected diagrams, ensuring diagrams are fully indexed and retrievable via semantic vector search.
+- **Executive Duplicate & Update Resolution**: Compares uploaded documents against existing corpus holdings to detect exact duplicates or newer revisions, offering one-click executive actions to **supersede** older editions, **suppress** conflicting drafts, or retain side-by-side versions.
+
 ---
 
 ## Architecture Overview
@@ -185,24 +227,23 @@ AeroLex EU unifies global civil aviation legal frameworks: **EASA Easy Access Ru
 ```
                       ┌───────────────────────────────────────┐
                       │        React + Vite Frontend          │
-                      │  (TailwindCSS, Lucide, idb-keyval)    │
+                      │  (TailwindCSS, D3.js, Lucide, idb)    │
                       └──────────────────┬────────────────────┘
                                          │ REST API
                                          ▼
                       ┌───────────────────────────────────────┐
                       │            FastAPI Backend            │
-                      │  (/search, /research, /regulations)   │
+                      │  (/graph, /search, /research, /upload)│
                       └────────┬───────────────────┬──────────┘
                                │                   │
-                ┌──────────────▼──────────┐   ┌────▼─────────────────┐
-                │ SQLite Chunks & FTS5    │   │ Local LLM (LM Studio)│
-                │ (WAL Mode, BM25 Index)  │   │ or Google Gemini API │
-                └──────────────┬──────────┘   └──────────────────────┘
-                               │
-                ┌──────────────▼──────────┐
-                │ FAISS Dense Vector DB   │
-                │ (Semantic Embeddings)   │
-                └─────────────────────────┘
+         ┌─────────────────────▼────────┐     ┌────▼─────────────────┐
+         │     Multi-Stage Engines      │     │   Inference Engine   │
+         │ • Kùzu Graph Engine          │     │ • Local LM Studio /  │
+         │   (Nodes, Edges, HyDE)       │     │   Ollama (Offline)   │
+         │ • SQLite FTS5 (BM25 Index)   │     │ • Google Gemini Cloud│
+         │ • FAISS Dense Vector DB      │     │   (Flash & Vision)   │
+         │ • Document & Diagram Parser  │     └──────────────────────┘
+         └──────────────────────────────┘
 ```
 
 ---
@@ -285,6 +326,25 @@ npm run dev
 ---
 
 ## API Reference
+
+### `REGULATORY KNOWLEDGE GRAPH & GRAPHRAG` Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/graph/stats` | Retrieve graph statistics (total documents, annexes, provisions, concepts, stakeholders, and relationship counts). |
+| `GET` | `/graph/sources` | Fetch the multi-source federated catalog (EASA, EU, FAA, SKYbrary, EUROCAE) and Skybrary sub-topic filters. |
+| `GET` | `/graph/search` | Search across the EASA knowledge graph and federated sources with multi-source filtering and Skybrary topic filters. |
+| `GET` | `/graph/hyde` | Hypothetical Document Embeddings (HyDE) discovery: synthesizes hypothetical legal anchors and finds nearest provisions. |
+| `GET` | `/graph/chain` | Retrieve complete compliance chain subgraph for a provision in D3 force-directed format (`nodes` & `links`). |
+| `GET` | `/graph/blast` | Retrieve regulatory blast radius dependency graph for a provision in D3 format (citing rules & cited targets). |
+| `GET` | `/graph/concept` | Retrieve cross-annex concept ontology subgraph in D3 format for a concept name (e.g. `Fuel`, `SMS`, `FTL`). |
+| `GET` | `/graph/node` | Deep 360° inspection of any provision, annex, concept, or stakeholder with full text and GraphRAG markdown context. |
+| `GET` | `/graph/path` | Discover shortest citation path connecting two provisions in the knowledge graph. |
+
+### `DOCUMENT UPLOAD & DIAGRAM EXTRACTION` Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/documents/analyze` | Multi-format upload analysis (PDF, Word, XML) with diagram/table detection and duplicate comparison. |
+| `POST` | `/documents/confirm-ingest` | Confirm ingestion with executive actions (`none`, `supersede`, `suppress`) and Gemini Vision diagram summarization. |
 
 ### `CONSULTATION & STAKEHOLDER INTELLIGENCE` Endpoints
 | Method | Endpoint | Description |
@@ -370,7 +430,11 @@ python ingestion/retrieval/hybrid_search.py "ADS-B surveillance avionics" --top_
 python -m ingestion.parsers.faa_parser ingestion/data/regulations_xml/CFR-2025-title14-vol1.xml
 python -m ingestion.parsers.faa_chunker
 
-# 5. Generate Vector Embeddings for Chunks (Supports Local LM Studio & OpenAI)
+# 5. Build and Populate the Kùzu Regulatory Knowledge Graph
+python -m ingestion.graph.builder
+python -m ingestion.graph.similarity
+
+# 6. Generate Vector Embeddings for Chunks (Supports Local LM Studio & OpenAI)
 python -m ingestion.retrieval.embed_chunks
 ```
 
@@ -382,16 +446,18 @@ python -m ingestion.retrieval.embed_chunks
 .
 ├── api/                             # FastAPI application & endpoints
 │   ├── main.py                      # Application entrypoint & route registration
+│   ├── graph.py                     # Regulatory Knowledge Graph Explorer & GraphRAG router
+│   ├── upload.py                    # Multi-format user document upload and diagram extraction
 │   ├── consultation.py              # Consultation session lifecycle, spider mapping & CSV parsing
 │   ├── regulations.py               # Regulations catalog, governance, manual builder & workspace FTS
 │   ├── research.py                  # Deep research engine with surrounding context sequence expansion
-│   ├── upload.py                    # Multi-format user document upload and extraction
 │   └── utils.py                     # LLM call wrappers (LM Studio & Gemini) & database pool
 ├── frontend/                        # React 18 + Vite frontend
 │   ├── public/
 │   │   └── sesar_logo.png           # SESAR Deployment Manager badge asset
 │   ├── src/
 │   │   ├── components/
+│   │   │   ├── KnowledgeGraphExplorer.tsx # Kùzu D3 force-directed graph UI & 360° Node Inspector
 │   │   │   ├── AboutModal.tsx       # SESAR Deployment Manager mission & architectural briefing modal
 │   │   │   ├── AskAssistant.tsx     # Context-aware regulatory chat
 │   │   │   ├── ConsultationWorkspace.tsx # Stakeholder consultation synthesis & Direction of Travel
@@ -407,10 +473,23 @@ python -m ingestion.retrieval.embed_chunks
 │   │   │   ├── TopBar.tsx           # Navigation header, tab switcher, theme toggle & About trigger
 │   │   │   ├── SettingsModal.tsx    # Connection settings, tab visibility toggles & theme preferences
 │   │   │   └── ErrorBoundary.tsx    # Crash protection & recovery boundary
-│   │   ├── services/apiClient.ts    # Typed API client & IndexedDB cache manager
+│   │   ├── services/
+│   │   │   ├── apiClient.ts         # Typed API client & IndexedDB cache manager
+│   │   │   └── graphService.ts      # Dedicated Knowledge Graph API service & D3 payload adapter
 │   │   ├── types.ts                 # TypeScript type definitions
 │   │   └── App.tsx                  # Root navigation & state orchestration
 ├── ingestion/                       # Ingestion pipeline & retrieval engines
+│   ├── graph/                       # Regulatory Knowledge Graph pipeline (Kùzu DB)
+│   │   ├── schema.py                # Graph schema (Documents, Annexes, Provisions, Concepts, Edges)
+│   │   ├── builder.py               # EASA Easy Access XML graph builder & CSV bulk copier
+│   │   ├── traversal.py             # Kùzu graph query engine (Chains, Blast Radius, Ontologies, Node 360°)
+│   │   ├── hyde.py                  # HyDE dense vector anchor search engine
+│   │   ├── sources.py               # Federated multi-source catalog manager (EU, FAA, SKYbrary, EUROCAE)
+│   │   └── similarity.py            # Cosine semantic parallel (SIMILAR_TO) edge generator
+│   ├── user_docs/                   # User document ingestion & diagram analysis
+│   │   ├── detector.py              # PDF page-level diagram, table, and graphic detector
+│   │   ├── extractor.py             # Multimodal text and Gemini Vision diagram extractor
+│   │   └── ingest.py                # Staging, executive duplicate comparison & DB committer
 │   ├── consultation/                # Consultation metrics, sentiment analysis & spider mapping
 │   ├── parsers/                     # EASA XML, EU Formex XML, and FAA 14 CFR XML parsers
 │   ├── chunkers/                    # Semantic, section-based, and FAA legal chunkers
@@ -420,7 +499,6 @@ python -m ingestion.retrieval.embed_chunks
 ├── api_description.md               # API integration workflows & developer guide
 ├── start.py                         # Unified orchestration CLI for ingestion and API
 └── README.md                        # Project documentation
-```
 
 ---
 

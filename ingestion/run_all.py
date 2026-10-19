@@ -23,6 +23,8 @@ def main():
     parser.add_argument("--icao_dir", type=str, default=str(_project_root / "ICAO" / "import_pdfs"), help="Directory containing ICAO PDF documents")
     parser.add_argument("--ingest_eurocae", action="store_true", help="Run the EUROCAE and European standards ingestion pipeline")
     parser.add_argument("--eurocae_dir", type=str, default=str(_project_root / "ingestion" / "EUROCAE"), help="Directory containing EUROCAE standards CSVs")
+    parser.add_argument("--skip_graph", action="store_true", help="Skip the Knowledge Graph pipeline step")
+    parser.add_argument("--rebuild_graph", action="store_true", help="Force a clean rebuild of the Knowledge Graph from scratch")
     args = parser.parse_args()
 
     # Pre-flight checks and counting
@@ -144,6 +146,21 @@ def main():
     
     cmd_rebuild_fts = [sys.executable, "-m", "ingestion.retrieval.rebuild_fts"]
     subprocess.run(cmd_rebuild_fts, check=False)
+    
+    # 7. Regulatory Knowledge Graph Pipeline
+    if not args.skip_graph:
+        print("\n" + "="*80)
+        print("7. REGULATORY KNOWLEDGE GRAPH PIPELINE")
+        print("="*80)
+        if args.rebuild_graph or not settings.KUZU_DB_PATH.exists():
+            print("Building Knowledge Graph and computing semantic similarities...")
+            cmd_build_graph = [sys.executable, "-m", "ingestion.graph.builder"]
+            subprocess.run(cmd_build_graph, check=False)
+            cmd_sim = [sys.executable, "-m", "ingestion.graph.similarity"]
+            subprocess.run(cmd_sim, check=False)
+        else:
+            print(f"Knowledge Graph database already exists at {settings.KUZU_DB_PATH}.")
+            print("To re-ingest and recompute similarities, use flag: --rebuild_graph")
     
     print("\n" + "="*80)
     print("ALL PIPELINES COMPLETED SUCCESSFULLY")

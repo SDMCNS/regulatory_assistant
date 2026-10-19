@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     VECTOR_INDEX_DIR: Path = DATA_DIR / "embeddings"
     LOGS_DIR: Path = BASE_DIR / "logs"
 
+    # Knowledge Graph Paths
+    GRAPH_DIR: Path = DATA_DIR / "graph"
+    KUZU_DB_PATH: Path = DATA_DIR / "graph" / "kuzu_db" / "easa.kuzu"
+    GRAPH_CACHE_DIR: Path = DATA_DIR / "graph" / "cache"
+
     # LM Studio Local API Config
     LM_STUDIO_BASE_URL: str = "http://localhost:1234/v1"
     LLM_MODEL_NAME: str = "google/gemma-4-e4b"

@@ -19,6 +19,7 @@ import { DocumentBuilder } from './components/DocumentBuilder';
 import { NotesTab } from './components/NotesTab';
 import { KnowledgeGovernance } from './components/KnowledgeGovernance';
 import { ConsultationWorkspace } from './components/ConsultationWorkspace';
+import { KnowledgeGraphExplorer } from './components/KnowledgeGraphExplorer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AppSettings, ConnectionStatus, SearchDocResponse, DocSection, SearchResponse, KeywordSearchResponse } from './types';
 import { DEFAULT_SETTINGS, loadSettings, pingFastApi, saveSettings } from './services/apiClient';
@@ -255,6 +256,21 @@ export default function App() {
               }
             }}
           />
+        )}
+
+        {activeTab === 'graph' && (
+          <ErrorBoundary fallbackTitle="Regulatory Knowledge Graph Explorer Error">
+            <KnowledgeGraphExplorer
+              apiUrl={settings.apiUrl}
+              onViewDoc={(doc) => setSelectedDoc(doc)}
+              onSendToAssistant={(prompt, chunkIds) => {
+                if (chunkIds && chunkIds.length > 0) {
+                  setTargetedChunks(chunkIds);
+                }
+                setActiveTab('assistant');
+              }}
+            />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'research' && (

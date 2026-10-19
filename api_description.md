@@ -79,9 +79,54 @@ This API provides a semantic search and LLM (Large Language Model) querying inte
      - `sort_by`: `relevance` or `date`.
    - Returns enriched items with source text, page numbers, direct PDF download links (`pdf_url`), and online article links (`summary_url`).
 
+### KNOWLEDGE GRAPH & GRAPHRAG Operations
+11. **Regulatory Knowledge Graph Explorer (`/graph/...`)**
+    Provides high-performance graph database traversal and GraphRAG context generation powered by Kùzu:
+    - `GET /graph/stats`: Returns node and edge counts across the knowledge graph (documents, annexes, provisions, concepts, stakeholders, and legal relationship types).
+    - `GET /graph/sources`: Returns the multi-source federated catalog (EASA, EU, FAA, SKYbrary, EUROCAE) and the full taxonomy of Skybrary sub-topics for selective filtering.
+    - `GET /graph/search`: High-speed autocomplete and keyword search across the knowledge graph and federated sources:
+      - `q`: Search term, clause code, or keyword.
+      - `sources`: Comma-separated list of active sources (`EASA`, `EU`, `FAA`, `SKYBRARY`, `EUROCAE`).
+      - `skybrary_topics`: Comma-separated list of selected Skybrary sub-topics.
+    - `GET /graph/hyde`: Hypothetical Document Embeddings (HyDE) vector discovery. Translates natural language operational queries into synthetic regulatory anchors, embeds them, and discovers nearest regulatory nodes across all federated sources:
+      - `q`: Natural language scenario or regulatory query.
+      - `sources`: Comma-separated list of active sources.
+      - `skybrary_topics`: Comma-separated sub-topic filters.
+      - `top_k`: Maximum candidate provisions to return (default: `12`).
+    - `GET /graph/chain`: Generates a compliance chain subgraph in D3 force-directed format (`nodes` and `links`):
+      - `code`: Provision code (e.g. `CAT.OP.MPA.180`, `ORO.GEN.200`).
+      - Returns visual hierarchy connecting the anchor Implementing Rule to its parent Annex, downstream AMCs, GMs, governed Concepts, and Stakeholders.
+    - `GET /graph/blast`: Generates a blast radius dependency subgraph in D3 force-directed format:
+      - `code`: Target provision code.
+      - Visualizes all rules citing this provision (upstream impact) and all rules cited by it (downstream dependencies).
+    - `GET /graph/concept`: Generates a concept ontology subgraph in D3 force-directed format:
+      - `name`: Aviation concept name or substring (e.g. `Fuel`, `SMS`, `FTL`, `Airworthiness`).
+      - Connects the concept to governing provisions across all regulatory annexes.
+    - `GET /graph/node`: Comprehensive 360° inspection of any provision, annex, concept, or stakeholder:
+      - `id` or `code`: Node identifier or provision code.
+      - Returns verbatim text, legal hierarchy, downstream soft law (AMCs/GMs), cross-references, semantic parallels (`SIMILAR_TO`), and ready-to-prompt GraphRAG markdown context.
+    - `GET /graph/path`: Computes and renders the shortest compliance citation path connecting two provisions in the knowledge graph:
+      - `start`: Origin provision code.
+      - `end`: Destination provision code.
+
+### USER DOCUMENT UPLOAD & DIAGRAM EXTRACTION Operations
+12. **User Document Ingestion Pipeline (`/documents/...`)**
+    Supports multi-format document analysis, multimodal diagram extraction, and executive lifecycle management:
+    - `POST /documents/analyze`:
+      - Uploads a user PDF, Word document, text file, or XML package.
+      - Performs automated format detection (`EU_FORMEX_XML`, `EASA_XML`, `FAA_CFR_XML`, or `USER_SKYBRARY`).
+      - Detects page-level diagrams and tables (`ingestion/user_docs/detector.py`).
+      - Computes content SHA-256 hash and compares against existing corpus documents to spot duplicates or newer editions.
+      - Returns analysis results, detected diagrams, matches, and suggested executive action (`none`, `supersede`, `suppress`).
+    - `POST /documents/confirm-ingest`:
+      - Confirms ingestion of the staged document into SQLite chunks, FAISS vector embeddings, and FTS5 index.
+      - Executes executive resolution (`supersede` deactivates older editions; `suppress` marks conflicting drafts as inactive; `none` keeps both).
+      - Integrates with Gemini Vision for automated HyDE graphical summarization of detected diagrams.
+
 ## Integration Note
 An OpenAPI 3.1 schema is provided alongside this document (`api_schema.json`), which can be directly imported into Google AI Studio, Postman, or used to automatically generate client-side TypeScript/JavaScript SDKs for your Single Page App.
 
 ## Setup and Data Population
 For a complete overview of ingestion pipelines for FAA, Formex, EASA, and Custom Manuals, see [setup_and_data_population.md](setup_and_data_population.md).
+
 
